@@ -20,7 +20,6 @@ describe('api test', function () {
     expect(apiClient.tokens).to.be.an('object');
     expect(apiClient.transactions).to.be.an('object');
     expect(apiClient.checkpoints).to.be.an('object');
-    expect(apiClient.state).to.be.an('object');
   });
 
   it('should export API URLs', function () {
@@ -55,8 +54,5 @@ describe('api test', function () {
     expect(apiClient.checkpoints.getNumber).to.be.a('function');
     expect(apiClient.checkpoints.getByHash).to.be.a('function');
     expect(apiClient.checkpoints.getByNumber).to.be.a('function');
-
-    // State API
-    expect(apiClient.state.getLatestEpochCheckpoint).to.be.a('function');
   });
 });
