@@ -21,7 +21,6 @@ export interface EstimateFee {
 
 // Payment transaction payload
 export interface PaymentPayload {
-  recent_epoch: number;
   recent_checkpoint: number;
   chain_id: number;
   nonce: number;
