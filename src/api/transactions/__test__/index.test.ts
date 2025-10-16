@@ -6,7 +6,7 @@ import { CHAIN_IDS } from '../../constants';
 import { signMessage, safePromiseAll, safePromiseLine } from '../../../utils';
 import { transactionsApi } from '../';
 import { accountsApi } from '../../accounts';
-import { stateApi } from '../../state';
+import { checkpointsApi } from '../../checkpoints';
 import 'dotenv/config';
 
 import type { ZeroXString } from '../../../utils';
@@ -19,7 +19,7 @@ declare global {
     getReceiptByHash: typeof transactionsApi.getReceiptByHash;
     estimateFee: typeof transactionsApi.estimateFee;
     payment: typeof transactionsApi.payment;
-    getLatestEpochCheckpoint: typeof stateApi.getLatestEpochCheckpoint;
+    getNumber: typeof checkpointsApi.getNumber;
   }
 }
 
@@ -52,7 +52,7 @@ describe('transactions API test', function () {
           pageOne.exposeFunction('getReceiptByHash', apiClient.transactions.getReceiptByHash),
           pageOne.exposeFunction('estimateFee', apiClient.transactions.estimateFee),
           pageOne.exposeFunction('payment', apiClient.transactions.payment),
-          pageOne.exposeFunction('getLatestEpochCheckpoint', apiClient.state.getLatestEpochCheckpoint),
+          pageOne.exposeFunction('getNumber', apiClient.checkpoints.getNumber),
         ])
       });
     });
@@ -182,14 +182,11 @@ describe('transactions API test', function () {
       safePromiseLine([
         () => RUN_ENV === 'local' ? pageOne.evaluate(async (params) => {
           const { operatorAddress, testPK, chainId, testAddress, tokenValue, issuedToken } = params;
-          const [epochData, { nonce }] = await safePromiseAll([
-            window.getLatestEpochCheckpoint(),
+          const [{ number: recentCheckpoint }, { nonce }] = await safePromiseAll([
+            window.getNumber(),
             window.getNonce(testAddress)
           ])
-          const recentEpoch = epochData.epoch;
-          const recentCheckpoint = epochData.checkpoint
           const payload = [
-            recentEpoch,
             recentCheckpoint,
             chainId,
             nonce,
@@ -200,7 +197,6 @@ describe('transactions API test', function () {
           const signature = await window.signMessage(payload, testPK)
           if (!signature) return done(new Error('Failed to sign message'));
           const response = await window.payment({
-            recent_epoch: recentEpoch,
             recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
@@ -222,17 +218,15 @@ describe('transactions API test', function () {
           expect(response.token).to.be.a('string');
         }) : Promise.resolve(),
         () => safePromiseAll([
-          apiClient.state.getLatestEpochCheckpoint()
+          apiClient.checkpoints.getNumber()
             .success(res => res)
             .rest(err => { throw (err?.data ?? err.message ?? err) }),
           apiClient.accounts.getNonce(testAddress)
             .success(res => res)
             .rest(err => { throw (err?.data ?? err.message ?? err) })
-        ]).then(async ([epochData, { nonce }]) => {
-          const recentEpoch = epochData.epoch;
-          const recentCheckpoint = epochData.checkpoint;
+        ]).then(async ([checkpointResponse, { nonce }]) => {
+          const recentCheckpoint = checkpointResponse.number;
           const payload = [
-            recentEpoch,
             recentCheckpoint,
             chainId,
             nonce,
@@ -243,7 +237,6 @@ describe('transactions API test', function () {
           const signature = await signMessage(payload, testPK)
           if (!signature) return done(new Error('Failed to sign message'));
           apiClient.transactions.payment({
-            recent_epoch: recentEpoch,
             recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
