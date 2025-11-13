@@ -13,3 +13,5 @@ dist
 dist.zip
 
 *.log
+
+package-lock.json
