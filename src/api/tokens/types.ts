@@ -1,5 +1,5 @@
 // Types for tokens API
-import { AddressSchema, TokenAddressSchema, U256Schema } from '../types';
+import { AddressSchema, U256Schema } from '../types';
 
 import type { Signature } from '@/utils';
 
@@ -33,6 +33,7 @@ export interface MintInfo {
   black_list: AddressSchema[];
   white_list: AddressSchema[];
   metadata_update_authorities: AddressSchema[];
+  bridge_mint_authorities: AddressSchema[];
   supply: U256Schema;
   decimals: number;
   is_paused: boolean;
@@ -48,11 +49,12 @@ export interface KeyValuePair {
 
 // Authority types
 export enum AuthorityType {
-  MasterMint = 'MasterMint',
+  MasterMint = 'MasterMintBurn',
   MintBurnTokens = 'MintBurnTokens',
   Pause = 'Pause',
   ManageList = 'ManageList',
-  UpdateMetadata = 'UpdateMetadata'
+  UpdateMetadata = 'UpdateMetadata',
+  Bridge = 'Bridge'
 }
 
 export enum AuthorityAction {
@@ -144,5 +146,32 @@ export interface TokenMetadataPayload {
   uri: string;
   token: string;
   additional_metadata: KeyValuePair[];
+  signature: RestSignature;
+}
+
+export interface TokenBridgeAndMintPayload {
+  bridge_metadata: string;
+  chain_id: number;
+  nonce: number;
+  recent_checkpoint: number;
+  recipient: string;
+  source_chain_id: number;
+  source_tx_hash: string;
+  token: string;
+  value: string;
+  signature: RestSignature;
+}
+
+export interface TokenBurnAndBridgePayload {
+  bridge_metadata: string;
+  chain_id: number;
+  destination_address: string;
+  destination_chain_id: number;
+  escrow_fee: string;
+  nonce: number;
+  recent_checkpoint: number;
+  sender: string;
+  token: string;
+  value: string;
   signature: RestSignature;
 }

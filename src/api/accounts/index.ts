@@ -1,7 +1,7 @@
-import { get } from '@/client';
 import { API_VERSION } from '@/api/constants';
+import { get } from '@/client';
 
-import type { AccountInfo, AssociatedTokenAccount } from './types';
+import type { AccountInfo, AssociatedTokenAccount, BbNonceInfo } from './types';
 
 
 const API_PREFIX = `/${API_VERSION}/accounts`;
@@ -17,6 +17,15 @@ export const accountsApi = {
    */
   getNonce: (address: string) => {
     return get<'custom', AccountInfo>(`${API_PREFIX}/nonce?address=${address}`, { withCredentials: false });
+  },
+
+  /**
+   * Get account bbnonce
+   * @param address Address of the account to lookup nonce for
+   * @returns Promise with bbnonce info response
+   */
+  getBbNonce: (address: string) => {
+    return get<'custom', BbNonceInfo>(`${API_PREFIX}/bbnonce?address=${address}`, { withCredentials: false });
   },
 
   /**

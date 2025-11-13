@@ -1,7 +1,7 @@
-import { get } from '@/client';
 import { API_VERSION } from '@/api/constants';
+import { get } from '@/client';
 
-import type { CheckpointNumberResponse, Checkpoint } from './types';
+import type { Checkpoint, CheckpointNumberResponse, CheckpointReceipts } from './types';
 
 const API_PREFIX = `/${API_VERSION}/checkpoints`;
 
@@ -35,6 +35,15 @@ export const checkpointsApi = {
    */
   getByNumber: (number: number | string, full = false) => {
     return get<'custom', Checkpoint>(`${API_PREFIX}/by_number?number=${number}&full=${full}`, { withCredentials: false });
+  },
+
+  /**
+   * Get checkpoint receipts by number
+   * @param number Number of the checkpoint to lookup
+   * @returns Promise with checkpoint receipts response
+   */
+  getReceiptsByNumber: (number: number | string) => {
+    return get<'custom', CheckpointReceipts>(`${API_PREFIX}/receipts/by_number?number=${number}`, { withCredentials: false });
   }
 };
 

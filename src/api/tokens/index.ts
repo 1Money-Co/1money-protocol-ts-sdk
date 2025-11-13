@@ -11,6 +11,8 @@ import type {
   TokenMintPayload,
   TokenPausePayload,
   TokenMetadataPayload,
+  TokenBridgeAndMintPayload,
+  TokenBurnAndBridgePayload,
 } from './types';
 
 const API_PREFIX = `/${API_VERSION}/tokens`;
@@ -98,6 +100,24 @@ export const tokensApi = {
    */
   updateMetadata: (payload: TokenMetadataPayload) => {
     return post<'custom', Hash>(`${API_PREFIX}/update_metadata`, payload, { withCredentials: false });
+  },
+
+  /**
+   * Bridge and mint tokens
+   * @param payload Token bridge and mint request payload
+   * @returns Promise with transaction hash response
+   */
+  bridgeAndMint: (payload: TokenBridgeAndMintPayload) => {
+    return post<'custom', Hash>(`${API_PREFIX}/bridge_and_mint`, payload, { withCredentials: false });
+  },
+
+  /**
+   * Burn and bridge tokens
+   * @param payload Token burn and bridge request payload
+   * @returns Promise with transaction hash response
+   */
+  burnAndBridge: (payload: TokenBurnAndBridgePayload) => {
+    return post<'custom', Hash>(`${API_PREFIX}/burn_and_bridge`, payload, { withCredentials: false });
   }
 };
 

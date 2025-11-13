@@ -1,12 +1,12 @@
-import { get, post } from '@/client';
 import { API_VERSION } from '@/api/constants';
+import { get, post } from '@/client';
 
 import type { Hash } from '@/api/types';
-import type { Transaction } from '@/api/checkpoints/types';
 import type {
-  TransactionReceipt,
   EstimateFee,
-  PaymentPayload
+  PaymentPayload,
+  Transaction,
+  TransactionReceipt
 } from './types';
 
 const API_PREFIX = `/${API_VERSION}/transactions`;
