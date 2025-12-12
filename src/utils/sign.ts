@@ -27,7 +27,7 @@ export function encodePayload(payload: Payload) {
         if (/^0x[0-9a-fA-F]+$/.test(v as string)) {
           // hex-encoded data → raw bytes
           return hexToBytes(v as ZeroXString);
-        } else if (!isNaN(+(v as string))) {
+        } else if (/^\d+$/.test(v as string)) {
           // number-like string → hex → bytes
           // Use BigInt for large numbers to avoid overflow
           return v === '0' ? new Uint8Array([]) : hexToBytes(numberToHex(BigInt(v as string)));
@@ -90,7 +90,8 @@ export function toHex(value: any): ZeroXString {
       case 'bigint':
         return numberToHex(value as number | bigint);
       case 'string':
-        if (!isNaN(+value)) {
+        // Only accept valid integer strings (no decimals, no whitespace, no empty)
+        if (/^-?\d+$/.test(value as string)) {
           // Use BigInt for potentially large numbers to avoid overflow
           try {
             return numberToHex(BigInt(value as string));
