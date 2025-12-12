@@ -1,5 +1,5 @@
 // Types for tokens API
-import { AddressSchema, TokenAddressSchema, U256Schema } from '../types';
+import { AddressSchema, U256Schema } from '../types';
 
 import type { Signature } from '@/utils';
 
@@ -33,6 +33,7 @@ export interface MintInfo {
   black_list: AddressSchema[];
   white_list: AddressSchema[];
   metadata_update_authorities: AddressSchema[];
+  bridge_mint_authorities: AddressSchema[];
   supply: U256Schema;
   decimals: number;
   is_paused: boolean;
@@ -48,11 +49,12 @@ export interface KeyValuePair {
 
 // Authority types
 export enum AuthorityType {
-  MasterMint = 'MasterMint',
+  MasterMint = 'MasterMintBurn',
   MintBurnTokens = 'MintBurnTokens',
   Pause = 'Pause',
   ManageList = 'ManageList',
-  UpdateMetadata = 'UpdateMetadata'
+  UpdateMetadata = 'UpdateMetadata',
+  Bridge = 'Bridge'
 }
 
 export enum AuthorityAction {
@@ -74,7 +76,6 @@ export enum PauseAction {
 export interface RestSignature extends Signature {}
 
 export interface TokenManageListPayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   action: ManageListAction;
@@ -84,7 +85,6 @@ export interface TokenManageListPayload {
 }
 
 export interface TokenBurnPayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   recipient: string;
@@ -94,7 +94,6 @@ export interface TokenBurnPayload {
 }
 
 export interface TokenAuthorityPayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   action: AuthorityAction;
@@ -106,7 +105,6 @@ export interface TokenAuthorityPayload {
 }
 
 export interface TokenIssuePayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   symbol: string;
@@ -118,7 +116,6 @@ export interface TokenIssuePayload {
 }
 
 export interface TokenMintPayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   recipient: string;
@@ -128,7 +125,6 @@ export interface TokenMintPayload {
 }
 
 export interface TokenPausePayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   action: PauseAction;
@@ -137,12 +133,36 @@ export interface TokenPausePayload {
 }
 
 export interface TokenMetadataPayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   name: string;
   uri: string;
   token: string;
   additional_metadata: KeyValuePair[];
+  signature: RestSignature;
+}
+
+export interface TokenBridgeAndMintPayload {
+  chain_id: number;
+  nonce: number;
+  recipient: string;
+  value: string;
+  token: string;
+  source_chain_id: number;
+  source_tx_hash: string;
+  bridge_metadata: string;
+  signature: RestSignature;
+}
+
+export interface TokenBurnAndBridgePayload {
+  bridge_metadata: string;
+  chain_id: number;
+  destination_address: string;
+  destination_chain_id: number;
+  escrow_fee: string;
+  nonce: number;
+  sender: string;
+  token: string;
+  value: string;
   signature: RestSignature;
 }

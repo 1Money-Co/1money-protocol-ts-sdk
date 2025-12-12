@@ -1,28 +1,14 @@
 // Types for checkpoint API
-import { B256Schema, AddressSchema } from '../types';
+import { B256Schema } from '../types';
+import type { Transaction, TransactionReceipt } from '../transactions/types';
 
 // Response type for checkpoint number endpoint
 export interface CheckpointNumberResponse {
   number: number;
 }
 
-// Transaction type for checkpoint responses
-export interface Transaction {
-  hash: B256Schema;
-  chain_id: number;
-  from: AddressSchema;
-  nonce: number;
-  fee: number;
-  signature: {
-    r: string;
-    s: string;
-    v: number;
-  };
-  checkpoint_hash?: B256Schema;
-  checkpoint_number?: number;
-  transaction_index?: number;
-  // Additional transaction payload fields would be here
-}
+// Re-export Transaction type for backward compatibility
+export type { Transaction };
 
 // Header type for checkpoint responses
 export interface Header {
@@ -41,3 +27,6 @@ export interface Checkpoint extends Header {
   size?: number;
   transactions: Transaction[] | B256Schema[];
 }
+
+// Checkpoint receipts type
+export type CheckpointReceipts = TransactionReceipt[];

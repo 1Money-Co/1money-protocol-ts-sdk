@@ -182,12 +182,11 @@ describe('transactions API test', function () {
       safePromiseLine([
         () => RUN_ENV === 'local' ? pageOne.evaluate(async (params) => {
           const { operatorAddress, testPK, chainId, testAddress, tokenValue, issuedToken } = params;
-          const [{ number: recentCheckpoint }, { nonce }] = await safePromiseAll([
+          const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(testAddress)
           ])
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             operatorAddress,
@@ -197,7 +196,6 @@ describe('transactions API test', function () {
           const signature = await window.signMessage(payload, testPK)
           if (!signature) return done(new Error('Failed to sign message'));
           const response = await window.payment({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             recipient: operatorAddress,
@@ -225,9 +223,7 @@ describe('transactions API test', function () {
             .success(res => res)
             .rest(err => { throw (err?.data ?? err.message ?? err) })
         ]).then(async ([checkpointResponse, { nonce }]) => {
-          const recentCheckpoint = checkpointResponse.number;
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             operatorAddress,
@@ -237,7 +233,6 @@ describe('transactions API test', function () {
           const signature = await signMessage(payload, testPK)
           if (!signature) return done(new Error('Failed to sign message'));
           apiClient.transactions.payment({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             recipient: operatorAddress,

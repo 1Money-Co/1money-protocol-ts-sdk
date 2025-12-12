@@ -152,12 +152,11 @@ describe('tokens API test', function () {
       safePromiseLine([
         () => pageOne.evaluate(async (params) => {
           const { operatorAddress, operatorPK, action, chainId, testAddress, issuedToken } = params;
-          const [{ number: recentCheckpoint }, { nonce }] = await safePromiseAll([
+          const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
           ]);
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             action,
@@ -167,7 +166,6 @@ describe('tokens API test', function () {
           const signature = await window.signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           const response = await window.manageWhitelist({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             action,
@@ -195,10 +193,8 @@ describe('tokens API test', function () {
             .rest(err => { throw (err?.data ?? err.message ?? err) }),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
           const nonce = nonceResponse.nonce;
-          const recentCheckpoint = checkpointResponse.number;
           const action = ManageListAction.Add;
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             action,
@@ -208,7 +204,6 @@ describe('tokens API test', function () {
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           apiClient.tokens.manageBlacklist({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             action,
@@ -229,14 +224,13 @@ describe('tokens API test', function () {
       safePromiseLine([
         () => RUN_ENV === 'local' ? pageOne.evaluate(async (params) => {
           const { operatorAddress, operatorPK, chainId, testAddress, issuedToken } = params;
-          const [{ number: recentCheckpoint }, { nonce }] = await safePromiseAll([
+          const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
           ]);
 
           const burnValue = '10';
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             testAddress,
@@ -246,7 +240,6 @@ describe('tokens API test', function () {
           const signature = await window.signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           const response = await window.burnToken({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             recipient: testAddress,
@@ -274,10 +267,8 @@ describe('tokens API test', function () {
             .rest(err => { throw (err?.data ?? err.message ?? err) }),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
           const nonce = nonceResponse.nonce;
-          const recentCheckpoint = checkpointResponse.checkpoint;
           const burnValue = '10';
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             operatorAddress,
@@ -287,7 +278,6 @@ describe('tokens API test', function () {
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           apiClient.tokens.burnToken({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             recipient: operatorAddress,
@@ -314,13 +304,12 @@ describe('tokens API test', function () {
       safePromiseLine([
         () => pageOne.evaluate(async (params) => {
           const { action, authorityType, operatorAddress, operatorPK, chainId, testAddress, issuedToken } = params;
-          const [{ number: recentCheckpoint }, { nonce }] = await safePromiseAll([
+          const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
           ]);
           const tokenValue = '15000';
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             action,
@@ -332,7 +321,6 @@ describe('tokens API test', function () {
           const signature = await window.signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           const response = await window.grantAuthority({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             action,
@@ -363,10 +351,8 @@ describe('tokens API test', function () {
             .rest(err => { throw (err?.data ?? err.message ?? err) }),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
           const nonce = nonceResponse.nonce;
-          const recentCheckpoint = checkpointResponse.number;
           const tokenValue = '15000';
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             AuthorityAction.Grant,
@@ -378,7 +364,6 @@ describe('tokens API test', function () {
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           apiClient.tokens.grantAuthority({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             action: AuthorityAction.Grant,
@@ -403,7 +388,7 @@ describe('tokens API test', function () {
       safePromiseLine([
         () => pageOne.evaluate(async (params) => {
           const { operatorAddress, operatorPK, chainId } = params;
-          const [{ number: recentCheckpoint }, { nonce }] = await safePromiseAll([
+          const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
           ]);
@@ -412,7 +397,6 @@ describe('tokens API test', function () {
           const decimals = 6;
           const isPrivate = false;
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             symbol,
@@ -424,7 +408,6 @@ describe('tokens API test', function () {
           const signature = await window.signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           const response = await window.issueToken({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             symbol,
@@ -456,13 +439,11 @@ describe('tokens API test', function () {
             .rest(err => { throw (err?.data ?? err.message ?? err) })
         ]).then(async ([checkpointResponse, nonceResponse]) => {
           const nonce = nonceResponse.nonce;
-          const recentCheckpoint = checkpointResponse.number;
           const name = 'USDT 1Money';
           const symbol = 'USDT1';
           const decimals = 6;
           const isPrivate = false;
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             symbol,
@@ -474,7 +455,6 @@ describe('tokens API test', function () {
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           return apiClient.tokens.issueToken({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             symbol,
@@ -501,13 +481,12 @@ describe('tokens API test', function () {
       safePromiseLine([
         () => pageOne.evaluate(async (params) => {
           const { operatorAddress, operatorPK, chainId, testAddress, issuedToken } = params;
-          const [{ number: recentCheckpoint }, { nonce }] = await safePromiseAll([
+          const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
           ]);
           const mintValue = '100000';
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             testAddress,
@@ -517,7 +496,6 @@ describe('tokens API test', function () {
           const signature = await window.signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           const response = await window.mintToken({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             recipient: testAddress,
@@ -545,10 +523,8 @@ describe('tokens API test', function () {
             .rest(err => { throw (err?.data ?? err.message ?? err) }),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
           const nonce = nonceResponse.nonce;
-          const recentCheckpoint = checkpointResponse.number;
           const mintValue = '100000';
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             testAddress,
@@ -558,7 +534,6 @@ describe('tokens API test', function () {
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           apiClient.tokens.mintToken({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             recipient: testAddress,
@@ -582,12 +557,11 @@ describe('tokens API test', function () {
       safePromiseLine([
         () => pageOne.evaluate(async (params) => {
           const { action, operatorAddress, operatorPK, chainId, issuedToken } = params;
-          const [{ number: recentCheckpoint }, { nonce }] = await safePromiseAll([
+          const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
           ]);
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             action,
@@ -596,7 +570,6 @@ describe('tokens API test', function () {
           const signature = await window.signMessage(payload, operatorPK);
           if (!signature) return done(new Error('Failed to sign message'));
           const response = await window.pauseToken({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             action,
@@ -623,10 +596,8 @@ describe('tokens API test', function () {
             .rest(err => { throw (err?.data ?? err.message ?? err) }),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
           const nonce = nonceResponse.nonce;
-          const recentCheckpoint = checkpointResponse.number;
           const action = PauseAction.Unpause;
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             action,
@@ -635,7 +606,6 @@ describe('tokens API test', function () {
           const signature = await signMessage(payload, operatorPK);
           if (!signature) return done(new Error('Failed to sign message'));
           return apiClient.tokens.pauseToken({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             action,
@@ -658,7 +628,7 @@ describe('tokens API test', function () {
       safePromiseLine([
         () => pageOne.evaluate(async (params) => {
           const { operatorAddress, operatorPK, chainId, issuedToken } = params;
-          const [{ number: recentCheckpoint }, { nonce }] = await safePromiseAll([
+          const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
           ]);
@@ -671,7 +641,6 @@ describe('tokens API test', function () {
             }
           ];
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             name,
@@ -682,7 +651,6 @@ describe('tokens API test', function () {
           const signature = await window.signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           const response = await window.updateMetadata({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             name,
@@ -710,7 +678,6 @@ describe('tokens API test', function () {
             .rest(err => { throw (err?.data ?? err.message ?? err) }),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
           const nonce = nonceResponse.nonce;
-          const recentCheckpoint = checkpointResponse.number;
           const name = 'USDC';
           const uri = 'https://usdc.com/metadata';
           const additional_metadata = [
@@ -720,7 +687,6 @@ describe('tokens API test', function () {
             }
           ];
           const payload = [
-            recentCheckpoint,
             chainId,
             nonce,
             name,
@@ -731,7 +697,6 @@ describe('tokens API test', function () {
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
           apiClient.tokens.updateMetadata({
-            recent_checkpoint: recentCheckpoint,
             chain_id: chainId,
             nonce,
             name,

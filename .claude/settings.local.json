@@ -7,7 +7,19 @@
       "Bash(grep:*)",
       "Bash(sed:*)",
       "Bash(npm test)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run lint)",
+      "Bash(npm run test:integration:*)",
+      "Bash(node -e:*)",
+      "Bash(npm run test:integration:testnet:*)",
+      "Bash(node test-sig.mjs:*)",
+      "Bash(xargs grep -l recent_epoch|recent_checkpoint|recentEpoch|recentCheckpoint)",
+      "Bash(cat:*)",
+      "Bash(xargs grep:*)",
+      "Bash(npm run lint:es_fix:*)",
+      "Bash(node test-encoding.mjs:*)"
     ],
     "deny": []
   }

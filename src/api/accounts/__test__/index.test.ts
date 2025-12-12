@@ -1,5 +1,5 @@
-import 'mocha';
 import { expect } from 'chai';
+import 'mocha';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { accountsApi } from '../';
 import { api } from '../../';
@@ -94,14 +94,12 @@ describe('accounts API test', function () {
         return response;
       }, testAddress, testToken).then(response => {
         expect(response).to.be.an('object');
-        expect(response).to.have.property('token_account_address');
         expect(response).to.have.property('balance');
         expect(response).to.have.property('nonce');
       }) : Promise.resolve(),
       apiClient.accounts.getTokenAccount(testAddress, testToken)
         .success(response => {
           expect(response).to.be.an('object');
-          expect(response).to.have.property('token_account_address');
           expect(response).to.have.property('balance');
           expect(response).to.have.property('nonce');
         })
