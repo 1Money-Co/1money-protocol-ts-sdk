@@ -8,6 +8,13 @@
  * - RUN_INTEGRATION_TESTS: Set to 'true' to run integration tests
  */
 
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+// Load .env.integration file if it exists
+const envPath = path.resolve(process.cwd(), '.env.integration');
+dotenv.config({ path: envPath });
+
 export interface IntegrationTestConfig {
   network: 'local' | 'testnet' | 'mainnet';
   operatorKey: string;

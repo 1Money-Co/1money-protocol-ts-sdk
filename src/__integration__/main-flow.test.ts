@@ -470,15 +470,16 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const sourceTxHash = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
       const value = '25000000000000000000'; // 25 tokens
 
+      // Signature payload: only required fields in struct order
       const signaturePayload = [
-        chainId,
+        chainId,  // chain_id
         nonce,
-        accounts.user2.address,
+        accounts.user2.address,  // recipient
         value,
-        tokenAddress,
-        sourceChainId,
-        sourceTxHash,
-        bridgeMetadata,
+        tokenAddress,  // token
+        sourceChainId,  // source_chain_id
+        sourceTxHash,  // source_tx_hash
+        // bridge_metadata is optional, omit it
       ];
 
       const payload = {
@@ -521,16 +522,17 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const escrowFee = '1000000000000000000'; // 1 token
       const value = '20000000000000000000'; // 20 tokens
 
+      // Signature payload: only required fields in struct order
       const signaturePayload = [
-        chainId,
+        chainId,  // chain_id
         nonce,
-        accounts.user2.address,
+        accounts.user2.address,  // sender
         value,
-        tokenAddress,
-        destinationChainId,
-        destinationAddress,
-        escrowFee,
-        bridgeMetadata,
+        tokenAddress,  // token
+        destinationChainId,  // destination_chain_id
+        destinationAddress,  // destination_address
+        escrowFee,  // escrow_fee
+        // bridge_metadata and bridge_param are optional, omit them
       ];
 
       const payload = {
