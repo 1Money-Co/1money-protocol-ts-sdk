@@ -372,7 +372,7 @@ const payload = [
   1, // chain_id
   1, // nonce
   AuthorityAction.Grant, // action
-  AuthorityType.MasterMint, // authority_type
+  AuthorityType.MasterMint, // authority_type (sends 'MasterMintBurn')
   '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3', // authority_address
   '0x2cd8999Be299373D7881f4aDD11510030ad1412F', // token
   '1000000000000000000000', // value (optional, for MintBurnTokens type)
@@ -389,7 +389,7 @@ const authorityPayload = {
   chain_id: 1,
   nonce: 1,
   action: AuthorityAction.Grant,
-  authority_type: AuthorityType.MasterMint,
+  authority_type: AuthorityType.MasterMint, // value is 'MasterMintBurn'
   authority_address: '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3',
   token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
   value: '1000000000000000000000',

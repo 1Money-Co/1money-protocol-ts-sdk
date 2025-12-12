@@ -1147,12 +1147,12 @@
       "AuthorityType": {
         "type": "string",
         "enum": [
-          "MasterMint",
-          "MintTokens",
+          "MasterMintBurn",
+          "MintBurnTokens",
           "Pause",
-          "Burn",
-          "Blacklist",
-          "UpdateMetadata"
+          "ManageList",
+          "UpdateMetadata",
+          "Bridge"
         ]
       },
       "B256Schema": {
@@ -1635,8 +1635,7 @@
           "action",
           "authority_type",
           "authority_address",
-          "token",
-          "value"
+          "token"
         ],
         "properties": {
           "action": {
@@ -1649,7 +1648,7 @@
           },
           "authority_type": {
             "$ref": "#/components/schemas/AuthorityType",
-            "description": "The authority type of the transaction: Mint, MintTokens, Pause, Burn,\nBlacklist, UpdateMetadata."
+            "description": "The authority type of the transaction: MasterMintBurn, MintBurnTokens,\nPause, ManageList, UpdateMetadata, Bridge."
           },
           "chain_id": {
             "type": "integer",
@@ -1673,7 +1672,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/U256Schema",
-                "description": "The allowance value of tokens to grant, only works for `MintTokens`\ntype."
+                "description": "Allowance value when granting MintBurnTokens or Bridge authorities."
               }
             ],
             "default": "0"
@@ -2090,7 +2089,6 @@
               "chain_id",
               "from",
               "nonce",
-              "fee",
               "signature"
             ],
             "properties": {
@@ -2109,12 +2107,6 @@
                 "type": "integer",
                 "format": "int64",
                 "description": "Checkpoint number",
-                "example": "10",
-                "minimum": 0
-              },
-              "fee": {
-                "type": "integer",
-                "description": "Fee value",
                 "example": "10",
                 "minimum": 0
               },
@@ -2298,26 +2290,26 @@
                 "description": "Grant authority to another account. The signer of message must be the\nMint's `master_authority`. Otherwise the transaction may fail.\n\nRefer to `TokenInstruction::GrantAuthority`.",
                 "required": [
                   "authority_type",
-                  "new_authority",
-                  "token"
+                  "authority_address",
+                  "token",
+                  "value"
                 ],
                 "properties": {
                   "authority_type": {
-                    "type": "string",
-                    "description": "The type of authority to update.",
-                    "example": "master_authority"
+                    "$ref": "#/components/schemas/AuthorityType",
+                    "description": "The type of authority to grant."
                   },
-                  "mint_tokens": {
-                    "$ref": "#/components/schemas/U256Schema",
-                    "description": "The amount of tokens to mint."
-                  },
-                  "new_authority": {
+                  "authority_address": {
                     "$ref": "#/components/schemas/AddressSchema",
-                    "description": "The new authority"
+                    "description": "The authority address to grant."
                   },
                   "token": {
                     "$ref": "#/components/schemas/AddressSchema",
                     "description": "The token address"
+                  },
+                  "value": {
+                    "$ref": "#/components/schemas/U256Schema",
+                    "description": "Allowance value for MintBurnTokens/Bridge authorities."
                   }
                 }
               },
@@ -2342,26 +2334,26 @@
                 "description": "Revoke authority to another account. The signer of message must be the\nMint's `master_authority`. Otherwise the transaction may fail.\n\nRefer to `TokenInstruction::RevokeAuthority`.",
                 "required": [
                   "authority_type",
-                  "new_authority",
-                  "token"
+                  "authority_address",
+                  "token",
+                  "value"
                 ],
                 "properties": {
                   "authority_type": {
-                    "type": "string",
-                    "description": "The type of authority to update.",
-                    "example": "master_authority"
+                    "$ref": "#/components/schemas/AuthorityType",
+                    "description": "The type of authority to revoke."
                   },
-                  "mint_tokens": {
-                    "$ref": "#/components/schemas/U256Schema",
-                    "description": "The amount of tokens to mint."
-                  },
-                  "new_authority": {
+                  "authority_address": {
                     "$ref": "#/components/schemas/AddressSchema",
-                    "description": "The new authority"
+                    "description": "The authority address to revoke."
                   },
                   "token": {
                     "$ref": "#/components/schemas/AddressSchema",
                     "description": "The token address"
+                  },
+                  "value": {
+                    "$ref": "#/components/schemas/U256Schema",
+                    "description": "Allowance value for MintBurnTokens/Bridge authorities."
                   }
                 }
               },
