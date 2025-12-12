@@ -76,7 +76,6 @@ export enum PauseAction {
 export interface RestSignature extends Signature {}
 
 export interface TokenManageListPayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   action: ManageListAction;
@@ -86,7 +85,6 @@ export interface TokenManageListPayload {
 }
 
 export interface TokenBurnPayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   recipient: string;
@@ -96,7 +94,6 @@ export interface TokenBurnPayload {
 }
 
 export interface TokenAuthorityPayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   action: AuthorityAction;
@@ -108,7 +105,6 @@ export interface TokenAuthorityPayload {
 }
 
 export interface TokenIssuePayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   symbol: string;
@@ -120,7 +116,6 @@ export interface TokenIssuePayload {
 }
 
 export interface TokenMintPayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   recipient: string;
@@ -130,7 +125,6 @@ export interface TokenMintPayload {
 }
 
 export interface TokenPausePayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   action: PauseAction;
@@ -139,7 +133,6 @@ export interface TokenPausePayload {
 }
 
 export interface TokenMetadataPayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   name: string;
@@ -150,15 +143,14 @@ export interface TokenMetadataPayload {
 }
 
 export interface TokenBridgeAndMintPayload {
-  bridge_metadata: string;
   chain_id: number;
   nonce: number;
-  recent_checkpoint: number;
   recipient: string;
+  value: string;
+  token: string;
   source_chain_id: number;
   source_tx_hash: string;
-  token: string;
-  value: string;
+  bridge_metadata: string;
   signature: RestSignature;
 }
 
@@ -169,7 +161,6 @@ export interface TokenBurnAndBridgePayload {
   destination_chain_id: number;
   escrow_fee: string;
   nonce: number;
-  recent_checkpoint: number;
   sender: string;
   token: string;
   value: string;

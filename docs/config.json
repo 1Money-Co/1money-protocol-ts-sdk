@@ -1120,7 +1120,6 @@
         "type": "object",
         "description": "Represents the token holdings and associated data for a specific address.",
         "required": [
-          "token_account_address",
           "balance",
           "nonce"
         ],
@@ -1135,10 +1134,6 @@
             "description": "The nonce of the owner account.",
             "example": 0,
             "minimum": 0
-          },
-          "token_account_address": {
-            "$ref": "#/components/schemas/AddressSchema",
-            "description": "The address that derived from the owner address and token address, we\ncall it as the associated token account address."
           }
         }
       },

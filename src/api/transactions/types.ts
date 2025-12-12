@@ -14,6 +14,12 @@ export interface TransactionReceipt {
   token_address?: AddressSchema;
 }
 
+// Finalized transaction receipt response
+export interface FinalizedTransactionReceipt extends TransactionReceipt {
+  epoch: number;
+  counter_signatures: RestSignature[];
+}
+
 // Estimate fee response
 export interface EstimateFee {
   fee: string;
@@ -21,7 +27,6 @@ export interface EstimateFee {
 
 // Payment transaction payload
 export interface PaymentPayload {
-  recent_checkpoint: number;
   chain_id: number;
   nonce: number;
   recipient: AddressSchema;
@@ -132,12 +137,11 @@ export interface TokenUnpauseData {
 // Base transaction fields shared by all transaction types
 interface BaseTransaction {
   hash: B256Schema;
-  
+
   checkpoint_hash?: B256Schema;
   checkpoint_number?: number;
   transaction_index?: number;
 
-  recent_checkpoint: number;
   chain_id: number;
   from: AddressSchema;
   nonce: number;

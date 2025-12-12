@@ -29,7 +29,8 @@ export function encodePayload(payload: Payload) {
           return hexToBytes(v as ZeroXString);
         } else if (!isNaN(+(v as string))) {
           // number-like string → hex → bytes
-          return v === '0' ? new Uint8Array([]) : hexToBytes(numberToHex(+(v as `${number}`)));
+          // Use BigInt for large numbers to avoid overflow
+          return v === '0' ? new Uint8Array([]) : hexToBytes(numberToHex(BigInt(v as string)));
         } else {
           // plain string → UTF-8 bytes
           return new TextEncoder().encode(v as string);
@@ -89,7 +90,14 @@ export function toHex(value: any): ZeroXString {
       case 'bigint':
         return numberToHex(value as number | bigint);
       case 'string':
-        if (!isNaN(+value)) return numberToHex(+value);
+        if (!isNaN(+value)) {
+          // Use BigInt for potentially large numbers to avoid overflow
+          try {
+            return numberToHex(BigInt(value as string));
+          } catch {
+            return numberToHex(+value);
+          }
+        }
         return stringToHex(value as string);
       case 'uint8array':
       case 'uint16array':

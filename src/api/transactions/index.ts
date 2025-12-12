@@ -6,7 +6,8 @@ import type {
   EstimateFee,
   PaymentPayload,
   Transaction,
-  TransactionReceipt
+  TransactionReceipt,
+  FinalizedTransactionReceipt
 } from './types';
 
 const API_PREFIX = `/${API_VERSION}/transactions`;
@@ -31,6 +32,15 @@ export const transactionsApi = {
    */
   getReceiptByHash: (hash: string) => {
     return get<'custom', TransactionReceipt>(`${API_PREFIX}/receipt/by_hash?hash=${hash}`, { withCredentials: false });
+  },
+
+  /**
+   * Get finalized transaction by hash
+   * @param hash Hash of the transaction to lookup
+   * @returns Promise with finalized transaction receipt response
+   */
+  getFinalizedByHash: (hash: string) => {
+    return get<'custom', FinalizedTransactionReceipt>(`${API_PREFIX}/finalized/by_hash?hash=${hash}`, { withCredentials: false });
   },
 
   /**

@@ -30,6 +30,11 @@
   "unpkg": "umd/1money-protocol-ts-sdk.min.js",
   "scripts": {
     "test": "nyc mocha --config .mocharc.js",
+    "test:integration": "cross-env RUN_INTEGRATION_TESTS=true mocha --config .mocharc.integration.js",
+    "test:integration:local": "cross-env RUN_INTEGRATION_TESTS=true INTEGRATION_TEST_NETWORK=local mocha --config .mocharc.integration.js",
+    "test:integration:testnet": "cross-env RUN_INTEGRATION_TESTS=true INTEGRATION_TEST_NETWORK=testnet mocha --config .mocharc.integration.js",
+    "test:integration:issue": "cross-env RUN_INTEGRATION_TESTS=true INTEGRATION_TEST_NETWORK=testnet mocha --config .mocharc.integration.js --grep \"1\\. Issue Token\"",
+    "test:all": "npm run test && npm run test:integration",
     "lint": "npm run lint:prettier && npm run lint:es",
     "lint:fix": "npm run lint:prettier_fix && npm run lint:es_fix",
     "lint:es": "eslint src/ --ext .ts --ext .tsx",

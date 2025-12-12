@@ -1,7 +1,7 @@
-import axios from 'axios';
 import { _typeof } from '@/utils';
+import axios from 'axios';
 
-import type { AxiosStatic, AxiosRequestConfig, AxiosError, RawAxiosResponseHeaders, AxiosResponseHeaders, RawAxiosRequestHeaders, AxiosRequestHeaders, AxiosResponse } from 'axios';
+import type { AxiosError, AxiosRequestConfig, AxiosRequestHeaders, AxiosResponse, AxiosResponseHeaders, AxiosStatic, RawAxiosRequestHeaders, RawAxiosResponseHeaders } from 'axios';
 
 export type ParsedError<T extends string = string> = {
   name: T;
@@ -632,10 +632,10 @@ export class Request {
         if (isTimeout) return;
         cleanup();
 
-        console.error(`[1Money client]: Error(${err.status ?? 500}, ${err.code ?? 'UNKNOWN'}), Message: ${err.message}, Config: ${err.config?.method}, ${err.config?.baseURL ?? ''}${err.config?.url ?? ''}, ${JSON.stringify(err.config?.headers ?? {})}, Request: ${JSON.stringify(err.config?.data ?? {})};`);
+        const data = err.response?.data ?? {};
+        console.error(`[1Money client]: Error(${err.status ?? 500}, ${err.code ?? 'UNKNOWN'}), Message: ${err.message}, Config: ${err.config?.method}, ${err.config?.baseURL ?? ''}${err.config?.url ?? ''}, ${JSON.stringify(err.config?.headers ?? {})}, Request: ${JSON.stringify(err.config?.data ?? {})}, Response: ${JSON.stringify(data)};`);
 
         const status = err.response?.status ?? 500;
-        const data = err.response?.data ?? {};
         const headers = err.response?.headers ?? {};
 
         try {
