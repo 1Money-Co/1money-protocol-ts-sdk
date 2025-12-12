@@ -15,3 +15,5 @@ dist.zip
 *.log
 
 package-lock.json
+
+.env.integration
