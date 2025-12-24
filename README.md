@@ -37,6 +37,34 @@ const apiClient = api({
 });
 ```
 
+### Configure Custom HTTP Headers
+
+You can set custom HTTP headers that will be included in all API requests:
+
+```typescript
+import { setInitConfig } from '@1money/protocol-ts-sdk';
+
+// Set custom headers for all requests
+setInitConfig({
+  headers: {
+    'Authorization': 'Bearer your-token',
+    'X-Custom-Header': 'custom-value'
+  }
+});
+
+// You can also combine with other configuration options
+setInitConfig({
+  baseURL: 'https://api.custom-domain.com',
+  timeout: 10000,
+  headers: {
+    'Authorization': 'Bearer your-token',
+    'X-API-Key': 'your-api-key'
+  }
+});
+```
+
+**Note**: Custom headers are automatically merged with axios default headers, ensuring both your custom headers and the library's default security headers are included in all requests.
+
 ### Fetch the current checkpoint number
 
 ```typescript
