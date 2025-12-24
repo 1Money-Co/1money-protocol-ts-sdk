@@ -1,6 +1,6 @@
 {
   "name": "@1money/protocol-ts-sdk",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "ts sdk for 1Money protocol network",
   "main": "lib/index.js",
   "module": "es/index.js",

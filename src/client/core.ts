@@ -443,7 +443,11 @@ export class Request {
   public request<T, U = unknown>(options: Options<T, U>): PromiseWrapper<T, U> & Promise<CustomResponseData<T, U, WithFailureData<T>>> {
     // Set default security headers
     options.withCredentials = typeof options.withCredentials === 'boolean' ? options.withCredentials : true;
-    options.headers = options.headers || {};
+    options.headers = {
+      ...axios.defaults.headers.common,
+      ...(options.method ? (axios.defaults.headers[options.method] as RawAxiosRequestHeaders) : {}),
+      ...options.headers,
+    };
     options.headers['Accept'] = options.headers['Accept'] || '*/*';
     options.headers['X-Requested-With'] = options.headers['X-Requested-With'] || 'XMLHttpRequest';
     options.headers['X-Content-Type-Options'] = options.headers['X-Content-Type-Options'] || 'nosniff';
@@ -633,7 +637,7 @@ export class Request {
         cleanup();
 
         const data = err.response?.data ?? {};
-        console.error(`[1Money client]: Error(${err.status ?? 500}, ${err.code ?? 'UNKNOWN'}), Message: ${err.message}, Config: ${err.config?.method}, ${err.config?.baseURL ?? ''}${err.config?.url ?? ''}, ${JSON.stringify(err.config?.headers ?? {})}, Request: ${JSON.stringify(err.config?.data ?? {})}, Response: ${JSON.stringify(data)};`);
+        console.error(`[1Money client]: Error(${err.status ?? 500}, ${err.code ?? 'UNKNOWN'}), Message: ${err.message}, Config: ${err.config?.method}, ${err.config?.baseURL ?? ''}, ${err.config?.url ?? ''}, ${JSON.stringify(err.config?.headers ?? {})}, Request: ${JSON.stringify(err.config?.data ?? {})}, Response: ${JSON.stringify(data)};`);
 
         const status = err.response?.status ?? 500;
         const headers = err.response?.headers ?? {};
