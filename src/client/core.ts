@@ -444,8 +444,8 @@ export class Request {
     // Set default security headers
     options.withCredentials = typeof options.withCredentials === 'boolean' ? options.withCredentials : true;
     options.headers = {
-      ...axios.defaults.headers.common,
-      ...(options.method ? (axios.defaults.headers[options.method] as RawAxiosRequestHeaders) : {}),
+      ...this.axios.defaults.headers.common,
+      ...(options.method ? (this.axios.defaults.headers[options.method] as RawAxiosRequestHeaders) : {}),
       ...options.headers,
     };
     options.headers['Accept'] = options.headers['Accept'] || '*/*';
