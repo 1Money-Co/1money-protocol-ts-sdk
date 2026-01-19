@@ -75,7 +75,7 @@
     "@commitlint/cli": "8.3.5",
     "@ethereumjs/rlp": "^10.0.0",
     "@noble/secp256k1": "2.3.0",
-    "@omni-door/cli": "~3.1.1",
+    "@omni-door/cli": "~3.2.2",
     "@rollup/plugin-alias": "~5.1.1",
     "@rollup/plugin-babel": "~6.0.4",
     "@rollup/plugin-commonjs": "~28.0.3",
