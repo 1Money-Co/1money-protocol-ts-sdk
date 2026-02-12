@@ -1,14 +1,15 @@
+import { expect } from 'chai';
+import 'dotenv/config';
 import 'mocha';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
-import { expect } from 'chai';
-import { api } from '../../';
-import { CHAIN_IDS } from '../../constants';
-import { signMessage, toHex, safePromiseLine, safePromiseAll } from '../../../utils';
-import { AuthorityAction, AuthorityType, PauseAction, ManageListAction } from '../types';
+import { keccak256 } from 'viem';
 import { tokensApi } from '../';
+import { api } from '../../';
+import { encodePayload, safePromiseAll, safePromiseLine, signMessage, toHex } from '../../../utils';
 import { accountsApi } from '../../accounts';
 import { checkpointsApi } from '../../checkpoints';
-import 'dotenv/config';
+import { CHAIN_IDS } from '../../constants';
+import { AuthorityAction, AuthorityType, ManageListAction, PauseAction } from '../types';
 
 import type { ZeroXString } from '../../../utils';
 
@@ -111,6 +112,10 @@ describe('tokens API test', function () {
 
   it('should have updateMetadata method', function () {
     expect(apiClient.tokens.updateMetadata).to.be.a('function');
+  });
+
+  it('should include Clawback authority type', function () {
+    expect(AuthorityType.Clawback).to.equal('Clawback');
   });
 
   // Example token for testing - replace with a valid token if needed
@@ -223,7 +228,7 @@ describe('tokens API test', function () {
     it.skip('should burn token', function (done) {
       safePromiseLine([
         () => RUN_ENV === 'local' ? pageOne.evaluate(async (params) => {
-          const { operatorAddress, operatorPK, chainId, testAddress, issuedToken } = params;
+          const { operatorAddress, operatorPK, chainId, issuedToken } = params;
           const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
@@ -233,7 +238,6 @@ describe('tokens API test', function () {
           const payload = [
             chainId,
             nonce,
-            testAddress,
             burnValue,
             issuedToken,
           ];
@@ -242,7 +246,6 @@ describe('tokens API test', function () {
           const response = await window.burnToken({
             chain_id: chainId,
             nonce,
-            recipient: testAddress,
             value: burnValue,
             token: issuedToken,
             signature
@@ -252,7 +255,6 @@ describe('tokens API test', function () {
           operatorAddress,
           operatorPK,
           chainId,
-          testAddress,
           issuedToken,
         }).then(response => {
           expect(response).to.be.an('object');
@@ -271,7 +273,6 @@ describe('tokens API test', function () {
           const payload = [
             chainId,
             nonce,
-            operatorAddress,
             burnValue,
             issuedToken,
           ]
@@ -280,7 +281,6 @@ describe('tokens API test', function () {
           apiClient.tokens.burnToken({
             chain_id: chainId,
             nonce,
-            recipient: operatorAddress,
             value: burnValue,
             token: issuedToken,
             signature
@@ -396,6 +396,7 @@ describe('tokens API test', function () {
           const symbol = 'USDT';
           const decimals = 6;
           const isPrivate = false;
+          const clawbackEnabled = true;
           const payload = [
             chainId,
             nonce,
@@ -404,6 +405,7 @@ describe('tokens API test', function () {
             decimals,
             operatorAddress,
             isPrivate,
+            clawbackEnabled,
           ];
           const signature = await window.signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
@@ -415,6 +417,7 @@ describe('tokens API test', function () {
             decimals,
             master_authority: operatorAddress,
             is_private: isPrivate,
+            clawback_enabled: clawbackEnabled,
             signature,
           })
           return response;
@@ -443,6 +446,7 @@ describe('tokens API test', function () {
           const symbol = 'USDT1';
           const decimals = 6;
           const isPrivate = false;
+          const clawbackEnabled = true;
           const payload = [
             chainId,
             nonce,
@@ -451,6 +455,7 @@ describe('tokens API test', function () {
             decimals,
             operatorAddress,
             isPrivate,
+            clawbackEnabled,
           ];
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
@@ -462,6 +467,7 @@ describe('tokens API test', function () {
             decimals,
             master_authority: operatorAddress,
             is_private: isPrivate,
+            clawback_enabled: clawbackEnabled,
             signature,
           })
             .success(response => {
@@ -714,4 +720,70 @@ describe('tokens API test', function () {
       ]).then(() => done()).catch(done);
     });
   }
+
+  describe('TokenBurnAndBridge payload encoding and signing', function () {
+    it('should encode and sign TokenBurnAndBridge payload correctly', async function () {
+      const chainId = CHAIN_IDS.TESTNET;
+      const nonce = 2;
+      const sender = '0x0000000000000000000000000000000000000001';
+      const value = '273'; 
+      const token = '0x0000000000000000000000000000000000000002';
+      const destinationChainId = 1;
+      const destinationAddress = '0x1234567890abcdef1234567890abcdef12345678';
+      const escrowFee = '1000000'; 
+      const bridgeMetadata = '';
+      const bridgeParam = '0x';
+
+      // Create payload for encoding and signing
+      const payload = [
+        chainId,
+        nonce,
+        sender,
+        value,
+        token,
+        destinationChainId,
+        destinationAddress,
+        escrowFee,
+        bridgeMetadata,
+        bridgeParam,
+      ];
+
+      // Test encodePayload
+      const encodedPayload = encodePayload(payload);
+
+      // Convert to hex string
+      const hexString = '0x' + Array.from(encodedPayload)
+        .map(byte => byte.toString(16).padStart(2, '0'))
+        .join('');
+
+      // Calculate keccak256 hash
+      const hash = keccak256(encodedPayload);
+
+      console.log('\n=== Encoded Payload ===');
+      console.log('Uint8Array:', encodedPayload);
+      console.log('Hex:', hexString);
+      console.log('Length:', encodedPayload.length, 'bytes');
+      console.log('Keccak256 Hash:', hash);
+      console.log('======================\n');
+
+      expect(encodedPayload).to.be.an('uint8array');
+      expect(encodedPayload.length).to.be.greaterThan(0);
+
+      // Test signMessage if private key is available
+      const testPK = process.env.TEST_PRIVATE_KEY;
+      if (testPK && RUN_ENV !== 'remote') {
+        const signature = await signMessage(payload, testPK as ZeroXString);
+
+        expect(signature).to.be.an('object');
+        expect(signature?.r).to.be.a('string');
+        expect(signature?.s).to.be.a('string');
+        expect(signature?.v).to.be.a('number');
+
+        // Verify signature format
+        expect(signature?.r).to.match(/^0x[0-9a-fA-F]{64}$/);
+        expect(signature?.s).to.match(/^0x[0-9a-fA-F]{64}$/);
+        expect([27, 28]).to.include(signature?.v);
+      }
+    });
+  });
 });

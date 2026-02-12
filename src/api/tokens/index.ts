@@ -72,7 +72,11 @@ export const tokensApi = {
    * @returns Promise with transaction hash and token address response
    */
   issueToken: (payload: TokenIssuePayload) => {
-    return post<'custom', HashWithToken>(`${API_PREFIX}/issue`, payload, { withCredentials: false });
+    const payloadWithDefaults = {
+      ...payload,
+      clawback_enabled: payload.clawback_enabled ?? true
+    };
+    return post<'custom', HashWithToken>(`${API_PREFIX}/issue`, payloadWithDefaults, { withCredentials: false });
   },
 
   /**

@@ -253,6 +253,7 @@ const payload = [
   18, // decimals
   '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3', // master_authority
   true, // is_private
+  true, // clawback_enabled
 ];
 
 // Generate signature
@@ -270,6 +271,7 @@ const issuePayload = {
   decimals: 18,
   master_authority: '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3',
   is_private: true,
+  clawback_enabled: true,
   signature
 };
 
@@ -353,7 +355,6 @@ const epochData = await apiClient.state.getLatestEpochCheckpoint()
 const payload = [
   1, // chain_id
   1, // nonce
-  '0x2cd8999Be299373D7881f4aDD11510030ad1412F', // recipient (for burn, same as sender)
   '1000000000000000000', // amount
   '0x2cd8999Be299373D7881f4aDD11510030ad1412F', // token
 ];
@@ -368,7 +369,6 @@ if (!signature) {
 const burnPayload = {
   chain_id: 1,
   nonce: 1,
-  recipient: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
   value: '1000000000000000000',
   token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
   signature
@@ -462,10 +462,11 @@ apiClient.transactions.getReceiptByHash(txHash)
 #### Estimate Transaction Fee
 ```typescript
 const fromAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
+const toAddress = '0x6324dAc598f9B637824978eD6b268C896E0c40E0';
 const value = '1000000000';
 const tokenAddress = '0x2cd8999Be299373D7881f4aDD11510030ad1412F';
 
-apiClient.transactions.estimateFee(fromAddress, value, tokenAddress)
+apiClient.transactions.estimateFee(fromAddress, toAddress, value, tokenAddress)
   .success(response => {
     console.log('Estimated fee:', response);
   })

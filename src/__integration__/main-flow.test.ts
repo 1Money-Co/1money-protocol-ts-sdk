@@ -92,6 +92,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       tokenName = 'Test Token';
       tokenDecimals = 18;
       tokenIsPrivate = false;
+      const clawbackEnabled = true;
 
       logStep('Generated token symbol', tokenSymbol);
 
@@ -102,7 +103,8 @@ import { getTestAccounts, logTestAccounts } from './setup';
         tokenName,
         tokenDecimals,
         accounts.master.address,
-        tokenIsPrivate
+        tokenIsPrivate,
+        clawbackEnabled
       ];
 
       const payload = {
@@ -113,6 +115,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
         decimals: tokenDecimals,
         master_authority: accounts.master.address,
         is_private: tokenIsPrivate,
+        clawback_enabled: clawbackEnabled,
         signature: await signPayload(signaturePayload, accounts.operator)
       };
 
@@ -380,7 +383,6 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signaturePayload = [
         chainId,
         nonce,
-        accounts.user3.address,
         value,
         tokenAddress
       ];
@@ -388,7 +390,6 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const payload = {
         chain_id: chainId,
         nonce,
-        recipient: accounts.user3.address,
         value,
         token: tokenAddress,
         signature: await signPayload(signaturePayload, accounts.user3)
@@ -517,6 +518,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const nonce = await getAccountNonce(accounts.user2.address);
 
       const bridgeMetadata = 'test_bridge';
+      const bridgeParam = '0x'; // Empty bytes data
       const destinationAddress = '0x1234567890abcdef1234567890abcdef12345678';
       const destinationChainId = 1;
       const escrowFee = '1000000000000000000'; // 1 token
@@ -537,6 +539,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       const payload = {
         bridge_metadata: bridgeMetadata,
+        bridge_param: bridgeParam,
         chain_id: chainId,
         destination_address: destinationAddress,
         destination_chain_id: destinationChainId,

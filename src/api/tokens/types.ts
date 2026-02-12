@@ -1,5 +1,5 @@
 // Types for tokens API
-import { AddressSchema, U256Schema } from '../types';
+import { AddressSchema, U256Schema, BytesSchema } from '../types';
 
 import type { Signature } from '@/utils';
 
@@ -54,7 +54,8 @@ export enum AuthorityType {
   Pause = 'Pause',
   ManageList = 'ManageList',
   UpdateMetadata = 'UpdateMetadata',
-  Bridge = 'Bridge'
+  Bridge = 'Bridge',
+  Clawback = 'Clawback'
 }
 
 export enum AuthorityAction {
@@ -87,7 +88,6 @@ export interface TokenManageListPayload {
 export interface TokenBurnPayload {
   chain_id: number;
   nonce: number;
-  recipient: string;
   value: string;
   token: string;
   signature: RestSignature;
@@ -112,6 +112,7 @@ export interface TokenIssuePayload {
   decimals: number;
   master_authority: string;
   is_private: boolean;
+  clawback_enabled?: boolean;
   signature: RestSignature;
 }
 
@@ -155,14 +156,15 @@ export interface TokenBridgeAndMintPayload {
 }
 
 export interface TokenBurnAndBridgePayload {
-  bridge_metadata: string;
   chain_id: number;
-  destination_address: string;
-  destination_chain_id: number;
-  escrow_fee: string;
   nonce: number;
   sender: string;
-  token: string;
   value: string;
+  token: string;
+  destination_chain_id: number;
+  destination_address: string;
+  escrow_fee: string;
+  bridge_metadata: string;
+  bridge_param: BytesSchema;
   signature: RestSignature;
 }

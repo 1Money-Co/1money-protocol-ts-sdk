@@ -4,10 +4,10 @@ import { get, post } from '@/client';
 import type { Hash } from '@/api/types';
 import type {
   EstimateFee,
+  FinalizedTransactionReceipt,
   PaymentPayload,
   Transaction,
-  TransactionReceipt,
-  FinalizedTransactionReceipt
+  TransactionReceipt
 } from './types';
 
 const API_PREFIX = `/${API_VERSION}/transactions`;
@@ -46,15 +46,13 @@ export const transactionsApi = {
   /**
    * Estimate transaction fee
    * @param from Address of the transaction author
+   * @param to Address of the transaction recipient
    * @param value Value of the transaction
-   * @param token Optional token address
+   * @param token Token address
    * @returns Promise with fee estimate response
    */
-  estimateFee: (from: string, value: string, token?: string) => {
-    let url = `${API_PREFIX}/estimate_fee?from=${from}&value=${value}`;
-    if (token) {
-      url += `&token=${token}`;
-    }
+  estimateFee: (from: string, to: string, value: string, token: string) => {
+    const url = `${API_PREFIX}/estimate_fee?from=${from}&value=${value}&to=${to}&token=${token}`;
     return get<'custom', EstimateFee>(url, { withCredentials: false });
   },
 
