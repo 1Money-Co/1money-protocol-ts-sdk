@@ -111,6 +111,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Issuing token...');
       const response = await client.tokens.issueToken(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
 
       issueTokenTxHash = response.hash;
       tokenAddress = response.token;
@@ -193,6 +194,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Granting authority...');
       const response = await client.tokens.grantAuthority(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
       grantAuthorityTxHash = response.hash;
 
       logStep('Authority granted', `Hash: ${grantAuthorityTxHash}`);
@@ -227,6 +229,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Minting tokens...');
       const response = await client.tokens.mintToken(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
       mintTokenTxHash = response.hash;
 
       logStep('Tokens minted', `Hash: ${mintTokenTxHash}`);
@@ -271,6 +274,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Transferring tokens...');
       const response = await client.transactions.payment(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
       transferTokenTxHash = response.hash;
 
       logStep('Tokens transferred', `Hash: ${transferTokenTxHash}`);
@@ -308,6 +312,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Granting burn authority to user3...');
       const response = await client.tokens.grantAuthority(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
       grantAuthorityUser3TxHash = response.hash;
 
       logStep('Authority granted', `Hash: ${grantAuthorityUser3TxHash}`);
@@ -341,6 +346,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Burning tokens...');
       const response = await client.tokens.burnToken(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
       burnTokenTxHash = response.hash;
 
       logStep('Tokens burned', `Hash: ${burnTokenTxHash}`);
@@ -378,6 +384,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Granting bridge authority to user1...');
       const response = await client.tokens.grantAuthority(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
       grantBridgeAuthorityUser1TxHash = response.hash;
 
       logStep('Bridge authority granted', `Hash: ${grantBridgeAuthorityUser1TxHash}`);
@@ -419,6 +426,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Bridging and minting tokens...');
       const response = await client.tokens.bridgeAndMint(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
       bridgeAndMintTxHash = response.hash;
 
       logStep('Tokens bridged and minted', `Hash: ${bridgeAndMintTxHash}`);
@@ -462,6 +470,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Burning and bridging tokens...');
       const response = await client.tokens.burnAndBridge(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
       burnAndBridgeTxHash = response.hash;
 
       logStep('Tokens burned and bridged', `Hash: ${burnAndBridgeTxHash}`);
@@ -499,6 +508,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Revoking authority from user1...');
       const response = await client.tokens.grantAuthority(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
       revokeAuthorityTxHash = response.hash;
 
       logStep('Authority revoked', `Hash: ${revokeAuthorityTxHash}`);
@@ -534,6 +544,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Revoking authority from user3...');
       const response = await client.tokens.grantAuthority(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
       revokeAuthorityUser3TxHash = response.hash;
 
       logStep('Authority revoked', `Hash: ${revokeAuthorityUser3TxHash}`);
@@ -569,6 +580,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Revoking bridge authority from user1...');
       const response = await client.tokens.grantAuthority(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
       revokeBridgeAuthorityUser1TxHash = response.hash;
 
       logStep('Bridge authority revoked', `Hash: ${revokeBridgeAuthorityUser1TxHash}`);
