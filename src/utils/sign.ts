@@ -1,18 +1,22 @@
 import { encode as rlpEncode } from '@ethereumjs/rlp';
 import { signAsync } from '@noble/secp256k1';
 import {
-  keccak256,
+  boolToHex,
+  bytesToHex,
   hexToBytes,
+  keccak256,
+  numberToHex,
   stringToBytes,
   stringToHex,
-  boolToHex,
-  numberToHex,
-  bytesToHex,
 } from 'viem';
 
 import { _typeof } from './typeof';
 
-import type { ZeroXString, Signature, Payload } from './interface';
+import type {
+  Payload,
+  Signature,
+  ZeroXString,
+} from './interface';
 
 type RlpPayload = Exclude<Payload, boolean | Payload[]> & Exclude<Payload, boolean | Payload[]>;
 /**
@@ -24,9 +28,9 @@ export function encodePayload(payload: Payload) {
   if (_typeof(payload) === 'array') {
     const formatted = (payload as Array<Payload>).map((v) => {
       if (_typeof(v) === 'string') {
-        if (/^0x[0-9a-fA-F]+$/.test(v as string)) {
+        if (/^0x([0-9a-fA-F]{2})*$/.test(v as string)) {
           // hex-encoded data → raw bytes
-          return hexToBytes(v as ZeroXString);
+          return v === '0x' ? new Uint8Array([]) : hexToBytes(v as ZeroXString);
         } else if (/^\d+$/.test(v as string)) {
           // number-like string → hex → bytes
           // Use BigInt for large numbers to avoid overflow

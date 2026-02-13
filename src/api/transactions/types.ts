@@ -1,6 +1,10 @@
 // Types for transactions API
 import { AuthorityType, RestSignature } from '../tokens/types';
-import { AddressSchema, B256Schema, BytesSchema } from '../types';
+import type {
+  AddressSchema,
+  B256Schema,
+  BytesSchema
+} from '../types';
 
 // Transaction receipt response
 export interface TransactionReceipt {
@@ -34,6 +38,32 @@ export interface PaymentPayload {
   token: AddressSchema;
   signature: RestSignature;
 }
+
+// type Unsigned<T extends { signature: RestSignature }> = Omit<T, 'signature'>;
+
+// function withRlpEncodeBytes<T>(
+//   payload: T,
+//   encode: () => Uint8Array
+// ): WithRlpEncodeBytes<T> {
+//   return {
+//     ...payload,
+//     rlpEncodeBytes: encode,
+//   };
+// }
+
+// export function withPaymentRlpEncodeBytes(
+//   payload: Unsigned<PaymentPayload> | PaymentPayload
+// ): WithRlpEncodeBytes<Unsigned<PaymentPayload> | PaymentPayload> {
+//   return withRlpEncodeBytes(payload, () =>
+//     encodePayload2(ev.list([
+//       ev.uint(payload.chain_id),
+//       ev.uint(payload.nonce),
+//       ev.address(payload.recipient as `0x${string}`),
+//       ev.uint(payload.value),
+//       ev.address(payload.token as `0x${string}`),
+//     ]))
+//   );
+// }
 
 // Transaction data types for different transaction types
 export interface TokenCreateData {
@@ -95,14 +125,14 @@ export interface TokenBurnData {
 }
 
 export interface TokenBurnAndBridgeData {
+  value: string;
+  sender: AddressSchema;
+  destination_chain_id: number;
+  destination_address: AddressSchema;
+  escrow_fee: string;
   bridge_metadata: string | null;
   bridge_param: BytesSchema;
-  destination_address: AddressSchema;
-  destination_chain_id: number;
-  escrow_fee: string;
-  sender: AddressSchema;
   token: AddressSchema;
-  value: string;
 }
 
 export interface TokenCloseAccountData {
