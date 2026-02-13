@@ -53,6 +53,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
   let tokenName: string;
   let tokenDecimals: number;
   let tokenIsPrivate: boolean;
+  let tokenClawbackEnabled: boolean;
   let tokenAddress: string;
   let issueTokenTxHash: string;
   let grantAuthorityTxHash: string;
@@ -92,7 +93,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       tokenName = 'Test Token';
       tokenDecimals = 18;
       tokenIsPrivate = false;
-      const clawbackEnabled = true;
+      tokenClawbackEnabled = true;
 
       logStep('Generated token symbol', tokenSymbol);
 
@@ -104,7 +105,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
         decimals: tokenDecimals,
         master_authority: accounts.master.address,
         is_private: tokenIsPrivate,
-        clawback_enabled: clawbackEnabled
+        clawback_enabled: tokenClawbackEnabled
       });
       
       const signed = await prepared.sign(createPrivateKeySigner(accounts.operator.privateKey));
@@ -164,6 +165,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       expect(metadata.decimals).to.equal(18);
       expect(addressEquals(metadata.master_authority, accounts.master.address)).to.be.true;
       expect(metadata.is_private).to.equal(tokenIsPrivate);
+      expect(metadata.clawback_enabled).to.equal(tokenClawbackEnabled);
       expect(metadata.meta.name).to.equal(tokenName);
       expect(metadata.supply).to.equal('0');
 

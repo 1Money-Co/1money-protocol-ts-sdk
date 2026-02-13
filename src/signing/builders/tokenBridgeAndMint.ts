@@ -22,7 +22,7 @@ export function prepareTokenBridgeAndMintTx(
       rlpValue.uint(unsigned.value),
       rlpValue.address(unsigned.token as `0x${string}`),
       rlpValue.uint(unsigned.source_chain_id),
-      rlpValue.string(unsigned.source_tx_hash as `0x${string}`),
+      rlpValue.string(unsigned.source_tx_hash),
       rlpValue.string(unsigned.bridge_metadata),
     ])
   );

@@ -6,16 +6,10 @@ import {
 
 import type {
   TokenClawbackPayload,
-  RestSignature,
 } from '@/api/tokens/types';
 
 export type TokenClawbackUnsigned =
-  TokenClawbackPayload;
-
-export type TokenClawbackRequest =
-  TokenClawbackPayload & {
-    signature: RestSignature;
-  };
+  Omit<TokenClawbackPayload, 'signature'>;
 
 export function prepareTokenClawbackTx(
   unsigned: TokenClawbackUnsigned
@@ -35,7 +29,7 @@ export function prepareTokenClawbackTx(
 
   return createPreparedTx<
     TokenClawbackUnsigned,
-    TokenClawbackRequest
+    TokenClawbackPayload
   >({
     kind: 'tokenClawback',
     unsigned,

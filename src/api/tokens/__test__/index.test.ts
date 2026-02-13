@@ -134,6 +134,7 @@ describe('tokens API test', function () {
         expect(response.supply).to.be.a('string');
         expect(response.is_paused).to.be.a('boolean');
         expect(response.is_private).to.be.a('boolean');
+        expect(response.clawback_enabled).to.be.a('boolean');
         expect(response.master_authority).to.be.a('string');
         expect(response.master_mint_burn_authority).to.be.a('string');
         expect(response.mint_burn_authorities).to.be.an('array');

@@ -42,6 +42,7 @@ export interface MintInfo {
   decimals: number;
   is_paused: boolean;
   is_private: boolean;
+  clawback_enabled: boolean;
   meta: TokenMetadata;
 }
 
@@ -180,5 +181,5 @@ export interface TokenClawbackPayload {
   from: string;
   recipient: string;
   value: string;
+  signature: RestSignature;
 }
-
