@@ -13,6 +13,7 @@ import type {
   TokenMetadataPayload,
   TokenBridgeAndMintPayload,
   TokenBurnAndBridgePayload,
+  TokenClawbackPayload,
 } from './types';
 
 const API_PREFIX = `/${API_VERSION}/tokens`;
@@ -122,6 +123,15 @@ export const tokensApi = {
    */
   burnAndBridge: (payload: TokenBurnAndBridgePayload) => {
     return post<'custom', Hash>(`${API_PREFIX}/burn_and_bridge`, payload, { withCredentials: false });
+  },
+
+  /**
+   * Claw back tokens from a wallet
+   * @param payload Token clawback request payload
+   * @returns Promise with transaction hash response
+   */
+  clawbackToken: (payload: TokenClawbackPayload) => {
+    return post<'custom', Hash>(`${API_PREFIX}/clawback`, payload, { withCredentials: false });
   }
 };
 

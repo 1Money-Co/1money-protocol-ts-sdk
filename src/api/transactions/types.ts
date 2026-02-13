@@ -109,6 +109,13 @@ export interface TokenBurnAndBridgeData {
   token: AddressSchema;
 }
 
+export interface TokenClawbackData {
+  from: AddressSchema;
+  recipient: AddressSchema;
+  value: string;
+  token: AddressSchema;
+}
+
 export interface TokenCloseAccountData {
   token: AddressSchema;
 }
@@ -197,6 +204,10 @@ export type Transaction =
   | (BaseTransaction & {
       transaction_type: 'TokenBurnAndBridge';
       data: TokenBurnAndBridgeData;
+    })
+  | (BaseTransaction & {
+      transaction_type: 'TokenClawback';
+      data: TokenClawbackData;
     })
   | (BaseTransaction & {
       transaction_type: 'TokenCloseAccount';
