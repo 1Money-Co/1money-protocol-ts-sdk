@@ -3,12 +3,12 @@
  */
 
 import { api } from '@/api';
-import { signMessage } from '@/utils';
 import type { RestSignature } from '@/api/tokens/types';
-import type { TestAccount } from './setup';
+import { signMessage } from '@/utils';
 import type { Payload } from '@/utils/interface';
-import { getConfig } from './config';
 import { getAddress } from 'viem';
+import { getConfig } from './config';
+import type { TestAccount } from './setup';
 
 /**
  * Create API client for integration tests

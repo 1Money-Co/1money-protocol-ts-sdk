@@ -2,10 +2,9 @@ import { expect } from 'chai';
 import 'dotenv/config';
 import 'mocha';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
-import { keccak256 } from 'viem';
 import { tokensApi } from '../';
 import { api } from '../../';
-import { encodePayload, encodeRlpPayload, safePromiseAll, safePromiseLine, signMessage, toHex, rlpValue as v } from '../../../utils';
+import { safePromiseAll, safePromiseLine, signMessage, toHex } from '../../../utils';
 import { accountsApi } from '../../accounts';
 import { checkpointsApi } from '../../checkpoints';
 import { CHAIN_IDS } from '../../constants';
@@ -720,103 +719,4 @@ describe('tokens API test', function () {
       ]).then(() => done()).catch(done);
     });
   }
-
-  describe('TokenBurnAndBridge payload encoding and signing', function () {
-    it('should encode and sign TokenBurnAndBridge payload correctly', async function () {
-      const chainId = CHAIN_IDS.TESTNET;
-      const nonce = 2;
-      const sender = '0x0000000000000000000000000000000000000001';
-      const value = '273'; 
-      const token = '0x0000000000000000000000000000000000000002';
-      const destinationChainId = 1;
-      const destinationAddress = '0x1234567890abcdef1234567890abcdef12345678';
-      const escrowFee = '1000000'; 
-      const bridgeMetadata = '';
-      const bridgeParam = '0x';
-
-      // Create payload for encoding and signing
-      const payload = [
-        chainId,
-        nonce,
-        sender,
-        value,
-        token,
-        destinationChainId,
-        destinationAddress,
-        escrowFee,
-        bridgeMetadata,
-        bridgeParam,
-      ];
-
-      // Test encodePayload
-      const encodedPayload = encodePayload(payload);
-      const encodedPayload2 = encodeRlpPayload(v.list([
-        v.uint(chainId),
-        v.uint(nonce),
-        v.address(sender as ZeroXString),
-        v.uint(value),
-        v.address(token as ZeroXString),
-        v.uint(destinationChainId),
-        v.string(destinationAddress as ZeroXString),
-        v.uint(escrowFee),
-        v.string(bridgeMetadata),
-        v.hex(bridgeParam as ZeroXString),
-      ]));
-
-      // Convert to hex string
-      const hexString = '0x' + Array.from(encodedPayload)
-        .map(byte => byte.toString(16).padStart(2, '0'))
-        .join('');
-      const hexString2 = '0x' + Array.from(encodedPayload2)
-        .map(byte => byte.toString(16).padStart(2, '0'))
-        .join('');
-
-      // Calculate keccak256 hash (used as signature hash)
-      const signatureHash = keccak256(encodedPayload);
-      const signatureHash2 = keccak256(encodedPayload2);
-
-      console.log('\n=== Encoded Payload ===');
-      console.log('encodePayload Uint8Array:', encodedPayload);
-      console.log('encodePayload Hex:', hexString);
-      console.log('encodePayload Length:', encodedPayload.length, 'bytes');
-      console.log('encodePayload signatureHash:', signatureHash);
-      console.log('encodePayload2 Uint8Array:', encodedPayload2);
-      console.log('encodePayload2 Hex:', hexString2);
-      console.log('encodePayload2 Length:', encodedPayload2.length, 'bytes');
-      console.log('encodePayload2 signatureHash:', signatureHash2);
-      console.log('encoded payloads equal:', hexString === hexString2);
-      console.log('signatureHash equal:', signatureHash === signatureHash2);
-      console.log('======================\n');
-
-      expect(encodedPayload).to.be.an('uint8array');
-      expect(encodedPayload2).to.be.an('uint8array');
-      expect(encodedPayload.length).to.be.greaterThan(0);
-      expect(encodedPayload2.length).to.be.greaterThan(0);
-      expect(hexString2).to.equal(hexString);
-      expect(signatureHash2).to.equal(signatureHash);
-
-      // Test signMessage if private key is available
-      const testPK = process.env.TEST_PRIVATE_KEY;
-      if (testPK && RUN_ENV !== 'remote') {
-        const signature = await signMessage(
-          payload,
-          testPK as ZeroXString
-        );
-
-        expect(signature).to.be.an('object');
-        expect(signature?.r).to.be.a('string');
-        expect(signature?.s).to.be.a('string');
-        expect(signature?.v).to.be.a('number');
-
-        // Verify signature format
-        expect(signature?.r).to.match(
-          /^0x[0-9a-fA-F]{64}$/
-        );
-        expect(signature?.s).to.match(
-          /^0x[0-9a-fA-F]{64}$/
-        );
-        expect([27, 28]).to.include(signature?.v);
-      }
-    });
-  });
 });

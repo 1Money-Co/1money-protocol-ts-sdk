@@ -21,6 +21,8 @@ import type {
 type RlpPayload = Exclude<Payload, boolean | Payload[]> & Exclude<Payload, boolean | Payload[]>;
 /**
  * RLP encode a payload into a digest
+ * @deprecated Prefer the TransactionBuilder flow in `src/signing`
+ * (`prepare*Tx` + `.sign(...)`) to build and sign transactions.
  * @param payload Payload to encode
  * @returns RLP encoded payload
  */
@@ -61,6 +63,9 @@ export function encodePayload(payload: Payload) {
 
 /**
  * Sign a message using the provided private key
+ * @deprecated Prefer the TransactionBuilder flow in `src/signing`
+ * (`prepare*Tx` + `.sign(createPrivateKeySigner(privateKey))`)
+ * for transaction signing.
  * @param payload Payload to sign
  * @param privateKey Private key to sign with
  * @returns Signature object with r, s, v components

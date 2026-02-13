@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import 'mocha';
 import { keccak256 } from 'viem';
 
-import tx, {
+import TransactionBuilder, {
   createPrivateKeySigner,
 } from '../';
 import {
@@ -60,7 +60,7 @@ describe('signing builder test', function () {
     const signatureHashByRustSdk =
       '0xe9e5e0f091a176e9eb239b17b930f5cd8d10e5782127b854840df65c67e22f99';
 
-    const prepared = tx.payment({
+    const prepared = TransactionBuilder.payment({
       chain_id: 1212101,
       nonce: 0,
       recipient: '0xa634dfba8c7550550817898bc4820cd10888aac5',
@@ -112,7 +112,7 @@ describe('signing builder test', function () {
     const signatureHashByRustSdk =
       '0x01882eb8bee7e2d0d553a0debc95f5d666d55e481b64ee9c6159b4c50831b9f0';
 
-    const prepared = tx.tokenIssue({
+    const prepared = TransactionBuilder.tokenIssue({
       chain_id: 1212101,
       nonce: 2,
       symbol: 'TEST',
@@ -168,7 +168,7 @@ describe('signing builder test', function () {
     const signatureHashByRustSdk =
       '0x75e9f6cb6e465aac2aebfe7999b85fb08a8a9f4d8b3f08ece8d102f21e5f6d49';
 
-    const prepared = tx.tokenMint({
+    const prepared = TransactionBuilder.tokenMint({
       chain_id: 1212101,
       nonce: 2,
       recipient: '0x0000000000000000000000000000000000000001',
@@ -220,7 +220,7 @@ describe('signing builder test', function () {
     const signatureHashByRustSdk: string | undefined =
       "0x29ad0e54618a9a596d43ceaf87c26ac5c3690452b0d543a9b4abf4b884513a49";
 
-    const prepared = tx.tokenManageList({
+    const prepared = TransactionBuilder.tokenManageList({
       chain_id: 1212101,
       nonce: 2,
       action: ManageListAction.Add,
@@ -269,7 +269,7 @@ describe('signing builder test', function () {
   it('prepareTokenBurnTx builds expected rlp bytes and hash', async function () {
     const signatureHashByRustSdk = "0x32d373b3c747b87a00c69ded8b9ab505a5e36d26df30486cb15d8316a10eb52a";
 
-    const prepared = tx.tokenBurn({
+    const prepared = TransactionBuilder.tokenBurn({
       chain_id: 1212101,
       nonce: 2,
       value: '273',
@@ -312,7 +312,7 @@ describe('signing builder test', function () {
   it('prepareTokenAuthorityTx builds expected rlp bytes and hash', async function () {
     const signatureHashByRustSdk = "0xe1eb07cd8808debb2bb2cb21c362ebfa14e94a4bfa703bb081090321c6ac89f5";
 
-    const prepared = tx.tokenAuthority({
+    const prepared = TransactionBuilder.tokenAuthority({
       chain_id: 1212101,
       nonce: 2,
       action: AuthorityAction.Grant,
@@ -365,7 +365,7 @@ describe('signing builder test', function () {
   it('prepareTokenPauseTx builds expected rlp bytes and hash', async function () {
     const signatureHashByRustSdk = "0x4b5f3746109cfd286e91abfec9fc3cc066f67cf3a4f2ad28e90c1bdedd27f19c";
 
-    const prepared = tx.tokenPause({
+    const prepared = TransactionBuilder.tokenPause({
       chain_id: 1212101,
       nonce: 2,
       action: PauseAction.Pause,
@@ -412,7 +412,7 @@ describe('signing builder test', function () {
       "0x02856c590e9220222e6d76dc1b0ad46a1bd8c098453ac6d91cee436b5571a2a4";
 
     const additionalMetadata = [];
-    const prepared = tx.tokenMetadata({
+    const prepared = TransactionBuilder.tokenMetadata({
       chain_id: 1212101,
       nonce: 2,
       name: 'test',
@@ -466,7 +466,7 @@ describe('signing builder test', function () {
       { key: "kkk", value: "vvv" },
       { key: "kkk2", value: "vvv2" }
     ];
-    const prepared = tx.tokenMetadata({
+    const prepared = TransactionBuilder.tokenMetadata({
       chain_id: 1212101,
       nonce: 2,
       name: 'test',
@@ -498,7 +498,7 @@ describe('signing builder test', function () {
       "0xca643e2e9408f42b0d8cb44e48ad6b45fbe6a76e0f2a154609c25dd319d8d3ec";
 
     const sourceTxHash = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
-    const prepared = tx.tokenBridgeAndMint({
+    const prepared = TransactionBuilder.tokenBridgeAndMint({
       chain_id: 1212101,
       nonce: 2,
       recipient: '0x0000000000000000000000000000000000000001',
@@ -554,7 +554,7 @@ describe('signing builder test', function () {
     const signatureHashByRustSdk =
       "0xc45e33f8700933a9dc5ddf913de29bc0b92937a81bf6d47c7d5ea6e82c6caa11";
 
-    const prepared = tx.tokenBurnAndBridge({
+    const prepared = TransactionBuilder.tokenBurnAndBridge({
       chain_id: 1212101,
       nonce: 2,
       sender: '0x0000000000000000000000000000000000000001',
@@ -617,7 +617,7 @@ describe('signing builder test', function () {
     const signatureHashByRustSdk =
       "0x30de10118795bc6f2277e37ed7acbf289b3ae93d2323a676faa479849c03302e";
 
-    const prepared = tx.tokenClawback({
+    const prepared = TransactionBuilder.tokenClawback({
       chain_id: 1212101,
       nonce: 2,
       token: '0x0000000000000000000000000000000000000002',

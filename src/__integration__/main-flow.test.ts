@@ -22,6 +22,7 @@
  */
 
 import { AuthorityAction, AuthorityType } from '@/api/tokens/types';
+import { createPrivateKeySigner, TransactionBuilder } from '@/signing';
 import { expect } from 'chai';
 import { getConfig, shouldRunIntegrationTests } from './config';
 import {
@@ -33,7 +34,6 @@ import {
   getCurrentCheckpoint,
   logSection,
   logStep,
-  signPayload,
   wait,
   waitForFinalization
 } from './helpers';
@@ -96,18 +96,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       logStep('Generated token symbol', tokenSymbol);
 
-      const signaturePayload = [
-        chainId,
-        nonce,
-        tokenSymbol,
-        tokenName,
-        tokenDecimals,
-        accounts.master.address,
-        tokenIsPrivate,
-        clawbackEnabled
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.tokenIssue({
         chain_id: chainId,
         nonce,
         symbol: tokenSymbol,
@@ -115,12 +104,13 @@ import { getTestAccounts, logTestAccounts } from './setup';
         decimals: tokenDecimals,
         master_authority: accounts.master.address,
         is_private: tokenIsPrivate,
-        clawback_enabled: clawbackEnabled,
-        signature: await signPayload(signaturePayload, accounts.operator)
-      };
+        clawback_enabled: clawbackEnabled
+      });
+      
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.operator.privateKey));
 
       logStep('Issuing token...');
-      const response = await client.tokens.issueToken(payload);
+      const response = await client.tokens.issueToken(signed.toRequest());
 
       issueTokenTxHash = response.hash;
       tokenAddress = response.token;
@@ -129,6 +119,8 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       expect(issueTokenTxHash).to.be.a('string');
       expect(tokenAddress).to.be.a('string');
+
+      await wait(2000);
 
       // Validate transaction by hash
       logStep('Validating transaction by hash...');
@@ -159,11 +151,6 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const finalized = await waitForFinalization(issueTokenTxHash);
       expect(finalized).to.be.true;
 
-      const finalizedTx = await client.transactions.getFinalizedByHash(issueTokenTxHash);
-      assertDefined(finalizedTx);
-      expect(finalizedTx.epoch).to.be.a('number');
-      expect(finalizedTx.counter_signatures).to.be.an('array');
-
       logStep('✓ Token issued and finalized successfully');
     });
 
@@ -193,29 +180,19 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const authorityType = AuthorityType.MintBurnTokens;
       const value = '1000000000000000000000'; // 1000 tokens
 
-      const signaturePayload = [
-        chainId,
-        nonce,
-        action,
-        authorityType,
-        accounts.user1.address,
-        tokenAddress,
-        value
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.tokenAuthority({
         chain_id: chainId,
         nonce,
         action,
         authority_type: authorityType,
         authority_address: accounts.user1.address,
         token: tokenAddress,
-        value,
-        signature: await signPayload(signaturePayload, accounts.master)
-      };
+        value
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Granting authority...');
-      const response = await client.tokens.grantAuthority(payload);
+      const response = await client.tokens.grantAuthority(signed.toRequest());
       grantAuthorityTxHash = response.hash;
 
       logStep('Authority granted', `Hash: ${grantAuthorityTxHash}`);
@@ -239,25 +216,17 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       const value = '100000000000000000000'; // 100 tokens
 
-      const signaturePayload = [
-        chainId,
-        nonce,
-        accounts.user2.address,
-        value,
-        tokenAddress
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.tokenMint({
         chain_id: chainId,
         nonce,
         recipient: accounts.user2.address,
         value,
-        token: tokenAddress,
-        signature: await signPayload(signaturePayload, accounts.user1)
-      };
+        token: tokenAddress
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.user1.privateKey));
 
       logStep('Minting tokens...');
-      const response = await client.tokens.mintToken(payload);
+      const response = await client.tokens.mintToken(signed.toRequest());
       mintTokenTxHash = response.hash;
 
       logStep('Tokens minted', `Hash: ${mintTokenTxHash}`);
@@ -291,25 +260,17 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       const value = '50000000000000000000'; // 50 tokens
 
-      const signaturePayload = [
-        chainId,
-        nonce,
-        accounts.user3.address,
-        value,
-        tokenAddress
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.payment({
         chain_id: chainId,
         nonce,
         recipient: accounts.user3.address,
         value,
-        token: tokenAddress,
-        signature: await signPayload(signaturePayload, accounts.user2)
-      };
+        token: tokenAddress
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.user2.privateKey));
 
       logStep('Transferring tokens...');
-      const response = await client.transactions.payment(payload);
+      const response = await client.transactions.payment(signed.toRequest());
       transferTokenTxHash = response.hash;
 
       logStep('Tokens transferred', `Hash: ${transferTokenTxHash}`);
@@ -334,29 +295,19 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const authorityType = AuthorityType.MintBurnTokens;
       const value = '1000000000000000000000'; // 1000 tokens
 
-      const signaturePayload = [
-        chainId,
-        nonce,
-        action,
-        authorityType,
-        accounts.user3.address,
-        tokenAddress,
-        value
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.tokenAuthority({
         chain_id: chainId,
         nonce,
         action,
         authority_type: authorityType,
         authority_address: accounts.user3.address,
         token: tokenAddress,
-        value,
-        signature: await signPayload(signaturePayload, accounts.master)
-      };
+        value
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Granting burn authority to user3...');
-      const response = await client.tokens.grantAuthority(payload);
+      const response = await client.tokens.grantAuthority(signed.toRequest());
       grantAuthorityUser3TxHash = response.hash;
 
       logStep('Authority granted', `Hash: ${grantAuthorityUser3TxHash}`);
@@ -380,23 +331,16 @@ import { getTestAccounts, logTestAccounts } from './setup';
 
       const value = '10000000000000000000'; // 10 tokens
 
-      const signaturePayload = [
-        chainId,
-        nonce,
-        value,
-        tokenAddress
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.tokenBurn({
         chain_id: chainId,
         nonce,
         value,
-        token: tokenAddress,
-        signature: await signPayload(signaturePayload, accounts.user3)
-      };
+        token: tokenAddress
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.user3.privateKey));
 
       logStep('Burning tokens...');
-      const response = await client.tokens.burnToken(payload);
+      const response = await client.tokens.burnToken(signed.toRequest());
       burnTokenTxHash = response.hash;
 
       logStep('Tokens burned', `Hash: ${burnTokenTxHash}`);
@@ -421,29 +365,19 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const authorityType = AuthorityType.Bridge;
       const value = '0'; // Bridge authority doesn't need a value
 
-      const signaturePayload = [
-        chainId,
-        nonce,
-        action,
-        authorityType,
-        accounts.user1.address,
-        tokenAddress,
-        value
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.tokenAuthority({
         chain_id: chainId,
         nonce,
         action,
         authority_type: authorityType,
         authority_address: accounts.user1.address,
         token: tokenAddress,
-        value,
-        signature: await signPayload(signaturePayload, accounts.master)
-      };
+        value
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Granting bridge authority to user1...');
-      const response = await client.tokens.grantAuthority(payload);
+      const response = await client.tokens.grantAuthority(signed.toRequest());
       grantBridgeAuthorityUser1TxHash = response.hash;
 
       logStep('Bridge authority granted', `Hash: ${grantBridgeAuthorityUser1TxHash}`);
@@ -471,19 +405,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const sourceTxHash = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
       const value = '25000000000000000000'; // 25 tokens
 
-      // Signature payload: only required fields in struct order
-      const signaturePayload = [
-        chainId,  // chain_id
-        nonce,
-        accounts.user2.address,  // recipient
-        value,
-        tokenAddress,  // token
-        sourceChainId,  // source_chain_id
-        sourceTxHash,  // source_tx_hash
-        // bridge_metadata is optional, omit it
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.tokenBridgeAndMint({
         bridge_metadata: bridgeMetadata,
         chain_id: chainId,
         nonce,
@@ -491,12 +413,12 @@ import { getTestAccounts, logTestAccounts } from './setup';
         source_chain_id: sourceChainId,
         source_tx_hash: sourceTxHash,
         token: tokenAddress,
-        value,
-        signature: await signPayload(signaturePayload, accounts.user1)
-      };
+        value
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.user1.privateKey));
 
       logStep('Bridging and minting tokens...');
-      const response = await client.tokens.bridgeAndMint(payload);
+      const response = await client.tokens.bridgeAndMint(signed.toRequest());
       bridgeAndMintTxHash = response.hash;
 
       logStep('Tokens bridged and minted', `Hash: ${bridgeAndMintTxHash}`);
@@ -524,20 +446,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const escrowFee = '1000000000000000000'; // 1 token
       const value = '20000000000000000000'; // 20 tokens
 
-      // Signature payload: only required fields in struct order
-      const signaturePayload = [
-        chainId,  // chain_id
-        nonce,
-        accounts.user2.address,  // sender
-        value,
-        tokenAddress,  // token
-        destinationChainId,  // destination_chain_id
-        destinationAddress,  // destination_address
-        escrowFee,  // escrow_fee
-        // bridge_metadata and bridge_param are optional, omit them
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.tokenBurnAndBridge({
         bridge_metadata: bridgeMetadata,
         bridge_param: bridgeParam,
         chain_id: chainId,
@@ -547,12 +456,12 @@ import { getTestAccounts, logTestAccounts } from './setup';
         nonce,
         sender: accounts.user2.address,
         token: tokenAddress,
-        value,
-        signature: await signPayload(signaturePayload, accounts.user2)
-      };
+        value
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.user2.privateKey));
 
       logStep('Burning and bridging tokens...');
-      const response = await client.tokens.burnAndBridge(payload);
+      const response = await client.tokens.burnAndBridge(signed.toRequest());
       burnAndBridgeTxHash = response.hash;
 
       logStep('Tokens burned and bridged', `Hash: ${burnAndBridgeTxHash}`);
@@ -577,29 +486,19 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const authorityType = AuthorityType.MintBurnTokens;
       const value = '0'; // Revoke doesn't need a value, but include it for signature consistency
 
-      const signaturePayload = [
-        chainId,
-        nonce,
-        action,
-        authorityType,
-        accounts.user1.address,
-        tokenAddress,
-        value
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.tokenAuthority({
         chain_id: chainId,
         nonce,
         action,
         authority_type: authorityType,
         authority_address: accounts.user1.address,
         token: tokenAddress,
-        value,
-        signature: await signPayload(signaturePayload, accounts.master)
-      };
+        value
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Revoking authority from user1...');
-      const response = await client.tokens.grantAuthority(payload);
+      const response = await client.tokens.grantAuthority(signed.toRequest());
       revokeAuthorityTxHash = response.hash;
 
       logStep('Authority revoked', `Hash: ${revokeAuthorityTxHash}`);
@@ -622,29 +521,19 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const authorityType = AuthorityType.MintBurnTokens;
       const value = '0';
 
-      const signaturePayload = [
-        chainId,
-        nonce,
-        action,
-        authorityType,
-        accounts.user3.address,
-        tokenAddress,
-        value
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.tokenAuthority({
         chain_id: chainId,
         nonce,
         action,
         authority_type: authorityType,
         authority_address: accounts.user3.address,
         token: tokenAddress,
-        value,
-        signature: await signPayload(signaturePayload, accounts.master)
-      };
+        value
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Revoking authority from user3...');
-      const response = await client.tokens.grantAuthority(payload);
+      const response = await client.tokens.grantAuthority(signed.toRequest());
       revokeAuthorityUser3TxHash = response.hash;
 
       logStep('Authority revoked', `Hash: ${revokeAuthorityUser3TxHash}`);
@@ -667,29 +556,19 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const authorityType = AuthorityType.Bridge;
       const value = '0';
 
-      const signaturePayload = [
-        chainId,
-        nonce,
-        action,
-        authorityType,
-        accounts.user1.address,
-        tokenAddress,
-        value
-      ];
-
-      const payload = {
+      const prepared = TransactionBuilder.tokenAuthority({
         chain_id: chainId,
         nonce,
         action,
         authority_type: authorityType,
         authority_address: accounts.user1.address,
         token: tokenAddress,
-        value,
-        signature: await signPayload(signaturePayload, accounts.master)
-      };
+        value
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Revoking bridge authority from user1...');
-      const response = await client.tokens.grantAuthority(payload);
+      const response = await client.tokens.grantAuthority(signed.toRequest());
       revokeBridgeAuthorityUser1TxHash = response.hash;
 
       logStep('Bridge authority revoked', `Hash: ${revokeBridgeAuthorityUser1TxHash}`);

@@ -12,11 +12,11 @@ import {
   prepareTokenPauseTx,
 } from './builders';
 
+export * from './builders';
 export * from './core';
 export * from './signer';
-export * from './builders';
 
-export const tx = {
+export const TransactionBuilder = {
   payment: preparePaymentTx,
   tokenManageList: prepareTokenManageListTx,
   tokenBurn: prepareTokenBurnTx,
@@ -30,4 +30,4 @@ export const tx = {
   tokenClawback: prepareTokenClawbackTx,
 };
 
-export default tx;
+export default TransactionBuilder;

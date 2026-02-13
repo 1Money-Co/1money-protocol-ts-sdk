@@ -94,8 +94,8 @@ describe("utils test", function () {
     });
   });
 
-  describe("encodePayload2 test", function () {
-    it("encodePayload2 is a function", function () {
+  describe("encodeRlpPayload test", function () {
+    it("encodeRlpPayload is a function", function () {
       expect(encodeRlpPayload).to.be.a("function");
     });
 
@@ -165,10 +165,10 @@ describe("utils test", function () {
 
     it("throws on invalid uint string", function () {
       expect(() => encodeRlpPayload(v.uint('12.3'))).to.throw(
-        '[1Money encodePayload2]: Invalid uint string: 12.3'
+        '[1Money encodeRlpPayload]: Invalid uint string: 12.3'
       );
       expect(() => encodeRlpPayload(v.uint('-1'))).to.throw(
-        '[1Money encodePayload2]: Invalid uint string: -1'
+        '[1Money encodeRlpPayload]: Invalid uint string: -1'
       );
     });
   });
