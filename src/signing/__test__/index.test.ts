@@ -612,4 +612,58 @@ describe('signing builder test', function () {
       '0x'
     );
   });
+
+  it('prepareTokenClawbackTx builds expected rlp bytes and hash', async function () {
+    const signatureHashByRustSdk =
+      "0x30de10118795bc6f2277e37ed7acbf289b3ae93d2323a676faa479849c03302e";
+
+    const prepared = tx.tokenClawback({
+      chain_id: 1212101,
+      nonce: 2,
+      token: '0x0000000000000000000000000000000000000002',
+      from: '0x0000000000000000000000000000000000000003',
+      recipient: '0x0000000000000000000000000000000000000001',
+      value: '273',
+    });
+
+    const expectedEncodedRlp = encodeRlpPayload(
+      ev.list([
+        ev.uint(1212101),
+        ev.uint(2),
+        ev.address(
+          '0x0000000000000000000000000000000000000002'
+        ),
+        ev.address(
+          '0x0000000000000000000000000000000000000003'
+        ),
+        ev.address(
+          '0x0000000000000000000000000000000000000001'
+        ),
+        ev.uint('273'),
+      ])
+    );
+    const innerSignatureHash = keccak256(expectedEncodedRlp);
+    assertExternalHash(
+      innerSignatureHash,
+      signatureHashByRustSdk
+    );
+    expect(prepared.signatureHash).to.equal(
+      innerSignatureHash
+    );
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(
+      Array.from(expectedEncodedRlp)
+    );
+
+    const signed = await prepared.sign(
+      createPrivateKeySigner(privateKey)
+    );
+    assertExternalSignature(signed.signature, {
+      r: '0x03d36d994d239e1e94857a74750215548d68e2cdc338d1bcd7a437dda3e8c78f',
+      s: '0x11ee5489c5b901ab75d207d534d7906b55d4a8ec92fb37ea19a4d9f6d56ebfa5',
+      v: 1,
+    });
+    expect(signed.toRequest().from).to.equal(
+      '0x0000000000000000000000000000000000000003'
+    );
+  });
 });

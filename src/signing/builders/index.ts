@@ -8,3 +8,4 @@ export * from './tokenPause';
 export * from './tokenMetadata';
 export * from './tokenBridgeAndMint';
 export * from './tokenBurnAndBridge';
+export * from './tokenClawback';

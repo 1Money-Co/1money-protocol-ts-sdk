@@ -4,6 +4,7 @@ import {
   prepareTokenBridgeAndMintTx,
   prepareTokenBurnAndBridgeTx,
   prepareTokenBurnTx,
+  prepareTokenClawbackTx,
   prepareTokenIssueTx,
   prepareTokenManageListTx,
   prepareTokenMetadataTx,
@@ -26,6 +27,7 @@ export const tx = {
   tokenMetadata: prepareTokenMetadataTx,
   tokenBridgeAndMint: prepareTokenBridgeAndMintTx,
   tokenBurnAndBridge: prepareTokenBurnAndBridgeTx,
+  tokenClawback: prepareTokenClawbackTx,
 };
 
 export default tx;
