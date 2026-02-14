@@ -670,4 +670,173 @@ describe('signing builder test', function () {
       '0x0000000000000000000000000000000000000003'
     );
   });
+
+  describe('Custom SignerAdapter tests', function () {
+    it('should accept custom signer with valid low-S signature', async function () {
+      const prepared = TransactionBuilder.payment({
+        chain_id: 1212101,
+        nonce: 0,
+        recipient: '0xa634dfba8c7550550817898bc4820cd10888aac5',
+        value: '10',
+        token: '0x5458747a0efb9ebeb8696fcac1479278c0872fbe',
+      });
+
+      // Custom signer that returns a valid low-S signature
+      const customSigner = {
+        signDigest: async (digest: ZeroXString): Promise<Signature> => {
+          expect(digest).to.equal(prepared.signatureHash);
+          // Return a known valid low-S signature
+          return {
+            r: '0x41e1e158803da19ef1fc9ab35d86776cb02ac493265b948ff18b2c57a4e52432',
+            s: '0x21f42bb02796a424b0961af374a71e0b948e8fadb58f1e5c6ac861be656265e1',
+            v: 0,
+          };
+        },
+      };
+
+      const signed = await prepared.sign(customSigner);
+      expect(signed.signature.r).to.equal(
+        '0x41e1e158803da19ef1fc9ab35d86776cb02ac493265b948ff18b2c57a4e52432'
+      );
+      expect(signed.signature.s).to.equal(
+        '0x21f42bb02796a424b0961af374a71e0b948e8fadb58f1e5c6ac861be656265e1'
+      );
+      expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    });
+
+    it('should reject custom signer with high-S signature (malleability protection)', async function () {
+      const prepared = TransactionBuilder.payment({
+        chain_id: 1212101,
+        nonce: 0,
+        recipient: '0xa634dfba8c7550550817898bc4820cd10888aac5',
+        value: '10',
+        token: '0x5458747a0efb9ebeb8696fcac1479278c0872fbe',
+      });
+
+      // Custom signer that returns an invalid high-S signature
+      const customSignerWithHighS = {
+        signDigest: async (digest: ZeroXString): Promise<Signature> => {
+          // Return a high-S signature (above secp256k1n/2)
+          return {
+            r: '0x41e1e158803da19ef1fc9ab35d86776cb02ac493265b948ff18b2c57a4e52432',
+            // This S value is intentionally high (above the threshold)
+            s: '0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',
+            v: 0,
+          };
+        },
+      };
+
+      try {
+        await prepared.sign(customSignerWithHighS);
+        expect.fail('Should have thrown error for high-S signature');
+      } catch (error: any) {
+        expect(error.message).to.include('[1Money SDK]');
+        expect(error.message).to.include('high S value');
+        expect(error.message).to.include('malleability');
+      }
+    });
+
+    it('should validate signature when using attachSignature directly', function () {
+      const prepared = TransactionBuilder.payment({
+        chain_id: 1212101,
+        nonce: 0,
+        recipient: '0xa634dfba8c7550550817898bc4820cd10888aac5',
+        value: '10',
+        token: '0x5458747a0efb9ebeb8696fcac1479278c0872fbe',
+      });
+
+      // Valid low-S signature should work
+      const validSignature: Signature = {
+        r: '0x41e1e158803da19ef1fc9ab35d86776cb02ac493265b948ff18b2c57a4e52432',
+        s: '0x21f42bb02796a424b0961af374a71e0b948e8fadb58f1e5c6ac861be656265e1',
+        v: 0,
+      };
+
+      const signed = prepared.attachSignature(validSignature);
+      expect(signed.signature).to.deep.equal(validSignature);
+      expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    });
+
+    it('should reject high-S signature when using attachSignature directly', function () {
+      const prepared = TransactionBuilder.payment({
+        chain_id: 1212101,
+        nonce: 0,
+        recipient: '0xa634dfba8c7550550817898bc4820cd10888aac5',
+        value: '10',
+        token: '0x5458747a0efb9ebeb8696fcac1479278c0872fbe',
+      });
+
+      // Invalid high-S signature should be rejected
+      const highSSignature: Signature = {
+        r: '0x41e1e158803da19ef1fc9ab35d86776cb02ac493265b948ff18b2c57a4e52432',
+        s: '0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',
+        v: 0,
+      };
+
+      expect(() => prepared.attachSignature(highSSignature)).to.throw(
+        '[1Money SDK]: Invalid signature - high S value detected (potential malleability)'
+      );
+    });
+
+    it('should work with boolean v value in custom signer', async function () {
+      const prepared = TransactionBuilder.payment({
+        chain_id: 1212101,
+        nonce: 0,
+        recipient: '0xa634dfba8c7550550817898bc4820cd10888aac5',
+        value: '10',
+        token: '0x5458747a0efb9ebeb8696fcac1479278c0872fbe',
+      });
+
+      const customSigner = {
+        signDigest: async (digest: ZeroXString): Promise<Signature> => {
+          return {
+            r: '0x41e1e158803da19ef1fc9ab35d86776cb02ac493265b948ff18b2c57a4e52432',
+            s: '0x21f42bb02796a424b0961af374a71e0b948e8fadb58f1e5c6ac861be656265e1',
+            v: false as any, // boolean v value
+          };
+        },
+      };
+
+      const signed = await prepared.sign(customSigner);
+      expect(signed.signature.v).to.equal(false);
+      expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    });
+
+    it('should reject invalid digest format in createPrivateKeySigner', async function () {
+      const signer = createPrivateKeySigner(privateKey);
+
+      try {
+        await signer.signDigest('0xinvalid' as ZeroXString);
+        expect.fail('Should have thrown error for invalid digest');
+      } catch (error: any) {
+        expect(error.message).to.include('[1Money SDK]');
+        expect(error.message).to.include('Invalid digest');
+      }
+    });
+
+    it('should reject non-hex digest in createPrivateKeySigner', async function () {
+      const signer = createPrivateKeySigner(privateKey);
+
+      try {
+        await signer.signDigest('not-a-hex-string' as ZeroXString);
+        expect.fail('Should have thrown error for non-hex digest');
+      } catch (error: any) {
+        expect(error.message).to.include('[1Money SDK]');
+        expect(error.message).to.include('Invalid digest');
+      }
+    });
+
+    it('should accept exactly 64 hex characters (32 bytes) for digest', async function () {
+      const signer = createPrivateKeySigner(privateKey);
+
+      // Valid 32-byte digest
+      const validDigest =
+        '0xe9e5e0f091a176e9eb239b17b930f5cd8d10e5782127b854840df65c67e22f99' as ZeroXString;
+
+      const signature = await signer.signDigest(validDigest);
+      expect(signature.r).to.match(/^0x[0-9a-f]{64}$/);
+      expect(signature.s).to.match(/^0x[0-9a-f]{64}$/);
+      expect(signature.v === 0 || signature.v === 1).to.equal(true);
+    });
+  });
 });

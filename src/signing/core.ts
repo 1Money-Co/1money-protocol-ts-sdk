@@ -1,4 +1,7 @@
-import { encode as rlpEncode } from '@ethereumjs/rlp';
+import {
+  encode as rlpEncode,
+  decode as rlpDecode,
+} from '@ethereumjs/rlp';
 import {
   hexToBytes,
   keccak256,
@@ -8,6 +11,12 @@ import type {
   Signature,
   ZeroXString,
 } from '@/utils';
+
+// secp256k1 curve order / 2 (maximum value for low-S signatures)
+// This prevents signature malleability by ensuring S is in the lower half of the curve order
+const SECP256K1_N_DIV_2 = BigInt(
+  '0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0'
+);
 
 export interface SignerAdapter {
   signDigest: (digest: ZeroXString) => Promise<Signature>;
@@ -35,67 +44,39 @@ export interface PreparedTx<TUnsigned, TRequest> {
   ) => Promise<SignedTx<TUnsigned, TRequest>>;
 }
 
-function encodeRlpListHeader(length: number): Uint8Array {
-  if (!Number.isSafeInteger(length) || length < 0) {
+function validateSignature(signature: Signature): void {
+  // Validate that S value is in the lower half of the curve order
+  // This prevents signature malleability attacks
+  const s = BigInt(signature.s);
+  if (s > SECP256K1_N_DIV_2) {
     throw new Error(
-      `[1Money signing]: Invalid RLP list length: ${length}`
+      '[1Money SDK]: Invalid signature - high S value detected (potential malleability)'
     );
   }
-
-  if (length < 56) {
-    return Uint8Array.from([0xc0 + length]);
-  }
-
-  const lenBytes: number[] = [];
-  let temp = length;
-  while (temp > 0) {
-    lenBytes.unshift(temp & 0xff);
-    temp >>= 8;
-  }
-  return Uint8Array.from([
-    0xf7 + lenBytes.length,
-    ...lenBytes,
-  ]);
 }
 
 export function calcSignedTxHash(
   payloadRlpBytes: Uint8Array,
   signature: Signature
 ): ZeroXString {
-  const vEncode = rlpEncode(
+  // Decode the payload to get the transaction fields
+  const payloadFields = rlpDecode(payloadRlpBytes);
+
+  // Prepare v value based on its type
+  const v =
     typeof signature.v === 'boolean'
       ? signature.v
         ? Uint8Array.from([1])
         : new Uint8Array([])
-      : BigInt(signature.v)
-  );
-  const rEncode = rlpEncode(hexToBytes(signature.r));
-  const sEncode = rlpEncode(hexToBytes(signature.s));
+      : BigInt(signature.v);
 
-  const vrsBytes = new Uint8Array(
-    vEncode.length + rEncode.length + sEncode.length
-  );
-  vrsBytes.set(vEncode, 0);
-  vrsBytes.set(rEncode, vEncode.length);
-  vrsBytes.set(
-    sEncode,
-    vEncode.length + rEncode.length
-  );
-
-  const header = encodeRlpListHeader(
-    payloadRlpBytes.length + vrsBytes.length
-  );
-  const encoded = new Uint8Array(
-    header.length +
-      payloadRlpBytes.length +
-      vrsBytes.length
-  );
-  encoded.set(header, 0);
-  encoded.set(payloadRlpBytes, header.length);
-  encoded.set(
-    vrsBytes,
-    header.length + payloadRlpBytes.length
-  );
+  // Use library's encode to create the signed transaction structure: [[fields], v, r, s]
+  const encoded = rlpEncode([
+    payloadFields,
+    v,
+    hexToBytes(signature.r),
+    hexToBytes(signature.s),
+  ]);
 
   return keccak256(encoded) as ZeroXString;
 }
@@ -118,15 +99,20 @@ export function createPreparedTx<
 
   const attachSignature = (
     signature: Signature
-  ): SignedTx<TUnsigned, TRequest> => ({
-    kind: params.kind,
-    unsigned: params.unsigned,
-    signatureHash,
-    txHash: calcSignedTxHash(params.rlpBytes, signature),
-    signature,
-    toRequest: () =>
-      params.toRequest(params.unsigned, signature),
-  });
+  ): SignedTx<TUnsigned, TRequest> => {
+    // Validate signature to prevent malleability attacks
+    validateSignature(signature);
+
+    return {
+      kind: params.kind,
+      unsigned: params.unsigned,
+      signatureHash,
+      txHash: calcSignedTxHash(params.rlpBytes, signature),
+      signature,
+      toRequest: () =>
+        params.toRequest(params.unsigned, signature),
+    };
+  };
 
   return {
     kind: params.kind,

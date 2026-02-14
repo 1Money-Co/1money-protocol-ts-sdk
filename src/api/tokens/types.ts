@@ -117,6 +117,9 @@ export interface TokenIssuePayload {
   decimals: number;
   master_authority: string;
   is_private: boolean;
+  /**
+   * @default true
+   */
   clawback_enabled?: boolean;
   signature: RestSignature;
 }

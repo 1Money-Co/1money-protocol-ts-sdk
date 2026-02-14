@@ -165,10 +165,10 @@ describe("utils test", function () {
 
     it("throws on invalid uint string", function () {
       expect(() => encodeRlpPayload(v.uint('12.3'))).to.throw(
-        '[1Money encodeRlpPayload]: Invalid uint string: 12.3'
+        '[1Money SDK]: Invalid uint string: 12.3'
       );
       expect(() => encodeRlpPayload(v.uint('-1'))).to.throw(
-        '[1Money encodeRlpPayload]: Invalid uint string: -1'
+        '[1Money SDK]: Invalid uint string: -1'
       );
     });
   });

@@ -29,7 +29,7 @@ function innerEncodeRlpPayload(
         !/^\d+$/.test(value.value)
       ) {
         throw new Error(
-          `[1Money encodeRlpPayload]: Invalid uint string: ${value.value}`
+          `[1Money SDK]: Invalid uint string: ${value.value}`
         );
       }
 
@@ -53,7 +53,7 @@ function innerEncodeRlpPayload(
     case 'hex':
       if (!BYTES_HEX_RE.test(value.value)) {
         throw new Error(
-          `[1Money encodeRlpPayload]: Invalid hex value: ${value.value}`
+          `[1Money SDK]: Invalid hex value: ${value.value}`
         );
       }
 
@@ -62,7 +62,7 @@ function innerEncodeRlpPayload(
         !ADDRESS_HEX_RE.test(value.value)
       ) {
         throw new Error(
-          `[1Money encodeRlpPayload]: Invalid address value: ${value.value}`
+          `[1Money SDK]: Invalid address value: ${value.value}`
         );
       }
 

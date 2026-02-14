@@ -17,7 +17,7 @@ export function createPrivateKeySigner(
     ): Promise<Signature> => {
       if (!DIGEST_HEX_RE.test(digest)) {
         throw new Error(
-          `[1Money signing]: Invalid digest: ${digest}`
+          `[1Money SDK]: Invalid digest: ${digest}`
         );
       }
 

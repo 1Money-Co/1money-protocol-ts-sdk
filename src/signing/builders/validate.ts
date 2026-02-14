@@ -1,9 +1,10 @@
-const ADDRESS_HEX_RE = /^0x[0-9a-fA-F]{40}$/;
+import { isAddress } from 'viem';
+
 const UINT_STRING_RE = /^\d+$/;
 
 function fail(name: string, value: unknown): never {
   throw new Error(
-    `[1Money signing]: Invalid ${name}: ${String(value)}`
+    `[1Money SDK]: Invalid ${name}: ${String(value)}`
   );
 }
 
@@ -52,7 +53,10 @@ export function assertAddress(
   name: string,
   value: string
 ) {
-  if (!ADDRESS_HEX_RE.test(value)) {
+  // viem's isAddress validates both format and EIP-55 checksum
+  // It accepts: lowercase, uppercase, and correctly checksummed addresses
+  // It rejects: invalid format or incorrect checksum (when mixed case is used)
+  if (!isAddress(value)) {
     fail(name, value);
   }
 }
