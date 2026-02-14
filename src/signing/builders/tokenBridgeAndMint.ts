@@ -3,6 +3,11 @@ import {
   rlpValue,
 } from '@/utils';
 import { createPreparedTx } from '../core';
+import {
+  assertPositiveInteger,
+  validateChainAndNonce,
+  validateRecipientValueToken,
+} from './validate';
 
 import type { TokenBridgeAndMintPayload } from '@/api/tokens/types';
 
@@ -14,6 +19,13 @@ export type TokenBridgeAndMintUnsigned = Omit<
 export function prepareTokenBridgeAndMintTx(
   unsigned: TokenBridgeAndMintUnsigned
 ) {
+  validateChainAndNonce(unsigned);
+  validateRecipientValueToken(unsigned);
+  assertPositiveInteger(
+    'source_chain_id',
+    unsigned.source_chain_id
+  );
+
   const rlpBytes = encodeRlpPayload(
     rlpValue.list([
       rlpValue.uint(unsigned.chain_id),

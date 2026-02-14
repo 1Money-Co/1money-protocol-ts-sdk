@@ -4,6 +4,11 @@ import {
   rlpValue,
 } from '@/utils';
 import { createPreparedTx } from '../core';
+import {
+  assertAddress,
+  assertOptionalUintString,
+  validateChainAndNonce,
+} from './validate';
 
 import type { TokenAuthorityPayload } from '@/api/tokens/types';
 
@@ -15,6 +20,11 @@ export type TokenAuthorityUnsigned = Omit<
 export function prepareTokenAuthorityTx(
   unsigned: TokenAuthorityUnsigned
 ) {
+  validateChainAndNonce(unsigned);
+  assertAddress('authority_address', unsigned.authority_address);
+  assertAddress('token', unsigned.token);
+  assertOptionalUintString('value', unsigned.value);
+
   const values: PlpPayload[] = [
     rlpValue.uint(unsigned.chain_id),
     rlpValue.uint(unsigned.nonce),

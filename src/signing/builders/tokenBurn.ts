@@ -3,6 +3,10 @@ import {
   rlpValue,
 } from '@/utils';
 import { createPreparedTx } from '../core';
+import {
+  validateChainAndNonce,
+  validateValueToken,
+} from './validate';
 
 import type { TokenBurnPayload } from '@/api/tokens/types';
 
@@ -14,6 +18,9 @@ export type TokenBurnUnsigned = Omit<
 export function prepareTokenBurnTx(
   unsigned: TokenBurnUnsigned
 ) {
+  validateChainAndNonce(unsigned);
+  validateValueToken(unsigned);
+
   const rlpBytes = encodeRlpPayload(
     rlpValue.list([
       rlpValue.uint(unsigned.chain_id),

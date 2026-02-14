@@ -3,6 +3,10 @@ import {
   rlpValue,
 } from '@/utils';
 import { createPreparedTx } from '../core';
+import {
+  assertAddress,
+  validateChainAndNonce,
+} from './validate';
 
 import type { TokenManageListPayload } from '@/api/tokens/types';
 
@@ -14,6 +18,10 @@ export type TokenManageListUnsigned = Omit<
 export function prepareTokenManageListTx(
   unsigned: TokenManageListUnsigned
 ) {
+  validateChainAndNonce(unsigned);
+  assertAddress('address', unsigned.address);
+  assertAddress('token', unsigned.token);
+
   const rlpBytes = encodeRlpPayload(
     rlpValue.list([
       rlpValue.uint(unsigned.chain_id),

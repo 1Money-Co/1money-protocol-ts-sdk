@@ -3,6 +3,10 @@ import {
   rlpValue,
 } from '@/utils';
 import { createPreparedTx } from '../core';
+import {
+  assertAddress,
+  validateChainAndNonce,
+} from './validate';
 
 import type { TokenMetadataPayload } from '@/api/tokens/types';
 
@@ -14,6 +18,9 @@ export type TokenMetadataUnsigned = Omit<
 export function prepareTokenMetadataTx(
   unsigned: TokenMetadataUnsigned
 ) {
+  validateChainAndNonce(unsigned);
+  assertAddress('token', unsigned.token);
+
   const additionalMetadataRlp = unsigned.additional_metadata.map(
     item =>
       rlpValue.list([

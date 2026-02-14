@@ -3,6 +3,10 @@ import {
   rlpValue,
 } from '@/utils';
 import { createPreparedTx } from '../core';
+import {
+  assertAddress,
+  validateChainAndNonce,
+} from './validate';
 
 import type { TokenPausePayload } from '@/api/tokens/types';
 
@@ -14,6 +18,9 @@ export type TokenPauseUnsigned = Omit<
 export function prepareTokenPauseTx(
   unsigned: TokenPauseUnsigned
 ) {
+  validateChainAndNonce(unsigned);
+  assertAddress('token', unsigned.token);
+
   const rlpBytes = encodeRlpPayload(
     rlpValue.list([
       rlpValue.uint(unsigned.chain_id),

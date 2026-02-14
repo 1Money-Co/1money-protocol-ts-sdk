@@ -3,6 +3,10 @@ import {
   rlpValue,
 } from '@/utils';
 import { createPreparedTx } from '../core';
+import {
+  validateChainAndNonce,
+  validateRecipientValueToken,
+} from './validate';
 
 import type { PaymentPayload } from '@/api/transactions/types';
 
@@ -14,6 +18,9 @@ export type PaymentUnsigned = Omit<
 export function preparePaymentTx(
   unsigned: PaymentUnsigned
 ) {
+  validateChainAndNonce(unsigned);
+  validateRecipientValueToken(unsigned);
+
   const rlpBytes = encodeRlpPayload(
     rlpValue.list([
       rlpValue.uint(unsigned.chain_id),

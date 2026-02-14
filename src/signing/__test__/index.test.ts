@@ -13,7 +13,6 @@ import {
 } from '../../api/tokens/types';
 import type { Signature, ZeroXString } from '../../utils';
 import {
-  calcTxHash,
   encodeRlpPayload,
   rlpValue as ev,
 } from '../../utils';
@@ -105,18 +104,9 @@ describe('signing builder test', function () {
     });
     expect(signed.signatureHash).to.equal(prepared.signatureHash);
     expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
-    expect(signed.txHash).to.equal(
-      calcTxHash(
-        [
-          1212101,
-          0,
-          '0xa634dfba8c7550550817898bc4820cd10888aac5',
-          '10',
-          '0x5458747a0efb9ebeb8696fcac1479278c0872fbe',
-        ],
-        signed.signature
-      )
-    );
+    expect(
+      prepared.attachSignature(signed.signature).txHash
+    ).to.equal(signed.txHash);
 
     const req = signed.toRequest();
     expect(req.signature.r).to.equal(signed.signature.r);

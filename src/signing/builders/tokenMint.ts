@@ -3,6 +3,10 @@ import {
   rlpValue,
 } from '@/utils';
 import { createPreparedTx } from '../core';
+import {
+  validateChainAndNonce,
+  validateRecipientValueToken,
+} from './validate';
 
 import type { TokenMintPayload } from '@/api/tokens/types';
 
@@ -14,6 +18,9 @@ export type TokenMintUnsigned = Omit<
 export function prepareTokenMintTx(
   unsigned: TokenMintUnsigned
 ) {
+  validateChainAndNonce(unsigned);
+  validateRecipientValueToken(unsigned);
+
   const rlpBytes = encodeRlpPayload(
     rlpValue.list([
       rlpValue.uint(unsigned.chain_id),

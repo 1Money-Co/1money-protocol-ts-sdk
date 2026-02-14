@@ -3,6 +3,11 @@ import {
   rlpValue,
 } from '@/utils';
 import { createPreparedTx } from '../core';
+import {
+  assertAddress,
+  assertNonNegativeInteger,
+  validateChainAndNonce,
+} from './validate';
 
 import type { TokenIssuePayload } from '@/api/tokens/types';
 
@@ -14,6 +19,13 @@ export type TokenIssueUnsigned = Omit<
 export function prepareTokenIssueTx(
   unsigned: TokenIssueUnsigned
 ) {
+  validateChainAndNonce(unsigned);
+  assertNonNegativeInteger('decimals', unsigned.decimals);
+  assertAddress(
+    'master_authority',
+    unsigned.master_authority
+  );
+
   const clawbackEnabled =
     unsigned.clawback_enabled ?? true;
 

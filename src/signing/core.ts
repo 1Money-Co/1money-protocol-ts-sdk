@@ -36,6 +36,12 @@ export interface PreparedTx<TUnsigned, TRequest> {
 }
 
 function encodeRlpListHeader(length: number): Uint8Array {
+  if (!Number.isSafeInteger(length) || length < 0) {
+    throw new Error(
+      `[1Money signing]: Invalid RLP list length: ${length}`
+    );
+  }
+
   if (length < 56) {
     return Uint8Array.from([0xc0 + length]);
   }

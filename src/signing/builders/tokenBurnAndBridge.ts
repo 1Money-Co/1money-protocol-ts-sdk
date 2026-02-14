@@ -3,6 +3,13 @@ import {
   rlpValue,
 } from '@/utils';
 import { createPreparedTx } from '../core';
+import {
+  assertAddress,
+  assertPositiveInteger,
+  assertUintString,
+  validateChainAndNonce,
+  validateValueToken,
+} from './validate';
 
 import type { TokenBurnAndBridgePayload } from '@/api/tokens/types';
 
@@ -14,6 +21,19 @@ export type TokenBurnAndBridgeUnsigned = Omit<
 export function prepareTokenBurnAndBridgeTx(
   unsigned: TokenBurnAndBridgeUnsigned
 ) {
+  validateChainAndNonce(unsigned);
+  assertAddress('sender', unsigned.sender);
+  validateValueToken(unsigned);
+  assertPositiveInteger(
+    'destination_chain_id',
+    unsigned.destination_chain_id
+  );
+  assertAddress(
+    'destination_address',
+    unsigned.destination_address
+  );
+  assertUintString('escrow_fee', unsigned.escrow_fee);
+
   const rlpBytes = encodeRlpPayload(
     rlpValue.list([
       rlpValue.uint(unsigned.chain_id),
