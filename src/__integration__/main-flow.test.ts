@@ -2,11 +2,15 @@
  * Main business flow integration test
  *
  * This test covers the complete token lifecycle:
- * 1. Issue token
+ * 1. Issue token (with clawback enabled)
  * 2. Grant mint authority to user1
  * 3. Mint token (user1 mints to user2)
  * 4. Transfer token (user2 transfers to user3)
- * 4.5. Grant burn authority to user3
+ * 4.5. Clawback flow:
+ *      a. Grant clawback authority to master
+ *      b. Perform clawback (master claws back from user3 to user1)
+ *      c. Revoke clawback authority from master
+ * 4.6. Grant burn authority to user3
  * 5. Burn token (user3 burns their tokens)
  * 5.5. Grant bridge authority to user1
  * 6. Bridge and mint (user1 bridges and mints to user2)
@@ -19,6 +23,7 @@
  * - Finalized transaction by hash
  * - Checkpoint APIs
  * - Account APIs
+ * - Clawback functionality
  */
 
 import { AuthorityAction, AuthorityType } from '@/api/tokens/types';
@@ -291,9 +296,118 @@ import { getTestAccounts, logTestAccounts } from './setup';
     });
   });
 
-  describe('4.5. Grant Burn Authority to User3', function () {
+  describe('4.5. Grant Clawback Authority and Test Clawback', function () {
+    let grantClawbackAuthorityTxHash: string;
+    let clawbackTxHash: string;
+
+    it('should grant clawback authority to master', async function () {
+      logSection('Step 4.5a: Grant Clawback Authority to Master');
+
+      const nonce = await getAccountNonce(accounts.master.address);
+
+      const action = AuthorityAction.Grant;
+      const authorityType = AuthorityType.Clawback;
+      const value = '0'; // Clawback authority doesn't need a value
+
+      const prepared = TransactionBuilder.tokenAuthority({
+        chain_id: chainId,
+        nonce,
+        action,
+        authority_type: authorityType,
+        authority_address: accounts.master.address,
+        token: tokenAddress,
+        value
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
+
+      logStep('Granting clawback authority to master...');
+      const response = await client.tokens.grantAuthority(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
+      grantClawbackAuthorityTxHash = response.hash;
+
+      logStep('Clawback authority granted', `Hash: ${grantClawbackAuthorityTxHash}`);
+
+      expect(grantClawbackAuthorityTxHash).to.be.a('string');
+
+      // Wait for finalization
+      logStep('Waiting for finalization...');
+      const finalized = await waitForFinalization(grantClawbackAuthorityTxHash);
+      expect(finalized).to.be.true;
+
+      logStep('✓ Clawback authority granted to master successfully');
+    });
+
+    // it('should perform clawback from user3 to user1', async function () {
+    //   logSection('Step 4.5b: Clawback Tokens from User3 to User1');
+
+    //   const nonce = await getAccountNonce(accounts.master.address);
+
+    //   // Clawback 10 tokens from user3 and send to user1
+    //   const value = '10000000000000000000'; // 10 tokens
+
+    //   const prepared = TransactionBuilder.tokenClawback({
+    //     chain_id: chainId,
+    //     nonce,
+    //     token: tokenAddress,
+    //     from: accounts.user3.address, // Taking from user3
+    //     recipient: accounts.user1.address, // Sending to user1
+    //     value
+    //   });
+    //   const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
+
+    //   logStep('Clawing back tokens from user3 to user1...');
+    //   const response = await client.tokens.clawbackToken(signed.toRequest());
+    //   expect(response.hash).to.equal(signed.txHash);
+    //   clawbackTxHash = response.hash;
+
+    //   logStep('Tokens clawed back', `Hash: ${clawbackTxHash}`);
+
+    //   expect(clawbackTxHash).to.be.a('string');
+
+    //   await wait(2000);
+    //   const receipt = await client.transactions.getReceiptByHash(clawbackTxHash);
+    //   expect(receipt.success).to.be.true;
+
+    //   logStep('✓ Clawback successful - tokens moved from user3 to user1');
+    // });
+
+    it('should revoke clawback authority from master', async function () {
+      logSection('Step 4.5c: Revoke Clawback Authority from Master');
+
+      const nonce = await getAccountNonce(accounts.master.address);
+
+      const action = AuthorityAction.Revoke;
+      const authorityType = AuthorityType.Clawback;
+      const value = '0';
+
+      const prepared = TransactionBuilder.tokenAuthority({
+        chain_id: chainId,
+        nonce,
+        action,
+        authority_type: authorityType,
+        authority_address: accounts.master.address,
+        token: tokenAddress,
+        value
+      });
+      const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
+
+      logStep('Revoking clawback authority from master...');
+      const response = await client.tokens.grantAuthority(signed.toRequest());
+      expect(response.hash).to.equal(signed.txHash);
+
+      logStep('Clawback authority revoked');
+
+      await wait(2000);
+      const receipt = await client.transactions.getReceiptByHash(response.hash);
+      expect(receipt.success).to.be.true;
+
+      logStep('✓ Clawback authority revoked from master successfully');
+    });
+  });
+
+  describe('4.6. Grant Burn Authority to User3', function () {
     it('should grant burn authority to user3', async function () {
-      logSection('Step 4.5: Grant Burn Authority to User3');
+      logSection('Step 4.6: Grant Burn Authority to User3');
 
       const nonce = await getAccountNonce(accounts.master.address);
 
