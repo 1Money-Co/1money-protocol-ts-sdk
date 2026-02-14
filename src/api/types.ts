@@ -22,9 +22,3 @@ export interface HashWithToken {
   hash: B256Schema;
   token: TokenAddressSchema;
 }
-
-export interface RlpEncodablePayload {
-  rlpEncodeBytes: () => Uint8Array;
-}
-
-export type WithRlpEncodeBytes<T> = T & RlpEncodablePayload;

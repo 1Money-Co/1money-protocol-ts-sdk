@@ -23,7 +23,7 @@ export function prepareTokenBurnAndBridgeTx(
       rlpValue.address(unsigned.token as `0x${string}`),
       rlpValue.uint(unsigned.destination_chain_id),
       rlpValue.string(
-        unsigned.destination_address as `0x${string}`
+        unsigned.destination_address
       ),
       rlpValue.uint(unsigned.escrow_fee),
       rlpValue.string(unsigned.bridge_metadata),

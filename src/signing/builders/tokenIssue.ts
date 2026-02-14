@@ -1,8 +1,8 @@
-import { createPreparedTx } from '../core';
 import {
   encodeRlpPayload,
   rlpValue,
 } from '@/utils';
+import { createPreparedTx } from '../core';
 
 import type { TokenIssuePayload } from '@/api/tokens/types';
 
@@ -14,10 +14,12 @@ export type TokenIssueUnsigned = Omit<
 export function prepareTokenIssueTx(
   unsigned: TokenIssueUnsigned
 ) {
+  const clawbackEnabled =
+    unsigned.clawback_enabled ?? true;
+
   const unsignedWithDefaults: TokenIssueUnsigned = {
     ...unsigned,
-    clawback_enabled:
-      unsigned.clawback_enabled ?? true,
+    clawback_enabled: clawbackEnabled,
   };
 
   const rlpBytes = encodeRlpPayload(
@@ -31,9 +33,7 @@ export function prepareTokenIssueTx(
         unsignedWithDefaults.master_authority as `0x${string}`
       ),
       rlpValue.bool(unsignedWithDefaults.is_private),
-      rlpValue.bool(
-        unsignedWithDefaults.clawback_enabled ?? true
-      ),
+      rlpValue.bool(clawbackEnabled),
     ])
   );
 
