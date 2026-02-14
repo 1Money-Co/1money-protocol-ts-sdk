@@ -4,19 +4,20 @@ import {
   keccak256,
 } from 'viem';
 
-import type { Signature } from '@/utils';
-
-export type Hex = `0x${string}`;
+import type {
+  Signature,
+  ZeroXString,
+} from '@/utils';
 
 export interface SignerAdapter {
-  signDigest: (digest: Hex) => Promise<Signature>;
+  signDigest: (digest: ZeroXString) => Promise<Signature>;
 }
 
 export interface SignedTx<TUnsigned, TRequest> {
   kind: string;
   unsigned: TUnsigned;
-  signatureHash: Hex;
-  txHash: Hex;
+  signatureHash: ZeroXString;
+  txHash: ZeroXString;
   signature: Signature;
   toRequest: () => TRequest;
 }
@@ -25,7 +26,7 @@ export interface PreparedTx<TUnsigned, TRequest> {
   kind: string;
   unsigned: TUnsigned;
   rlpBytes: Uint8Array;
-  signatureHash: Hex;
+  signatureHash: ZeroXString;
   attachSignature: (
     signature: Signature
   ) => SignedTx<TUnsigned, TRequest>;
@@ -54,7 +55,7 @@ function encodeRlpListHeader(length: number): Uint8Array {
 export function calcSignedTxHash(
   payloadRlpBytes: Uint8Array,
   signature: Signature
-): Hex {
+): ZeroXString {
   const vEncode = rlpEncode(
     typeof signature.v === 'boolean'
       ? signature.v
@@ -90,7 +91,7 @@ export function calcSignedTxHash(
     header.length + payloadRlpBytes.length
   );
 
-  return keccak256(encoded) as Hex;
+  return keccak256(encoded) as ZeroXString;
 }
 
 export function createPreparedTx<
@@ -107,7 +108,7 @@ export function createPreparedTx<
 }): PreparedTx<TUnsigned, TRequest> {
   const signatureHash = keccak256(
     params.rlpBytes
-  ) as Hex;
+  ) as ZeroXString;
 
   const attachSignature = (
     signature: Signature

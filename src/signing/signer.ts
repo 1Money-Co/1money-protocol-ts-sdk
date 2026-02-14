@@ -1,19 +1,19 @@
 import { signAsync } from '@noble/secp256k1';
 import { bytesToHex, hexToBytes } from 'viem';
 
-import type { SignerAdapter, Hex } from './core';
-import type { Signature } from '@/utils';
+import type { Signature, ZeroXString } from '@/utils';
+import type { SignerAdapter } from './core';
 
 const DIGEST_HEX_RE = /^0x[0-9a-fA-F]{64}$/;
 
 export function createPrivateKeySigner(
-  privateKey: Hex
+  privateKey: ZeroXString
 ): SignerAdapter {
   const privateKeyBytes = hexToBytes(privateKey);
 
   return {
     signDigest: async (
-      digest: Hex
+      digest: ZeroXString
     ): Promise<Signature> => {
       if (!DIGEST_HEX_RE.test(digest)) {
         throw new Error(

@@ -1,9 +1,9 @@
-import { createPreparedTx } from '../core';
+import type { PlpPayload } from '@/utils';
 import {
   encodeRlpPayload,
   rlpValue,
 } from '@/utils';
-import type { PlpPayload } from '@/utils';
+import { createPreparedTx } from '../core';
 
 import type { TokenAuthorityPayload } from '@/api/tokens/types';
 

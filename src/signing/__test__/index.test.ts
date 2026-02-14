@@ -11,16 +11,16 @@ import {
   ManageListAction,
   PauseAction,
 } from '../../api/tokens/types';
-import type { Signature } from '../../utils';
+import type { Signature, ZeroXString } from '../../utils';
 import {
   calcTxHash,
   encodeRlpPayload,
   rlpValue as ev,
 } from '../../utils';
 
-import type { Hex } from '../core';
-
-const privateKey: Hex =
+// Test-only throwaway key for deterministic signing assertions.
+// Never use this key in production or with real funds.
+const privateKey: ZeroXString =
   '0x01833a126ec45d0191519748146b9e35647aab7fed28de1c8e17824970f964a3';
 
 type ExternalSignatureVector = {

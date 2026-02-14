@@ -6,6 +6,11 @@ export interface Signature {
   v: number | boolean;
 }
 
+/**
+ * @deprecated Legacy payload shape used by deprecated `encodePayload`
+ * and `signMessage`. Prefer `PlpPayload`/`encodeRlpPayload` and
+ * TransactionBuilder in `src/signing`.
+ */
 export type Payload = boolean | string | number | bigint | Uint8Array | Array<Payload> | null | undefined;
 
 export type PlpPayload =

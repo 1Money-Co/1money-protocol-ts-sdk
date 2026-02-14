@@ -1,8 +1,8 @@
-import { createPreparedTx } from '../core';
 import {
   encodeRlpPayload,
   rlpValue,
 } from '@/utils';
+import { createPreparedTx } from '../core';
 
 import type { TokenBurnPayload } from '@/api/tokens/types';
 
