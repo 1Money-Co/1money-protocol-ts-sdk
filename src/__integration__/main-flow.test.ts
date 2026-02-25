@@ -337,6 +337,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       logStep('✓ Clawback authority granted to master successfully');
     });
 
+    // TODO: add clawback end-to-end test later.
     // it('should perform clawback from user3 to user1', async function () {
     //   logSection('Step 4.5b: Clawback Tokens from User3 to User1');
 
