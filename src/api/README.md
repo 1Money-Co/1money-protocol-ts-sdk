@@ -123,11 +123,11 @@ Returns transaction receipt for the specified hash.
 
 **API Endpoint:** `https://api.testnet.1money.network/v1/transactions/receipt/by_hash?hash={hash}`
 
-#### `transactions.estimateFee(from, value, token?)`
+#### `transactions.estimateFee(from, to, value, token)`
 
 Estimates transaction fee.
 
-**API Endpoint:** `https://api.testnet.1money.network/v1/transactions/estimate_fee?from={from}&value={value}&token={token}`
+**API Endpoint:** `https://api.testnet.1money.network/v1/transactions/estimate_fee?from={from}&value={value}&to={to}&token={token}`
 
 #### `transactions.payment(payload)`
 

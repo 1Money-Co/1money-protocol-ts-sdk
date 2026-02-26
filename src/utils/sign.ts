@@ -1,22 +1,28 @@
 import { encode as rlpEncode } from '@ethereumjs/rlp';
 import { signAsync } from '@noble/secp256k1';
 import {
-  keccak256,
+  boolToHex,
+  bytesToHex,
   hexToBytes,
+  keccak256,
+  numberToHex,
   stringToBytes,
   stringToHex,
-  boolToHex,
-  numberToHex,
-  bytesToHex,
 } from 'viem';
 
 import { _typeof } from './typeof';
 
-import type { ZeroXString, Signature, Payload } from './interface';
+import type {
+  Payload,
+  Signature,
+  ZeroXString,
+} from './interface';
 
 type RlpPayload = Exclude<Payload, boolean | Payload[]> & Exclude<Payload, boolean | Payload[]>;
 /**
  * RLP encode a payload into a digest
+ * @deprecated Prefer the TransactionBuilder flow in `src/signing`
+ * (`prepare*Tx` + `.sign(...)`) to build and sign transactions.
  * @param payload Payload to encode
  * @returns RLP encoded payload
  */
@@ -24,9 +30,9 @@ export function encodePayload(payload: Payload) {
   if (_typeof(payload) === 'array') {
     const formatted = (payload as Array<Payload>).map((v) => {
       if (_typeof(v) === 'string') {
-        if (/^0x[0-9a-fA-F]+$/.test(v as string)) {
+        if (/^0x([0-9a-fA-F]{2})*$/.test(v as string)) {
           // hex-encoded data → raw bytes
-          return hexToBytes(v as ZeroXString);
+          return v === '0x' ? new Uint8Array([]) : hexToBytes(v as ZeroXString);
         } else if (/^\d+$/.test(v as string)) {
           // number-like string → hex → bytes
           // Use BigInt for large numbers to avoid overflow
@@ -57,6 +63,9 @@ export function encodePayload(payload: Payload) {
 
 /**
  * Sign a message using the provided private key
+ * @deprecated Prefer the TransactionBuilder flow in `src/signing`
+ * (`prepare*Tx` + `.sign(createPrivateKeySigner(privateKey))`)
+ * for transaction signing.
  * @param payload Payload to sign
  * @param privateKey Private key to sign with
  * @returns Signature object with r, s, v components
@@ -116,7 +125,7 @@ export function toHex(value: any): ZeroXString {
         return bytesToHex(stringToBytes(JSON.stringify(value)));
     }
   } catch (e) {
-    console.error('[1Money toHex]: ', e);
+    console.error('[1Money SDK]: toHex error:', e);
     return '0x';
   }
 }

@@ -3,12 +3,8 @@
  */
 
 import { api } from '@/api';
-import { signMessage } from '@/utils';
-import type { RestSignature } from '@/api/tokens/types';
-import type { TestAccount } from './setup';
-import type { Payload } from '@/utils/interface';
-import { getConfig } from './config';
 import { getAddress } from 'viem';
+import { getConfig } from './config';
 
 /**
  * Create API client for integration tests
@@ -21,17 +17,6 @@ export function createTestClient() {
   });
 }
 
-/**
- * Sign a payload with an account and return RestSignature format
- */
-export async function signPayload(payload: Payload, account: TestAccount): Promise<RestSignature> {
-  const signature = await signMessage(payload, account.privateKey);
-  return {
-    r: signature.r,
-    s: signature.s,
-    v: signature.v
-  };
-}
 
 /**
  * Wait for a transaction to be finalized

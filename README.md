@@ -235,43 +235,40 @@ apiClient.tokens.getTokenMetadata(tokenAddress)
 
 #### Issue New Token
 ```typescript
-import { signMessage, toHex } from '@1money/protocol-ts-sdk';
+import {
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
 const privateKey = 'YOUR_PRIVATE_KEY';
+const masterAuthority = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
-// First, get the latest epoch checkpoint
-const epochData = await apiClient.state.getLatestEpochCheckpoint()
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId()
+  .success(response => response);
+const { nonce } = await apiClient.accounts.getNonce(masterAuthority)
   .success(response => response);
 
-// Create the payload array for signing
-const payload = [
-  1, // chain_id
-  1, // nonce
-  'MTK', // symbol
-  'My Token', // name
-  18, // decimals
-  '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3', // master_authority
-  true, // is_private
-];
-
-// Generate signature
-const signature = await signMessage(payload, privateKey);
-if (!signature) {
-  throw new Error('Failed to generate signature');
-}
-
-// Create the issue payload
-const issuePayload = {
-  chain_id: 1,
-  nonce: 1,
-  name: 'My Token',
+// Build transaction and prepare signature hash internally
+const prepared = TransactionBuilder.tokenIssue({
+  chain_id,
+  nonce,
   symbol: 'MTK',
+  name: 'My Token',
   decimals: 18,
-  master_authority: '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3',
+  master_authority: masterAuthority,
   is_private: true,
-  signature
-};
+  clawback_enabled: true
+});
+
+// Sign with private key
+const signed = await prepared.sign(
+  createPrivateKeySigner(privateKey as `0x${string}`)
+);
+
+// Build request body with signature
+const issuePayload = signed.toRequest();
 
 apiClient.tokens.issueToken(issuePayload)
   .success(response => {
@@ -284,40 +281,38 @@ apiClient.tokens.issueToken(issuePayload)
 
 #### Manage Token Blacklist/Whitelist
 ```typescript
-import { signMessage, toHex } from '@1money/protocol-ts-sdk';
-import type { ManageListAction } from '@1money/protocol-ts-sdk/api';
+import {
+  ManageListAction,
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
 const privateKey = 'YOUR_PRIVATE_KEY';
+const operatorAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
-// First, get the latest epoch checkpoint
-const epochData = await apiClient.state.getLatestEpochCheckpoint()
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId()
+  .success(response => response);
+const { nonce } = await apiClient.accounts.getNonce(operatorAddress)
   .success(response => response);
 
-// Create the payload array for signing
-const payload = [
-  1, // chain_id
-  1, // nonce
-  ManageListAction.Add, // action
-  '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3', // address
-  '0x2cd8999Be299373D7881f4aDD11510030ad1412F', // token
-];
-
-// Generate signature
-const signature = await signMessage(payload, privateKey);
-if (!signature) {
-  throw new Error('Failed to generate signature');
-}
-
-// Create the manage list payload
-const manageListPayload = {
-  chain_id: 1,
-  nonce: 1,
+// Build transaction and prepare signature hash internally
+const prepared = TransactionBuilder.tokenManageList({
+  chain_id,
+  nonce,
   action: ManageListAction.Add,
-  address: '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3',
-  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
-  signature
-};
+  address: operatorAddress,
+  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
+});
+
+// Sign with private key
+const signed = await prepared.sign(
+  createPrivateKeySigner(privateKey as `0x${string}`)
+);
+
+// Build request body with signature
+const manageListPayload = signed.toRequest();
 
 // Use manageBlacklist for blacklist operations
 apiClient.tokens.manageBlacklist(manageListPayload)
@@ -340,39 +335,36 @@ apiClient.tokens.manageWhitelist(manageListPayload)
 
 #### Burn Tokens
 ```typescript
-import { signMessage, toHex } from '@1money/protocol-ts-sdk';
+import {
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
 const privateKey = 'YOUR_PRIVATE_KEY';
+const ownerAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
-// First, get the latest epoch checkpoint
-const epochData = await apiClient.state.getLatestEpochCheckpoint()
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId()
+  .success(response => response);
+const { nonce } = await apiClient.accounts.getNonce(ownerAddress)
   .success(response => response);
 
-// Create the payload array for signing
-const payload = [
-  1, // chain_id
-  1, // nonce
-  '0x2cd8999Be299373D7881f4aDD11510030ad1412F', // recipient (for burn, same as sender)
-  '1000000000000000000', // amount
-  '0x2cd8999Be299373D7881f4aDD11510030ad1412F', // token
-];
-
-// Generate signature
-const signature = await signMessage(payload, privateKey);
-if (!signature) {
-  throw new Error('Failed to generate signature');
-}
-
-// Create the burn payload
-const burnPayload = {
-  chain_id: 1,
-  nonce: 1,
-  recipient: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
+// Build transaction and prepare signature hash internally
+const prepared = TransactionBuilder.tokenBurn({
+  chain_id,
+  nonce,
   value: '1000000000000000000',
-  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
-  signature
-};
+  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
+});
+
+// Sign with private key
+const signed = await prepared.sign(
+  createPrivateKeySigner(privateKey as `0x${string}`)
+);
+
+// Build request body with signature
+const burnPayload = signed.toRequest();
 
 apiClient.tokens.burnToken(burnPayload)
   .success(response => {
@@ -385,48 +377,139 @@ apiClient.tokens.burnToken(burnPayload)
 
 #### Grant Token Authority
 ```typescript
-import { signMessage, toHex } from '@1money/protocol-ts-sdk';
-import type { AuthorityType, AuthorityAction } from '@1money/protocol-ts-sdk/api';
+import {
+  AuthorityAction,
+  AuthorityType,
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
 const privateKey = 'YOUR_PRIVATE_KEY';
+const masterAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
-// First, get the latest epoch checkpoint
-const epochData = await apiClient.state.getLatestEpochCheckpoint()
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId()
+  .success(response => response);
+const { nonce } = await apiClient.accounts.getNonce(masterAddress)
   .success(response => response);
 
-// Create the payload array for signing
-const payload = [
-  1, // chain_id
-  1, // nonce
-  AuthorityAction.Grant, // action
-  AuthorityType.MasterMint, // authority_type (sends 'MasterMintBurn')
-  '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3', // authority_address
-  '0x2cd8999Be299373D7881f4aDD11510030ad1412F', // token
-  '1000000000000000000000', // value (optional, for MintBurnTokens type)
-];
-
-// Generate signature
-const signature = await signMessage(payload, privateKey);
-if (!signature) {
-  throw new Error('Failed to generate signature');
-}
-
-// Create the authority payload
-const authorityPayload = {
-  chain_id: 1,
-  nonce: 1,
+// Build transaction and prepare signature hash internally
+const prepared = TransactionBuilder.tokenAuthority({
+  chain_id,
+  nonce,
   action: AuthorityAction.Grant,
-  authority_type: AuthorityType.MasterMint, // value is 'MasterMintBurn'
+  authority_type: AuthorityType.MasterMint,
   authority_address: '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3',
   token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
-  value: '1000000000000000000000',
-  signature
-};
+  value: '1000000000000000000000'
+});
+
+// Sign with private key
+const signed = await prepared.sign(
+  createPrivateKeySigner(privateKey as `0x${string}`)
+);
+
+// Build request body with signature
+const authorityPayload = signed.toRequest();
 
 apiClient.tokens.grantAuthority(authorityPayload)
   .success(response => {
     console.log('Authority update transaction hash:', response.hash);
+  })
+  .error(err => {
+    console.error('Error:', err);
+  });
+```
+
+#### Bridge and Mint
+```typescript
+import {
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
+
+// Your private key (DO NOT share or commit your private key)
+const privateKey = 'YOUR_PRIVATE_KEY';
+const bridgeOperatorAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
+
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId()
+  .success(response => response);
+const { nonce } = await apiClient.accounts.getNonce(bridgeOperatorAddress)
+  .success(response => response);
+
+// Build transaction and prepare signature hash internally
+const prepared = TransactionBuilder.tokenBridgeAndMint({
+  chain_id,
+  nonce,
+  recipient: '0x6324dAc598f9B637824978eD6b268C896E0c40E0',
+  value: '25000000000000000000',
+  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
+  source_chain_id: 1,
+  source_tx_hash: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+  bridge_metadata: 'bridge_from_chain_1'
+});
+
+// Sign with private key
+const signed = await prepared.sign(
+  createPrivateKeySigner(privateKey as `0x${string}`)
+);
+
+// Build request body with signature
+const bridgeAndMintPayload = signed.toRequest();
+
+apiClient.tokens.bridgeAndMint(bridgeAndMintPayload)
+  .success(response => {
+    console.log('Bridge and mint transaction hash:', response.hash);
+  })
+  .error(err => {
+    console.error('Error:', err);
+  });
+```
+
+#### Burn and Bridge
+```typescript
+import {
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
+
+// Your private key (DO NOT share or commit your private key)
+const privateKey = 'YOUR_PRIVATE_KEY';
+const senderAddress = '0x6324dAc598f9B637824978eD6b268C896E0c40E0';
+
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId()
+  .success(response => response);
+const { nonce } = await apiClient.accounts.getNonce(senderAddress)
+  .success(response => response);
+
+// Build transaction and prepare signature hash internally
+const prepared = TransactionBuilder.tokenBurnAndBridge({
+  chain_id,
+  nonce,
+  sender: senderAddress,
+  value: '20000000000000000000',
+  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
+  destination_chain_id: 1,
+  destination_address: '0x1234567890abcdef1234567890abcdef12345678',
+  escrow_fee: '1000000000000000000',
+  bridge_metadata: 'bridge_to_chain_1',
+  bridge_param: '0x'
+});
+
+// Sign with private key
+const signed = await prepared.sign(
+  createPrivateKeySigner(privateKey as `0x${string}`)
+);
+
+// Build request body with signature
+const burnAndBridgePayload = signed.toRequest();
+
+apiClient.tokens.burnAndBridge(burnAndBridgePayload)
+  .success(response => {
+    console.log('Burn and bridge transaction hash:', response.hash);
   })
   .error(err => {
     console.error('Error:', err);
@@ -462,10 +545,11 @@ apiClient.transactions.getReceiptByHash(txHash)
 #### Estimate Transaction Fee
 ```typescript
 const fromAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
+const toAddress = '0x6324dAc598f9B637824978eD6b268C896E0c40E0';
 const value = '1000000000';
 const tokenAddress = '0x2cd8999Be299373D7881f4aDD11510030ad1412F';
 
-apiClient.transactions.estimateFee(fromAddress, value, tokenAddress)
+apiClient.transactions.estimateFee(fromAddress, toAddress, value, tokenAddress)
   .success(response => {
     console.log('Estimated fee:', response);
   })
@@ -476,39 +560,37 @@ apiClient.transactions.estimateFee(fromAddress, value, tokenAddress)
 
 #### Submit Payment Transaction
 ```typescript
-import { signMessage, toHex } from '@1money/protocol-ts-sdk';
+import {
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
 const privateKey = 'YOUR_PRIVATE_KEY';
+const senderAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
-// First, get the latest epoch checkpoint
-const epochData = await apiClient.state.getLatestEpochCheckpoint()
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId()
+  .success(response => response);
+const { nonce } = await apiClient.accounts.getNonce(senderAddress)
   .success(response => response);
 
-// Create the payload array for signing
-const payload = [
-  1, // chain_id
-  1, // nonce
-  '0x2cd8999Be299373D7881f4aDD11510030ad1412F', // recipient
-  '1000000000', // value
-  '0x2cd8999Be299373D7881f4aDD11510030ad1412F', // token
-];
-
-// Generate signature
-const signature = await signMessage(payload, privateKey);
-if (!signature) {
-  throw new Error('Failed to generate signature');
-}
-
-// Create the payment payload
-const paymentPayload = {
-  chain_id: 1,
-  nonce: 1,
-  recipient: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
+// Build transaction and prepare signature hash internally
+const prepared = TransactionBuilder.payment({
+  chain_id,
+  nonce,
+  recipient: '0xa128999Be299373D7881f4aDD11510030ad13512',
   value: '1000000000',
-  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
-  signature
-};
+  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
+});
+
+// Sign with private key
+const signed = await prepared.sign(
+  createPrivateKeySigner(privateKey as `0x${string}`)
+);
+
+// Build request body with signature
+const paymentPayload = signed.toRequest();
 
 apiClient.transactions.payment(paymentPayload)
   .success(response => {

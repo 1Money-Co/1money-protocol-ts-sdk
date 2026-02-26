@@ -1,14 +1,14 @@
+import { expect } from 'chai';
+import 'dotenv/config';
 import 'mocha';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
-import { expect } from 'chai';
-import { api } from '../../';
-import { CHAIN_IDS } from '../../constants';
-import { signMessage, toHex, safePromiseLine, safePromiseAll } from '../../../utils';
-import { AuthorityAction, AuthorityType, PauseAction, ManageListAction } from '../types';
 import { tokensApi } from '../';
+import { api } from '../../';
+import { safePromiseAll, safePromiseLine, signMessage, toHex } from '../../../utils';
 import { accountsApi } from '../../accounts';
 import { checkpointsApi } from '../../checkpoints';
-import 'dotenv/config';
+import { CHAIN_IDS } from '../../constants';
+import { AuthorityAction, AuthorityType, ManageListAction, PauseAction } from '../types';
 
 import type { ZeroXString } from '../../../utils';
 
@@ -113,6 +113,10 @@ describe('tokens API test', function () {
     expect(apiClient.tokens.updateMetadata).to.be.a('function');
   });
 
+  it('should include Clawback authority type', function () {
+    expect(AuthorityType.Clawback).to.equal('Clawback');
+  });
+
   // Example token for testing - replace with a valid token if needed
   const chainId = CHAIN_IDS.TESTNET;
   const issuedToken = '0x555Da6a773419c98F3c0fFac5eA1d05F3E635946';
@@ -130,6 +134,7 @@ describe('tokens API test', function () {
         expect(response.supply).to.be.a('string');
         expect(response.is_paused).to.be.a('boolean');
         expect(response.is_private).to.be.a('boolean');
+        expect(response.clawback_enabled).to.be.a('boolean');
         expect(response.master_authority).to.be.a('string');
         expect(response.master_mint_burn_authority).to.be.a('string');
         expect(response.mint_burn_authorities).to.be.an('array');
@@ -223,7 +228,7 @@ describe('tokens API test', function () {
     it.skip('should burn token', function (done) {
       safePromiseLine([
         () => RUN_ENV === 'local' ? pageOne.evaluate(async (params) => {
-          const { operatorAddress, operatorPK, chainId, testAddress, issuedToken } = params;
+          const { operatorAddress, operatorPK, chainId, issuedToken } = params;
           const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
@@ -233,7 +238,6 @@ describe('tokens API test', function () {
           const payload = [
             chainId,
             nonce,
-            testAddress,
             burnValue,
             issuedToken,
           ];
@@ -242,7 +246,6 @@ describe('tokens API test', function () {
           const response = await window.burnToken({
             chain_id: chainId,
             nonce,
-            recipient: testAddress,
             value: burnValue,
             token: issuedToken,
             signature
@@ -252,7 +255,6 @@ describe('tokens API test', function () {
           operatorAddress,
           operatorPK,
           chainId,
-          testAddress,
           issuedToken,
         }).then(response => {
           expect(response).to.be.an('object');
@@ -271,7 +273,6 @@ describe('tokens API test', function () {
           const payload = [
             chainId,
             nonce,
-            operatorAddress,
             burnValue,
             issuedToken,
           ]
@@ -280,7 +281,6 @@ describe('tokens API test', function () {
           apiClient.tokens.burnToken({
             chain_id: chainId,
             nonce,
-            recipient: operatorAddress,
             value: burnValue,
             token: issuedToken,
             signature
@@ -396,6 +396,7 @@ describe('tokens API test', function () {
           const symbol = 'USDT';
           const decimals = 6;
           const isPrivate = false;
+          const clawbackEnabled = true;
           const payload = [
             chainId,
             nonce,
@@ -404,6 +405,7 @@ describe('tokens API test', function () {
             decimals,
             operatorAddress,
             isPrivate,
+            clawbackEnabled,
           ];
           const signature = await window.signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
@@ -415,6 +417,7 @@ describe('tokens API test', function () {
             decimals,
             master_authority: operatorAddress,
             is_private: isPrivate,
+            clawback_enabled: clawbackEnabled,
             signature,
           })
           return response;
@@ -443,6 +446,7 @@ describe('tokens API test', function () {
           const symbol = 'USDT1';
           const decimals = 6;
           const isPrivate = false;
+          const clawbackEnabled = true;
           const payload = [
             chainId,
             nonce,
@@ -451,6 +455,7 @@ describe('tokens API test', function () {
             decimals,
             operatorAddress,
             isPrivate,
+            clawbackEnabled,
           ];
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
@@ -462,6 +467,7 @@ describe('tokens API test', function () {
             decimals,
             master_authority: operatorAddress,
             is_private: isPrivate,
+            clawback_enabled: clawbackEnabled,
             signature,
           })
             .success(response => {

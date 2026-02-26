@@ -1,16 +1,18 @@
-import "mocha";
 import { expect } from "chai";
+import 'dotenv/config';
+import "mocha";
 import {
-  deriveTokenAddress,
   _typeof,
+  calcTxHash,
+  deriveTokenAddress,
+  encodePayload,
+  encodeRlpPayload,
   safePromiseAll,
   safePromiseLine,
-  toHex,
   signMessage,
-  encodePayload,
-  calcTxHash,
+  toHex,
+  rlpValue as v
 } from "../";
-import 'dotenv/config';
 
 import type { ZeroXString } from '../interface';
 
@@ -83,6 +85,91 @@ describe("utils test", function () {
       expect(encoded.length).to.be.equal(49);
       expect(encoded.every(v => v >= 0 && v <= 255)).to.be.true;
       expect([240, 131, 18, 126, 197, 128, 148, 166, 52, 223, 186, 140, 117, 80, 85, 8, 23, 137, 139, 196, 130, 12, 209, 8, 136, 170, 197, 10, 148, 84, 88, 116, 122, 14, 251, 158, 190, 184, 105, 111, 202, 193, 71, 146, 120, 192, 135, 47, 190].every((v, k) => v === encoded[k])).to.be.true;
+    });
+
+    it("encodes 0x as empty byte array in list payload", function () {
+      const encoded = encodePayload(['0x']);
+      expect(encoded).to.be.a("uint8array");
+      expect(Array.from(encoded)).to.deep.equal([193, 128]);
+    });
+  });
+
+  describe("encodeRlpPayload test", function () {
+    it("encodeRlpPayload is a function", function () {
+      expect(encodeRlpPayload).to.be.a("function");
+    });
+
+    it("encodes address/hex/string with explicit kind", function () {
+      const encoded = encodeRlpPayload(v.list([
+        {
+          kind: 'address',
+          value: '0x0000000000000000000000000000000000000001',
+        },
+        {
+          kind: 'hex',
+          value: '0x6869',
+        },
+        {
+          kind: 'string',
+          value: '0x6869',
+        },
+      ]));
+
+      expect(encoded).to.be.a('uint8array');
+      expect(Array.from(encoded)).to.deep.equal([
+        223, 148, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 130, 104, 105, 134, 48, 120, 54, 56, 54, 57
+      ]);
+    });
+
+    it("encodes hex 0x as empty byte array", function () {
+      const encoded = encodeRlpPayload(v.list([
+        {
+          kind: 'hex',
+          value: '0x',
+        },
+      ]));
+
+      expect(encoded).to.be.a('uint8array');
+      expect(Array.from(encoded)).to.deep.equal([193, 128]);
+    });
+
+    it("supports ev helpers with uint/bool/list", function () {
+      const encoded = encodeRlpPayload(v.list([
+        v.uint(1n),
+        v.bool(true),
+        v.list([v.string('ok'), v.hex('0x01')]),
+      ]));
+
+      expect(encoded).to.be.a('uint8array');
+      expect(Array.from(encoded)).to.deep.equal([199, 1, 1, 196, 130, 111, 107, 1]);
+    });
+
+    it("supports bytes and null/undefined as empty bytes", function () {
+      const encoded = encodeRlpPayload(
+        v.list([
+          v.bytes(Uint8Array.from([1, 2])),
+          null,
+          undefined,
+        ])
+      );
+
+      expect(encoded).to.be.a('uint8array');
+      expect(Array.from(encoded)).to.deep.equal([197, 130, 1, 2, 128, 128]);
+    });
+
+    it("supports top-level non-list payload", function () {
+      const encoded = encodeRlpPayload(v.uint(1n));
+      expect(encoded).to.be.a('uint8array');
+      expect(Array.from(encoded)).to.deep.equal([1]);
+    });
+
+    it("throws on invalid uint string", function () {
+      expect(() => encodeRlpPayload(v.uint('12.3'))).to.throw(
+        '[1Money SDK]: Invalid uint string: 12.3'
+      );
+      expect(() => encodeRlpPayload(v.uint('-1'))).to.throw(
+        '[1Money SDK]: Invalid uint string: -1'
+      );
     });
   });
 

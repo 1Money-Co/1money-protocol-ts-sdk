@@ -3,6 +3,7 @@ import client from './client';
 
 export { api } from './api';
 export { default as client } from './client';
+export * from './signing';
 export * from './utils';
 
 export type { AxiosStatic } from 'axios';

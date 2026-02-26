@@ -1152,7 +1152,8 @@
           "Pause",
           "ManageList",
           "UpdateMetadata",
-          "Bridge"
+          "Bridge",
+          "Clawback"
         ]
       },
       "B256Schema": {
@@ -1320,14 +1321,9 @@
           "transactions_root",
           "receipts_root",
           "number",
-          "timestamp",
-          "extra_data"
+          "timestamp"
         ],
         "properties": {
-          "extra_data": {
-            "type": "string",
-            "description": "Extra data"
-          },
           "hash": {
             "$ref": "#/components/schemas/B256Schema",
             "description": "Hash of the block"
@@ -1518,7 +1514,6 @@
         "required": [
           "chain_id",
           "nonce",
-          "recipient",
           "value",
           "token"
         ],
@@ -1758,7 +1753,6 @@
         "required": [
           "chain_id",
           "nonce",
-          "recipient",
           "value",
           "token"
         ],
@@ -1776,10 +1770,6 @@
             "description": "The nonce of the transaction.",
             "example": 0,
             "minimum": 0
-          },
-          "recipient": {
-            "$ref": "#/components/schemas/AddressSchema",
-            "description": "The address of the token to burn."
           },
           "token": {
             "$ref": "#/components/schemas/TokenAddressSchema",
@@ -1817,7 +1807,8 @@
           "symbol",
           "name",
           "decimals",
-          "master_authority"
+          "master_authority",
+          "is_private"
         ],
         "properties": {
           "chain_id": {
@@ -1837,6 +1828,17 @@
           "master_authority": {
             "$ref": "#/components/schemas/AddressSchema",
             "description": "The master authority of the token."
+          },
+          "is_private": {
+            "type": "boolean",
+            "description": "Whether the token is private.",
+            "example": false
+          },
+          "clawback_enabled": {
+            "type": "boolean",
+            "description": "Whether clawback is enabled for the token.",
+            "default": true,
+            "example": true
           },
           "name": {
             "type": "string",

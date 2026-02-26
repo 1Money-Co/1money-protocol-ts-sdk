@@ -19,7 +19,6 @@ export interface Header {
   receipts_root: B256Schema;
   number: number;
   timestamp: number;
-  extra_data: string;
 }
 
 // Checkpoint response type

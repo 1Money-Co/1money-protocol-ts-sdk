@@ -150,13 +150,15 @@ describe('transactions API test', function () {
   });
 
   it('should estimate transaction fee', function (done) {
+    const recipientAddress = operatorAddress || testAddress;
     safePromiseAll([
       RUN_ENV === 'local' ? pageOne.evaluate(async (params) => {
-        const { testAddress, tokenValue, issuedToken } = params;
-        const response = await window.estimateFee(testAddress, tokenValue, issuedToken);
+        const { testAddress, recipientAddress, tokenValue, issuedToken } = params;
+        const response = await window.estimateFee(testAddress, recipientAddress, tokenValue, issuedToken);
         return response;
       }, {
         testAddress,
+        recipientAddress,
         tokenValue,
         issuedToken,
       }).then(response => {
@@ -164,7 +166,7 @@ describe('transactions API test', function () {
         expect(response).to.have.property('fee');
         expect(response.fee).to.be.a('string');
       }) : Promise.resolve(),
-      apiClient.transactions.estimateFee(testAddress, tokenValue, issuedToken)
+      apiClient.transactions.estimateFee(testAddress, recipientAddress, tokenValue, issuedToken)
         .success(response => {
           expect(response).to.be.an('object');
           expect(response).to.have.property('fee');

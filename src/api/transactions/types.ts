@@ -1,6 +1,10 @@
 // Types for transactions API
 import { AuthorityType, RestSignature } from '../tokens/types';
-import { AddressSchema, B256Schema } from '../types';
+import type {
+  AddressSchema,
+  B256Schema,
+  BytesSchema
+} from '../types';
 
 // Transaction receipt response
 export interface TransactionReceipt {
@@ -90,19 +94,26 @@ export interface TokenBridgeAndMintData {
 }
 
 export interface TokenBurnData {
-  recipient: AddressSchema;
   token: AddressSchema;
   value: string;
 }
 
 export interface TokenBurnAndBridgeData {
-  bridge_metadata: string | null;
-  destination_address: AddressSchema;
-  destination_chain_id: number;
-  escrow_fee: string;
-  sender: AddressSchema;
-  token: AddressSchema;
   value: string;
+  sender: AddressSchema;
+  destination_chain_id: number;
+  destination_address: AddressSchema;
+  escrow_fee: string;
+  bridge_metadata: string | null;
+  bridge_param: BytesSchema;
+  token: AddressSchema;
+}
+
+export interface TokenClawbackData {
+  from: AddressSchema;
+  recipient: AddressSchema;
+  value: string;
+  token: AddressSchema;
 }
 
 export interface TokenCloseAccountData {
@@ -193,6 +204,10 @@ export type Transaction =
   | (BaseTransaction & {
       transaction_type: 'TokenBurnAndBridge';
       data: TokenBurnAndBridgeData;
+    })
+  | (BaseTransaction & {
+      transaction_type: 'TokenClawback';
+      data: TokenClawbackData;
     })
   | (BaseTransaction & {
       transaction_type: 'TokenCloseAccount';
