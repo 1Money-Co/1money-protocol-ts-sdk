@@ -1,6 +1,7 @@
 'use strict';
 
 const Configuration = {
+  extends: ['@commitlint/config-conventional'],
   formatter: '@commitlint/format',
   /*
     * Any rules defined here will override rules from @commitlint/config-conventional
@@ -21,7 +22,9 @@ const Configuration = {
       'upgrade',
       'modify',
       'merge',
-      'chore'
+      'chore',
+      'optimize',
+      'perf',
     ]]
   },
   /*
