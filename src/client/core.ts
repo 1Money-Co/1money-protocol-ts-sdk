@@ -34,7 +34,6 @@ export type CheckAny<T> = CheckNever<T> extends false ? false : true;
 export type WithFailureData<T = undefined> = T extends null ? null | undefined : T | null | undefined;
 
 export interface ChainName {
-  // eslint-disable-next-line max-len
   all: ChainName['success'] | ChainName['failure'] | ChainName['error'] | ChainName['login'] | ChainName['timeout'];
   // one
   success: 'success';
@@ -171,8 +170,12 @@ export interface PromiseWrapper<
     Promise<TSuc | TFail | TErr | TLogin | TRes>;
   rest<
     TRes = TSuc | TFail | TErr | TLogin | TTime,
-    TRestScope extends RestScope = ['success', 'failure', 'login', 'error', 'timeout'],
-    TRestScopeName extends RestScopeName = Exclude<keyof Tuple2Record<TRestScope>, undefined>,
+    S1 extends Exclude<RestScopeName, HadCall> = Exclude<RestScopeName, HadCall>,
+    S2 extends Exclude<RestScopeName, HadCall | S1> | undefined = undefined,
+    S3 extends Exclude<RestScopeName, HadCall | S1 | Extract<S2, string>> | undefined = undefined,
+    S4 extends Exclude<RestScopeName, HadCall | S1 | Extract<S2, string> | Extract<S3, string>> | undefined = undefined,
+    S5 extends Exclude<RestScopeName, HadCall | S1 | Extract<S2, string> | Extract<S3, string> | Extract<S4, string>> | undefined = undefined,
+    TRestScopeName extends RestScopeName = Extract<S1 | S2 | S3 | S4 | S5, RestScopeName>,
     THadCallWithNotInScope extends string = HadCall | Exclude<RestScopeName, TRestScopeName>,
     Delete extends string = HadCall | TRestScopeName | 'rest'
   >(
@@ -242,7 +245,7 @@ export interface PromiseWrapper<
         : ChainReturn<T, U>['all'],
       headers: AxiosReqHeaders | AxiosResHeaders
     ) => TRes,
-    scope?: TRestScope,
+    scope?: Readonly<[S1, S2?, S3?, S4?, S5?]>,
   ): Omit<PromiseWrapper<T, U, TSuc, TFail, TErr, TLogin, TTime, Delete>, Delete> &
     Promise<
       ChainName['all'] extends THadCallWithNotInScope
@@ -435,6 +438,26 @@ export class Request {
     };
   }
 
+  private mergeSignals(...signals: AbortSignal[]): { signal: AbortSignal; cleanup: () => void } {
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    const cleanups: (() => void)[] = [];
+
+    for (const signal of signals) {
+      if (signal.aborted) {
+        controller.abort();
+        break;
+      }
+      signal.addEventListener('abort', onAbort);
+      cleanups.push(() => signal.removeEventListener('abort', onAbort));
+    }
+
+    return {
+      signal: controller.signal,
+      cleanup: () => cleanups.forEach(fn => fn()),
+    };
+  }
+
   public setting(config: InitConfig) {
     if (!config) return console.warn('[1Money SDK]: setting method required correct parameters!');
     this._config = { ...this._config, ...config };
@@ -584,11 +607,26 @@ export class Request {
       let isTimeout = false;
       const _timeout = timeout ?? initTimeout;
 
+      const controller = new AbortController();
+      let signalCleanup: (() => void) | null = null;
+
+      if (options.signal) {
+        const merged = this.mergeSignals(options.signal as AbortSignal, controller.signal);
+        options.signal = merged.signal;
+        signalCleanup = merged.cleanup;
+      } else {
+        options.signal = controller.signal;
+      }
+
       // Cleanup function for timeout
       const cleanup = () => {
         if (timer !== null) {
           clearTimeout(timer);
           timer = null;
+        }
+        if (signalCleanup) {
+          signalCleanup();
+          signalCleanup = null;
         }
       };
 
@@ -597,6 +635,7 @@ export class Request {
           try {
             isTimeout = true;
             cleanup();
+            controller.abort();
             let err = this.parseError('timeout') as ParsedError<'timeout'>;
             // @ts-ignore
             const res = await Promise.resolve(callbacks.timeout(err, options.headers ?? {}));

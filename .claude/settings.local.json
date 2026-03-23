@@ -20,7 +20,23 @@
       "Bash(xargs grep:*)",
       "Bash(npm run lint:es_fix:*)",
       "Bash(node test-encoding.mjs:*)",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "Bash(gh repo view --json name,owner,url,defaultBranchRef)",
+      "Bash(gh api:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm audit:*)",
+      "Bash(pnpm why flatted)",
+      "Bash(pnpm why:*)",
+      "Bash(npm view @commitlint/cli version)",
+      "Bash(npm view:*)",
+      "Bash(npm view nyc version)",
+      "Bash(python3:*)",
+      "Bash(pnpm install:*)",
+      "Bash(npx mocha:*)",
+      "Bash(git add package.json pnpm-lock.yaml)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: upgrade mocha to v11 for security fixes\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(npx commitlint:*)",
+      "Bash(npm run lint:es:*)"
     ],
     "deny": []
   }
