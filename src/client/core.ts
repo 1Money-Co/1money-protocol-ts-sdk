@@ -473,7 +473,6 @@ export class Request {
     };
     options.headers['Accept'] = options.headers['Accept'] || '*/*';
     options.headers['X-Requested-With'] = options.headers['X-Requested-With'] || 'XMLHttpRequest';
-    options.headers['X-Content-Type-Options'] = options.headers['X-Content-Type-Options'] || 'nosniff';
 
     const {
       onSuccess: initOnSuccess,
@@ -676,7 +675,7 @@ export class Request {
         cleanup();
 
         const data = err.response?.data ?? {};
-        console.error(`[1Money SDK]: Error(${err.status ?? 500}, ${err.code ?? 'UNKNOWN'}), Message: ${err.message}, Config: ${err.config?.method}, ${err.config?.baseURL ?? ''}, ${err.config?.url ?? ''}, ${JSON.stringify(err.config?.headers ?? {})}, Request: ${JSON.stringify(err.config?.data ?? {})}, Response: ${JSON.stringify(data)};`);
+        console.error(`[1Money SDK]: Error(${err.status ?? 500}, ${err.code ?? 'UNKNOWN'}), Message: ${err.message}, Config: ${err.config?.method}, ${err.config?.baseURL ?? ''}${err.config?.url ?? ''};`);
 
         const status = err.response?.status ?? 500;
         const headers = err.response?.headers ?? {};
