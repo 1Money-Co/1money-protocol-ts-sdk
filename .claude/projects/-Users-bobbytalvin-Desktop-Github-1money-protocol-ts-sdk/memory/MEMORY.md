@@ -1,0 +1,1 @@
+- [feedback_security_dismissed.md](feedback_security_dismissed.md) - Security issues intentionally kept as-is: loose equality in client predicates, withCredentials default

@@ -125,7 +125,6 @@ export function toHex(value: any): ZeroXString {
         return bytesToHex(stringToBytes(JSON.stringify(value)));
     }
   } catch (e) {
-    console.error('[1Money SDK]: toHex error:', e);
-    return '0x';
+    throw new Error(`[1Money SDK]: toHex conversion failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
