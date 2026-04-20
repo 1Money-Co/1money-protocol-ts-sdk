@@ -42,7 +42,10 @@
       "Bash(git -C /Users/bobbytalvin/Desktop/Github/1money-protocol-ts-sdk log --all --diff-filter=A -- .env*)",
       "Bash(git -C /Users/bobbytalvin/Desktop/Github/1money-protocol-ts-sdk log --all --oneline -- '.env.integration')",
       "Bash(git -C /Users/bobbytalvin/Desktop/Github/1money-protocol-ts-sdk show HEAD:.env)",
-      "Bash(git -C /Users/bobbytalvin/Desktop/Github/1money-protocol-ts-sdk show 95cd175:.env.integration)"
+      "Bash(git -C /Users/bobbytalvin/Desktop/Github/1money-protocol-ts-sdk show 95cd175:.env.integration)",
+      "Bash(pnpm audit *)",
+      "Bash(pnpm test *)",
+      "Bash(git checkout *)"
     ],
     "deny": []
   }
