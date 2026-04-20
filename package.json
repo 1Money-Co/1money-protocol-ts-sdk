@@ -1,6 +1,6 @@
 {
   "name": "@1money/protocol-ts-sdk",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "ts sdk for 1Money protocol network",
   "main": "lib/index.js",
   "module": "es/index.js",
@@ -63,7 +63,7 @@
   },
   "peerDependencies": {
     "@ethereumjs/rlp": ">=10.0.0 <11.0.0",
-    "axios": ">=1.12.0 <2.0.0",
+    "axios": ">=1.15.0 <2.0.0",
     "viem": ">=2.0.0 <3.0.0"
   },
   "devDependencies": {
@@ -88,7 +88,7 @@
     "@types/mocha": "10.0.7",
     "@types/node": "~18.19.39",
     "typescript-eslint": "~8.57.1",
-    "axios": "~1.12.0",
+    "axios": "~1.15.1",
     "chai": "4.5.0",
     "cross-env": "^7.0.3",
     "del": "5.1.0",
@@ -125,7 +125,8 @@
       "minimatch@>=9.0.0 <9.0.7": "9.0.7",
       "flatted@<=3.4.1": "3.4.2",
       "serialize-javascript@<=7.0.2": "7.0.4",
-      "basic-ftp@<5.2.0": "5.2.0"
+      "basic-ftp@<5.3.0": "5.3.0",
+      "follow-redirects@<1.16.0": "1.16.0"
     }
   }
 }
