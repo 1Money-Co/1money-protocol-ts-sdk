@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import 'mocha';
 import { keccak256 } from 'viem';
 
+import { MemoValidationError } from '@/utils';
 import TransactionBuilder, {
   createPrivateKeySigner,
 } from '../';
@@ -112,6 +113,82 @@ describe('signing builder test', function () {
     expect(req.signature.r).to.equal(signed.signature.r);
   });
 
+  it('preparePaymentTx with memo builds WithMemo<PaymentPayload> rlp shape', async function () {
+    // Cross-vector from l1client `payment::tests::test_memo_bearing_request_routes_to_v2_envelope`.
+    // Replace `signatureHashByRustSdk` once the Rust hash is captured (see
+    // memo plan Task 4, Step 4). Until then, this test pins the JS-internal
+    // shape only and acts as a regression harness; cross-Rust pinning happens
+    // in Task 13.
+    const memo = {
+      type: 'purpose/SALA',
+      format: 'text/plain',
+      data: 'invoice-001',
+    };
+
+    const prepared = TransactionBuilder.payment({
+      chain_id: 1212101,
+      nonce: 0,
+      recipient: '0xa634dfba8c7550550817898bc4820cd10888aac5',
+      value: '10',
+      token: '0x5458747a0efb9ebeb8696fcac1479278c0872fbe',
+      memo,
+    });
+
+    const expectedInner = ev.list([
+      ev.uint(1212101),
+      ev.uint(0),
+      ev.address('0xa634dfba8c7550550817898bc4820cd10888aac5'),
+      ev.uint('10'),
+      ev.address('0x5458747a0efb9ebeb8696fcac1479278c0872fbe'),
+    ]);
+    const expectedMemo = ev.list([
+      ev.string('purpose/SALA'),
+      ev.string('text/plain'),
+      ev.string('invoice-001'),
+    ]);
+    const expectedRlp = encodeRlpPayload(ev.list([expectedInner, expectedMemo]));
+
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(
+      Array.from(expectedRlp)
+    );
+    expect(prepared.signatureHash).to.equal(keccak256(expectedRlp));
+    // Cross-Rust pin: same vector as memo/__test__/index.test.ts (Task 13),
+    // captured from l1client `payment::tests::test_memo_bearing_request_routes_to_v2_envelope`.
+    expect(prepared.signatureHash).to.equal(
+      '0xbf20bc43bf021d9e034552c84339eb2682d7f0b2ac422e5eee591675c8cce7ed'
+    );
+    expect(prepared.kind).to.equal('payment_v2');
+
+    // Memo flows through to the request body unchanged.
+    const signed = await prepared.sign(createPrivateKeySigner(privateKey));
+    expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    const req = signed.toRequest();
+    expect(req.memo).to.deep.equal(memo);
+  });
+
+  it('preparePaymentTx without memo is byte-identical to the legacy path', function () {
+    // Regression guard: omitting `memo` MUST produce the exact same RLP
+    // bytes (and tx hash domain) as the pre-memo SDK.
+    const prepared = TransactionBuilder.payment({
+      chain_id: 1212101,
+      nonce: 0,
+      recipient: '0xa634dfba8c7550550817898bc4820cd10888aac5',
+      value: '10',
+      token: '0x5458747a0efb9ebeb8696fcac1479278c0872fbe',
+    });
+    const expected = encodeRlpPayload(
+      ev.list([
+        ev.uint(1212101),
+        ev.uint(0),
+        ev.address('0xa634dfba8c7550550817898bc4820cd10888aac5'),
+        ev.uint('10'),
+        ev.address('0x5458747a0efb9ebeb8696fcac1479278c0872fbe'),
+      ])
+    );
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(Array.from(expected));
+    expect(prepared.kind).to.equal('payment');
+  });
+
   it('prepareTokenIssueTx sets clawback default and encodes', async function () {
     const signatureHashByRustSdk =
       '0x01882eb8bee7e2d0d553a0debc95f5d666d55e481b64ee9c6159b4c50831b9f0';
@@ -168,6 +245,46 @@ describe('signing builder test', function () {
     expect(req.clawback_enabled).to.equal(true);
   });
 
+  it('prepareTokenIssueTx with memo builds WithMemo<TokenIssuePayload> rlp shape', async function () {
+    const memo = { type: 'purpose/INV', format: 'text/plain', data: 'inv-42' };
+    const prepared = TransactionBuilder.tokenIssue({
+      chain_id: 1212101,
+      nonce: 2,
+      symbol: 'TEST',
+      name: 'TEST Stablecoin',
+      decimals: 18,
+      master_authority: '0x0000000000000000000000000000000000000000',
+      is_private: false,
+      clawback_enabled: true,
+      memo,
+    });
+
+    const expectedInner = ev.list([
+      ev.uint(1212101),
+      ev.uint(2),
+      ev.string('TEST'),
+      ev.string('TEST Stablecoin'),
+      ev.uint(18),
+      ev.address('0x0000000000000000000000000000000000000000'),
+      ev.bool(false),
+      ev.bool(true),
+    ]);
+    const expectedMemo = ev.list([
+      ev.string('purpose/INV'),
+      ev.string('text/plain'),
+      ev.string('inv-42'),
+    ]);
+    const expectedRlp = encodeRlpPayload(ev.list([expectedInner, expectedMemo]));
+
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(Array.from(expectedRlp));
+    expect(prepared.signatureHash).to.equal(keccak256(expectedRlp));
+    expect(prepared.kind).to.equal('tokenIssue_v2');
+
+    const signed = await prepared.sign(createPrivateKeySigner(privateKey));
+    expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(signed.toRequest().memo).to.deep.equal(memo);
+  });
+
   it('prepareTokenMintTx builds expected rlp bytes', async function () {
     const signatureHashByRustSdk =
       '0x75e9f6cb6e465aac2aebfe7999b85fb08a8a9f4d8b3f08ece8d102f21e5f6d49';
@@ -220,6 +337,40 @@ describe('signing builder test', function () {
     expect(req.value).to.equal('273');
   });
 
+  it('prepareTokenMintTx with memo builds WithMemo<TokenMintPayload> rlp shape', async function () {
+    const memo = { type: 'purpose/INV', format: 'text/plain', data: 'inv-42' };
+    const prepared = TransactionBuilder.tokenMint({
+      chain_id: 1212101,
+      nonce: 2,
+      recipient: '0x0000000000000000000000000000000000000001',
+      value: '273',
+      token: '0x0000000000000000000000000000000000000002',
+      memo,
+    });
+
+    const expectedInner = ev.list([
+      ev.uint(1212101),
+      ev.uint(2),
+      ev.address('0x0000000000000000000000000000000000000001'),
+      ev.uint('273'),
+      ev.address('0x0000000000000000000000000000000000000002'),
+    ]);
+    const expectedMemo = ev.list([
+      ev.string('purpose/INV'),
+      ev.string('text/plain'),
+      ev.string('inv-42'),
+    ]);
+    const expectedRlp = encodeRlpPayload(ev.list([expectedInner, expectedMemo]));
+
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(Array.from(expectedRlp));
+    expect(prepared.signatureHash).to.equal(keccak256(expectedRlp));
+    expect(prepared.kind).to.equal('tokenMint_v2');
+
+    const signed = await prepared.sign(createPrivateKeySigner(privateKey));
+    expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(signed.toRequest().memo).to.deep.equal(memo);
+  });
+
   it('prepareTokenManageListTx builds expected rlp bytes and hash', async function () {
     const signatureHashByRustSdk: string | undefined =
       "0x29ad0e54618a9a596d43ceaf87c26ac5c3690452b0d543a9b4abf4b884513a49";
@@ -270,6 +421,40 @@ describe('signing builder test', function () {
     ).to.equal(ManageListAction.Add);
   });
 
+  it('prepareTokenManageListTx with memo builds WithMemo<TokenManageListPayload> rlp shape', async function () {
+    const memo = { type: 'purpose/INV', format: 'text/plain', data: 'inv-42' };
+    const prepared = TransactionBuilder.tokenManageList({
+      chain_id: 1212101,
+      nonce: 2,
+      action: ManageListAction.Add,
+      address: '0x00000000000000000000000000000000000000aa',
+      token: '0x00000000000000000000000000000000000000bb',
+      memo,
+    });
+
+    const expectedInner = ev.list([
+      ev.uint(1212101),
+      ev.uint(2),
+      ev.string(ManageListAction.Add),
+      ev.address('0x00000000000000000000000000000000000000aa'),
+      ev.address('0x00000000000000000000000000000000000000bb'),
+    ]);
+    const expectedMemo = ev.list([
+      ev.string('purpose/INV'),
+      ev.string('text/plain'),
+      ev.string('inv-42'),
+    ]);
+    const expectedRlp = encodeRlpPayload(ev.list([expectedInner, expectedMemo]));
+
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(Array.from(expectedRlp));
+    expect(prepared.signatureHash).to.equal(keccak256(expectedRlp));
+    expect(prepared.kind).to.equal('tokenManageList_v2');
+
+    const signed = await prepared.sign(createPrivateKeySigner(privateKey));
+    expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(signed.toRequest().memo).to.deep.equal(memo);
+  });
+
   it('prepareTokenBurnTx builds expected rlp bytes and hash', async function () {
     const signatureHashByRustSdk = "0x32d373b3c747b87a00c69ded8b9ab505a5e36d26df30486cb15d8316a10eb52a";
 
@@ -311,6 +496,38 @@ describe('signing builder test', function () {
       v: 0,
     });
     expect(signed.toRequest().value).to.equal('273');
+  });
+
+  it('prepareTokenBurnTx with memo builds WithMemo<TokenBurnPayload> rlp shape', async function () {
+    const memo = { type: 'purpose/INV', format: 'text/plain', data: 'inv-42' };
+    const prepared = TransactionBuilder.tokenBurn({
+      chain_id: 1212101,
+      nonce: 2,
+      value: '273',
+      token: '0x0000000000000000000000000000000000000002',
+      memo,
+    });
+
+    const expectedInner = ev.list([
+      ev.uint(1212101),
+      ev.uint(2),
+      ev.uint('273'),
+      ev.address('0x0000000000000000000000000000000000000002'),
+    ]);
+    const expectedMemo = ev.list([
+      ev.string('purpose/INV'),
+      ev.string('text/plain'),
+      ev.string('inv-42'),
+    ]);
+    const expectedRlp = encodeRlpPayload(ev.list([expectedInner, expectedMemo]));
+
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(Array.from(expectedRlp));
+    expect(prepared.signatureHash).to.equal(keccak256(expectedRlp));
+    expect(prepared.kind).to.equal('tokenBurn_v2');
+
+    const signed = await prepared.sign(createPrivateKeySigner(privateKey));
+    expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(signed.toRequest().memo).to.deep.equal(memo);
   });
 
   it('prepareTokenAuthorityTx builds expected rlp bytes and hash', async function () {
@@ -366,6 +583,44 @@ describe('signing builder test', function () {
     );
   });
 
+  it('prepareTokenAuthorityTx with memo builds WithMemo<TokenAuthorityPayload> rlp shape', async function () {
+    const memo = { type: 'purpose/INV', format: 'text/plain', data: 'inv-42' };
+    const prepared = TransactionBuilder.tokenAuthority({
+      chain_id: 1212101,
+      nonce: 2,
+      action: AuthorityAction.Grant,
+      authority_type: AuthorityType.MasterMint,
+      authority_address: '0x0000000000000000000000000000000000000000',
+      token: '0x0000000000000000000000000000000000000000',
+      value: '123',
+      memo,
+    });
+
+    const expectedInner = ev.list([
+      ev.uint(1212101),
+      ev.uint(2),
+      ev.string(AuthorityAction.Grant),
+      ev.string(AuthorityType.MasterMint),
+      ev.address('0x0000000000000000000000000000000000000000'),
+      ev.address('0x0000000000000000000000000000000000000000'),
+      ev.uint('123'),
+    ]);
+    const expectedMemo = ev.list([
+      ev.string('purpose/INV'),
+      ev.string('text/plain'),
+      ev.string('inv-42'),
+    ]);
+    const expectedRlp = encodeRlpPayload(ev.list([expectedInner, expectedMemo]));
+
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(Array.from(expectedRlp));
+    expect(prepared.signatureHash).to.equal(keccak256(expectedRlp));
+    expect(prepared.kind).to.equal('tokenAuthority_v2');
+
+    const signed = await prepared.sign(createPrivateKeySigner(privateKey));
+    expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(signed.toRequest().memo).to.deep.equal(memo);
+  });
+
   it('prepareTokenPauseTx builds expected rlp bytes and hash', async function () {
     const signatureHashByRustSdk = "0x4b5f3746109cfd286e91abfec9fc3cc066f67cf3a4f2ad28e90c1bdedd27f19c";
 
@@ -409,6 +664,38 @@ describe('signing builder test', function () {
     expect(signed.toRequest().action).to.equal(
       PauseAction.Pause
     );
+  });
+
+  it('prepareTokenPauseTx with memo builds WithMemo<TokenPausePayload> rlp shape', async function () {
+    const memo = { type: 'purpose/INV', format: 'text/plain', data: 'inv-42' };
+    const prepared = TransactionBuilder.tokenPause({
+      chain_id: 1212101,
+      nonce: 2,
+      action: PauseAction.Pause,
+      token: '0x0000000000000000000000000000000000000001',
+      memo,
+    });
+
+    const expectedInner = ev.list([
+      ev.uint(1212101),
+      ev.uint(2),
+      ev.string(PauseAction.Pause),
+      ev.address('0x0000000000000000000000000000000000000001'),
+    ]);
+    const expectedMemo = ev.list([
+      ev.string('purpose/INV'),
+      ev.string('text/plain'),
+      ev.string('inv-42'),
+    ]);
+    const expectedRlp = encodeRlpPayload(ev.list([expectedInner, expectedMemo]));
+
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(Array.from(expectedRlp));
+    expect(prepared.signatureHash).to.equal(keccak256(expectedRlp));
+    expect(prepared.kind).to.equal('tokenPause_v2');
+
+    const signed = await prepared.sign(createPrivateKeySigner(privateKey));
+    expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(signed.toRequest().memo).to.deep.equal(memo);
   });
 
   it('prepareTokenMetadataTx builds expected rlp bytes and hash', async function () {
@@ -497,6 +784,42 @@ describe('signing builder test', function () {
     );
   });
 
+  it('prepareTokenMetadataTx with memo builds WithMemo<TokenMetadataPayload> rlp shape', async function () {
+    const memo = { type: 'purpose/INV', format: 'text/plain', data: 'inv-42' };
+    const prepared = TransactionBuilder.tokenMetadata({
+      chain_id: 1212101,
+      nonce: 2,
+      name: 'test',
+      uri: 'https://test.com',
+      token: '0x0000000000000000000000000000000000000001',
+      additional_metadata: [],
+      memo,
+    });
+
+    const expectedInner = ev.list([
+      ev.uint(1212101),
+      ev.uint(2),
+      ev.string('test'),
+      ev.string('https://test.com'),
+      ev.address('0x0000000000000000000000000000000000000001'),
+      ev.list([]),
+    ]);
+    const expectedMemo = ev.list([
+      ev.string('purpose/INV'),
+      ev.string('text/plain'),
+      ev.string('inv-42'),
+    ]);
+    const expectedRlp = encodeRlpPayload(ev.list([expectedInner, expectedMemo]));
+
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(Array.from(expectedRlp));
+    expect(prepared.signatureHash).to.equal(keccak256(expectedRlp));
+    expect(prepared.kind).to.equal('tokenMetadata_v2');
+
+    const signed = await prepared.sign(createPrivateKeySigner(privateKey));
+    expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(signed.toRequest().memo).to.deep.equal(memo);
+  });
+
   it('prepareTokenBridgeAndMintTx builds expected rlp bytes and hash', async function () {
     const signatureHashByRustSdk =
       "0xca643e2e9408f42b0d8cb44e48ad6b45fbe6a76e0f2a154609c25dd319d8d3ec";
@@ -552,6 +875,47 @@ describe('signing builder test', function () {
     expect(signed.toRequest().source_tx_hash).to.equal(
       sourceTxHash
     );
+  });
+
+  it('prepareTokenBridgeAndMintTx with memo builds WithMemo<TokenBridgeAndMintPayload> rlp shape', async function () {
+    const memo = { type: 'purpose/INV', format: 'text/plain', data: 'inv-42' };
+    const sourceTxHash = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
+    const prepared = TransactionBuilder.tokenBridgeAndMint({
+      chain_id: 1212101,
+      nonce: 2,
+      recipient: '0x0000000000000000000000000000000000000001',
+      value: '273',
+      token: '0x0000000000000000000000000000000000000002',
+      source_chain_id: 1,
+      source_tx_hash: sourceTxHash,
+      bridge_metadata: '',
+      memo,
+    });
+
+    const expectedInner = ev.list([
+      ev.uint(1212101),
+      ev.uint(2),
+      ev.address('0x0000000000000000000000000000000000000001'),
+      ev.uint('273'),
+      ev.address('0x0000000000000000000000000000000000000002'),
+      ev.uint(1),
+      ev.string(sourceTxHash),
+      ev.string(''),
+    ]);
+    const expectedMemo = ev.list([
+      ev.string('purpose/INV'),
+      ev.string('text/plain'),
+      ev.string('inv-42'),
+    ]);
+    const expectedRlp = encodeRlpPayload(ev.list([expectedInner, expectedMemo]));
+
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(Array.from(expectedRlp));
+    expect(prepared.signatureHash).to.equal(keccak256(expectedRlp));
+    expect(prepared.kind).to.equal('tokenBridgeAndMint_v2');
+
+    const signed = await prepared.sign(createPrivateKeySigner(privateKey));
+    expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(signed.toRequest().memo).to.deep.equal(memo);
   });
 
   it('prepareTokenBurnAndBridgeTx builds expected rlp bytes and hash', async function () {
@@ -617,6 +981,50 @@ describe('signing builder test', function () {
     );
   });
 
+  it('prepareTokenBurnAndBridgeTx with memo builds WithMemo<TokenBurnAndBridgePayload> rlp shape', async function () {
+    const memo = { type: 'purpose/INV', format: 'text/plain', data: 'inv-42' };
+    const prepared = TransactionBuilder.tokenBurnAndBridge({
+      chain_id: 1212101,
+      nonce: 2,
+      sender: '0x0000000000000000000000000000000000000001',
+      value: '273',
+      token: '0x0000000000000000000000000000000000000002',
+      destination_chain_id: 1,
+      destination_address: '0x1234567890abcdef1234567890abcdef12345678',
+      escrow_fee: '1000000',
+      bridge_metadata: '',
+      bridge_param: '0x',
+      memo,
+    });
+
+    const expectedInner = ev.list([
+      ev.uint(1212101),
+      ev.uint(2),
+      ev.address('0x0000000000000000000000000000000000000001'),
+      ev.uint('273'),
+      ev.address('0x0000000000000000000000000000000000000002'),
+      ev.uint(1),
+      ev.string('0x1234567890abcdef1234567890abcdef12345678'),
+      ev.uint('1000000'),
+      ev.string(''),
+      ev.hex('0x'),
+    ]);
+    const expectedMemo = ev.list([
+      ev.string('purpose/INV'),
+      ev.string('text/plain'),
+      ev.string('inv-42'),
+    ]);
+    const expectedRlp = encodeRlpPayload(ev.list([expectedInner, expectedMemo]));
+
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(Array.from(expectedRlp));
+    expect(prepared.signatureHash).to.equal(keccak256(expectedRlp));
+    expect(prepared.kind).to.equal('tokenBurnAndBridge_v2');
+
+    const signed = await prepared.sign(createPrivateKeySigner(privateKey));
+    expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(signed.toRequest().memo).to.deep.equal(memo);
+  });
+
   it('prepareTokenClawbackTx builds expected rlp bytes and hash', async function () {
     const signatureHashByRustSdk =
       "0x30de10118795bc6f2277e37ed7acbf289b3ae93d2323a676faa479849c03302e";
@@ -669,6 +1077,42 @@ describe('signing builder test', function () {
     expect(signed.toRequest().from).to.equal(
       '0x0000000000000000000000000000000000000003'
     );
+  });
+
+  it('prepareTokenClawbackTx with memo builds WithMemo<TokenClawbackPayload> rlp shape', async function () {
+    const memo = { type: 'purpose/INV', format: 'text/plain', data: 'inv-42' };
+    const prepared = TransactionBuilder.tokenClawback({
+      chain_id: 1212101,
+      nonce: 2,
+      token: '0x0000000000000000000000000000000000000002',
+      from: '0x0000000000000000000000000000000000000003',
+      recipient: '0x0000000000000000000000000000000000000001',
+      value: '273',
+      memo,
+    });
+
+    const expectedInner = ev.list([
+      ev.uint(1212101),
+      ev.uint(2),
+      ev.address('0x0000000000000000000000000000000000000002'),
+      ev.address('0x0000000000000000000000000000000000000003'),
+      ev.address('0x0000000000000000000000000000000000000001'),
+      ev.uint('273'),
+    ]);
+    const expectedMemo = ev.list([
+      ev.string('purpose/INV'),
+      ev.string('text/plain'),
+      ev.string('inv-42'),
+    ]);
+    const expectedRlp = encodeRlpPayload(ev.list([expectedInner, expectedMemo]));
+
+    expect(Array.from(prepared.rlpBytes)).to.deep.equal(Array.from(expectedRlp));
+    expect(prepared.signatureHash).to.equal(keccak256(expectedRlp));
+    expect(prepared.kind).to.equal('tokenClawback_v2');
+
+    const signed = await prepared.sign(createPrivateKeySigner(privateKey));
+    expect(signed.txHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(signed.toRequest().memo).to.deep.equal(memo);
   });
 
   describe('Custom SignerAdapter tests', function () {
@@ -838,5 +1282,18 @@ describe('signing builder test', function () {
       expect(signature.s).to.match(/^0x[0-9a-f]{64}$/);
       expect(signature.v === 0 || signature.v === 1).to.equal(true);
     });
+  });
+
+  it('preparePaymentTx with malformed memo throws MemoValidationError', function () {
+    expect(() =>
+      TransactionBuilder.payment({
+        chain_id: 1212101,
+        nonce: 0,
+        recipient: '0xa634dfba8c7550550817898bc4820cd10888aac5',
+        value: '10',
+        token: '0x5458747a0efb9ebeb8696fcac1479278c0872fbe',
+        memo: { type: 'has space' },
+      })
+    ).to.throw(MemoValidationError).with.property('code', 'MEMO_TYPE_INVALID_CHARS');
   });
 });

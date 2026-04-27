@@ -37,15 +37,11 @@
       "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: upgrade mocha to v11 for security fixes\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(npx commitlint:*)",
       "Bash(npm run lint:es:*)",
-      "Bash(ls -la /Users/bobbytalvin/Desktop/Github/1money-protocol-ts-sdk/.env*)",
-      "Bash(ls /Users/bobbytalvin/Desktop/Github/1money-protocol-ts-sdk/.env*)",
-      "Bash(git -C /Users/bobbytalvin/Desktop/Github/1money-protocol-ts-sdk log --all --diff-filter=A -- .env*)",
-      "Bash(git -C /Users/bobbytalvin/Desktop/Github/1money-protocol-ts-sdk log --all --oneline -- '.env.integration')",
-      "Bash(git -C /Users/bobbytalvin/Desktop/Github/1money-protocol-ts-sdk show HEAD:.env)",
-      "Bash(git -C /Users/bobbytalvin/Desktop/Github/1money-protocol-ts-sdk show 95cd175:.env.integration)",
       "Bash(pnpm audit *)",
       "Bash(pnpm test *)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(git *)",
+      "Bash(cargo test *)"
     ],
     "deny": []
   }
