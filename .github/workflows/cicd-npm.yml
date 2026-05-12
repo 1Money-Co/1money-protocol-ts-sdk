@@ -28,25 +28,12 @@ jobs:
     - name: Setup node
       uses: actions/setup-node@v4
       with:
-        node-version: '20.16'
+        node-version: '24'
         registry-url: 'https://registry.npmjs.org'
-        scope: '@1money'
-        always-auth: true
 
     - run: npm install --global pnpm@10
     - run: pnpm i --frozen-lockfile
     - run: pnpm build:remote
-
-    - name: Configure npm auth
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      run: |
-        if [ -z "$NODE_AUTH_TOKEN" ]; then
-          echo "NPM_TOKEN secret is not set; add a publish-enabled automation token." >&2
-          exit 1
-        fi
-        npm config set //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
-        npm whoami
 
     - name: Get package version
       id: pkg_version
@@ -69,6 +56,4 @@ jobs:
         fi
 
     - name: Publish to NPM
-      run: npm publish --provenance --access public --tag ${{ steps.set_tag.outputs.tag }}
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      run: npm publish --tag ${{ steps.set_tag.outputs.tag }} --access public
