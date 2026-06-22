@@ -15,6 +15,7 @@ import {
 export * from './builders';
 export * from './core';
 export * from './signer';
+export * from './eip712';
 
 export const TransactionBuilder = {
   payment: preparePaymentTx,

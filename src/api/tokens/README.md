@@ -17,3 +17,9 @@ const apiClient = api();
 ## Available Endpoints
 
 *To be implemented*
+
+### Optional memo field
+
+All write endpoints in this module accept an optional `memo: Memo` field.
+See `../transactions/README.md` for the full description of memo semantics,
+validation rules, and the V1/V2 envelope routing.
