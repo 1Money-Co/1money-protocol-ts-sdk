@@ -5,7 +5,7 @@ import type {
   U256Schema
 } from '../types';
 
-import type { Signature } from '@/utils';
+import type { Memo, Signature } from '@/utils';
 
 // Token metadata key-value pair
 export interface MetaDataKeyValuePair {
@@ -88,6 +88,8 @@ export interface TokenManageListPayload {
   address: string;
   token: string;
   signature: RestSignature;
+  /** Optional transaction memo (see PaymentPayload.memo). */
+  memo?: Memo;
 }
 
 export interface TokenBurnPayload {
@@ -96,6 +98,8 @@ export interface TokenBurnPayload {
   value: string;
   token: string;
   signature: RestSignature;
+  /** Optional transaction memo (see PaymentPayload.memo). */
+  memo?: Memo;
 }
 
 export interface TokenAuthorityPayload {
@@ -107,6 +111,8 @@ export interface TokenAuthorityPayload {
   token: string;
   value?: string;
   signature: RestSignature;
+  /** Optional transaction memo (see PaymentPayload.memo). */
+  memo?: Memo;
 }
 
 export interface TokenIssuePayload {
@@ -122,6 +128,8 @@ export interface TokenIssuePayload {
    */
   clawback_enabled?: boolean;
   signature: RestSignature;
+  /** Optional transaction memo (see PaymentPayload.memo). */
+  memo?: Memo;
 }
 
 export interface TokenMintPayload {
@@ -131,6 +139,8 @@ export interface TokenMintPayload {
   value: string;
   token: string;
   signature: RestSignature;
+  /** Optional transaction memo (see PaymentPayload.memo). */
+  memo?: Memo;
 }
 
 export interface TokenPausePayload {
@@ -139,6 +149,8 @@ export interface TokenPausePayload {
   action: PauseAction;
   token: string;
   signature: RestSignature;
+  /** Optional transaction memo (see PaymentPayload.memo). */
+  memo?: Memo;
 }
 
 export interface TokenMetadataPayload {
@@ -149,6 +161,8 @@ export interface TokenMetadataPayload {
   token: string;
   additional_metadata: KeyValuePair[];
   signature: RestSignature;
+  /** Optional transaction memo (see PaymentPayload.memo). */
+  memo?: Memo;
 }
 
 export interface TokenBridgeAndMintPayload {
@@ -161,6 +175,8 @@ export interface TokenBridgeAndMintPayload {
   source_tx_hash: string;
   bridge_metadata: string;
   signature: RestSignature;
+  /** Optional transaction memo (see PaymentPayload.memo). */
+  memo?: Memo;
 }
 
 export interface TokenBurnAndBridgePayload {
@@ -175,6 +191,8 @@ export interface TokenBurnAndBridgePayload {
   bridge_metadata: string;
   bridge_param: BytesSchema;
   signature: RestSignature;
+  /** Optional transaction memo (see PaymentPayload.memo). */
+  memo?: Memo;
 }
 
 export interface TokenClawbackPayload {
@@ -185,4 +203,6 @@ export interface TokenClawbackPayload {
   recipient: string;
   value: string;
   signature: RestSignature;
+  /** Optional transaction memo (see PaymentPayload.memo). */
+  memo?: Memo;
 }

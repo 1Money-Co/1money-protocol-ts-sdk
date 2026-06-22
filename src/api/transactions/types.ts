@@ -5,6 +5,7 @@ import type {
   B256Schema,
   BytesSchema
 } from '../types';
+import type { Memo } from '@/utils';
 
 // Transaction receipt response
 export interface TransactionReceipt {
@@ -37,6 +38,13 @@ export interface PaymentPayload {
   value: string;
   token: AddressSchema;
   signature: RestSignature;
+  /**
+   * Optional transaction memo. When present (even with empty subfields),
+   * the request is routed to the V2 envelope variant on-chain and the
+   * client MUST sign over the WithMemo<PaymentPayload> RLP shape.
+   * When omitted/undefined, the request takes the legacy V1 path.
+   */
+  memo?: Memo;
 }
 
 // Transaction data types for different transaction types
@@ -161,6 +169,12 @@ interface BaseTransaction {
     s: string;
     v: number;
   };
+  /**
+   * Signed memo attached to the transaction. Populated only for V2
+   * (memo-bearing) envelope variants; omitted when the transaction was
+   * a legacy variant.
+   */
+  memo?: Memo;
 }
 
 // Discriminated union for all transaction types

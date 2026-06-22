@@ -11,6 +11,7 @@ es
 umd
 dist
 dist.zip
+docs
 
 *.log
 
