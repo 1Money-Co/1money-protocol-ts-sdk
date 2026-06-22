@@ -61,6 +61,8 @@ All builders take `chain_id: number` and `nonce: number`. Fields below are the
 *additional* ones. `value`/amount fields are **decimal strings in base units**.
 Addresses are EIP-55 `0x…` strings.
 
+**Every builder also accepts an optional `memo?: Memo`** (see [Memo](#memo-optional--v1-vs-v2-envelope) below). Omit it for the common case; the fields listed per builder are the required ones.
+
 ### payment → transactions.payment
 ```typescript
 { recipient: string; value: string; token: string }
@@ -156,6 +158,45 @@ import { PauseAction } from '@1money/protocol-ts-sdk/api';
 { token: string; from: string; recipient: string; value: string }
 ```
 
+## Memo (optional — V1 vs V2 envelope)
+
+Any builder accepts an optional `memo` to attach a structured note. `Memo` is
+imported from the package root (or `/utils`); all three subfields are optional:
+
+```typescript
+import type { Memo } from '@1money/protocol-ts-sdk';
+
+const prepared = TransactionBuilder.payment({
+  chain_id, nonce, recipient, value, token,
+  memo: { type: 'invoice', format: 'text', data: 'order-12345' }, // all subfields optional
+});
+```
+
+What it changes — this is **not cosmetic**:
+
+- **Absent memo (`undefined`/`null`) → V1 path.** RLP bytes are byte-identical to
+  the pre-memo SDK; `prepared.kind` is e.g. `'payment'`.
+- **Present memo (even `{}` with empty subfields) → V2 envelope.** The builder
+  RLP-encodes `[innerList, [type, format, data]]`, `prepared.kind` becomes
+  `'<kind>_v2'`, and the **signature hash and tx hash live in a different domain**
+  — a V1 and a V2 tx with otherwise identical fields produce different hashes.
+  So passing `memo: {}` is a meaningful choice, not a no-op.
+
+Validation runs at build time (mirrors the server's Rust rules) and throws
+`MemoValidationError` (carries a `.code`) on violation:
+
+| Field | Cap | Allowed chars |
+| --- | --- | --- |
+| `type` | 128 bytes (UTF-8) | URL-safe (RFC 3986 unreserved + gen/sub-delims + `%`) |
+| `format` | 64 bytes (UTF-8) | URL-safe (same set) |
+| `data` | 256 bytes (UTF-8) | any non-control: rejects NUL, C0/C1 controls, surrogates |
+
+Error codes: `MEMO_TYPE_TOO_LONG`, `MEMO_TYPE_INVALID_CHARS`,
+`MEMO_FORMAT_TOO_LONG`, `MEMO_FORMAT_INVALID_CHARS`, `MEMO_DATA_TOO_LONG`,
+`MEMO_DATA_CONTROL_CHARS`, `MEMO_TOO_LARGE`. On the read side, the `Transaction`
+union carries `memo?` back (populated only for V2 transactions); the receipt
+types do not include it.
+
 ## Enums (import from `@1money/protocol-ts-sdk/api`)
 
 ```typescript
@@ -223,6 +264,40 @@ const signed2 = prepared.attachSignature({ r: '0x…', s: '0x…', v: 0 });
 `v` may be `number` (recovery id, e.g. `0`/`1`) or `boolean`. `attachSignature`
 throws on high-S signatures (malleability guard), so ensure your signer enforces
 low-S.
+
+## Alternate path: EIP-712 typed-data payment
+
+Besides the RLP `TransactionBuilder` flow above, the SDK exports a **separate
+EIP-712 typed-data path for payments** (root-level export, via the signing
+layer). Use it when the signer is a browser wallet doing
+`eth_signTypedData_v4` and you submit on-chain calldata to a `submitTypedData`
+contract entrypoint — *not* the REST `transactions.payment` endpoint. Today only
+payment is implemented.
+
+```typescript
+import { preparePaymentTypedTx, parseSig } from '@1money/protocol-ts-sdk';
+
+const prepared = preparePaymentTypedTx({
+  chain_id, nonce, recipient, value, token,
+  memo: { data: 'note' }, // optional, same Memo rules
+});
+
+// 1. Hand prepared.typedData to the wallet for eth_signTypedData_v4.
+const sigHex = await wallet.request({
+  method: 'eth_signTypedData_v4',
+  params: [account, JSON.stringify(prepared.typedData)],
+});
+
+// 2. Parse the 65-byte sig (normalizes v to 27/28) and build the calldata.
+const tx = prepared.encodeCalldata(parseSig(sigHex));
+// → { to, data, value: 0n, gas, gasPrice, type: 'legacy' } — send via your wallet.
+```
+
+`encodeCalldata` requires `v ∈ {27, 28}` (recovery ids `0`/`1` are normalized by
+`parseSig`). The EIP-712 domain is `{ name: '1Money Network', version: '1',
+chainId, verifyingContract: 0xff…fe }`; `buildPaymentEip712TypedData` is exported
+if you need the typed data without the calldata helper. This path is independent
+of the `api()` REST client.
 
 ## Verifying the result
 

@@ -125,8 +125,9 @@ interface TransactionReceipt {
 'TokenBridgeAndMint' | 'TokenBurn' | 'TokenBurnAndBridge' | 'TokenClawback' |
 'TokenCloseAccount' | 'TokenPause' | 'TokenUnpause' | 'TokenUpdateMetadata' |
 'Raw'`). All variants share `hash`, `chain_id`, `from`, `nonce`, `signature`,
-plus optional `checkpoint_*`/`transaction_index`; each carries a `data` object
-specific to its type. Narrow on `transaction_type` before reading `data`.
+plus optional `checkpoint_*`/`transaction_index` and an optional `memo` (present
+only for V2/memo-bearing txs); each carries a `data` object specific to its type.
+Narrow on `transaction_type` before reading `data`.
 
 ## checkpoints
 

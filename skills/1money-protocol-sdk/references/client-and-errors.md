@@ -61,13 +61,19 @@ Important behavioral notes:
 
 ```typescript
 interface ParsedError<T extends string = string> {
-  name: T;          // 'timeout' for timeouts, else the underlying error name
+  name: T;          // underlying error name (see timeout caveat below)
   message: string;
   stack: string;
   status: number;   // HTTP status, or 500 if none
   data?: any;       // server error body when present
 }
 ```
+
+> **Timeout discriminator caveat.** A timeout is typed `ParsedError<'timeout'>`,
+> but that `'timeout'` is only the *type-level* tag — at runtime the object is a
+> plain `Error('timeout')`, so `name === 'Error'` and **`message === 'timeout'`**.
+> To detect a timeout in a `catch`, check `err.message === 'timeout'` (or just use
+> the `.timeout()` handler), **not** `err.name === 'timeout'`.
 
 ## Configuration & custom headers
 
@@ -98,7 +104,8 @@ setInitConfig({
 Default timeout is 10s; override per client via `api({ timeout })` or globally
 via `setInitConfig({ timeout })`. On timeout the request is **aborted** (via
 `AbortController`) and `.timeout()` fires (or the awaited call throws a
-`ParsedError<'timeout'>` if unhandled).
+`ParsedError<'timeout'>` if unhandled — runtime `message === 'timeout'`, see the
+caveat under ParsedError shape).
 
 The high-level module methods (`accounts.getNonce`, `transactions.payment`, …)
 do **not** accept a per-call options/`signal` argument — they use fixed request
@@ -138,6 +145,21 @@ toHex('hello'); // '0x68656c6c6f'
 Compute a transaction hash from a raw payload array + `{ r, s, v }`. Rarely
 needed directly — prefer `SignedTx.txHash` from the builder flow, which is
 computed for you. Use `calcTxHash` only for low-level/verification work.
+
+### validateMemo / MemoValidationError / Memo
+For attaching a memo to a transaction (see `transactions.md` → Memo). `Memo` is
+`{ type?, format?, data? }`. The builders call `validateMemo` for you when a memo
+is present; call it yourself to pre-validate user input. It throws
+`MemoValidationError` (with a `.code`) on oversize or illegal-character subfields.
+
+```typescript
+import { validateMemo, MemoValidationError } from '@1money/protocol-ts-sdk';
+try {
+  validateMemo({ type: 'invoice', data: userInput });
+} catch (e) {
+  if (e instanceof MemoValidationError) console.error(e.code, e.message);
+}
+```
 
 ### Deprecated: signMessage / encodePayload
 `signMessage(payload, privateKey)` and `encodePayload(payload)` are legacy

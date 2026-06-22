@@ -57,9 +57,11 @@ The package root re-exports only: the `api` function, the **signing** layer
 (`deriveTokenAddress`, `calcTxHash`, `toHex`, …), and `client`.
 
 Enums (`AuthorityType`, `AuthorityAction`, `ManageListAction`, `PauseAction`)
-and request/response **types** live under the `/api` subpath. Some README
-snippets import enums from the root — prefer the `/api` subpath so it resolves
-reliably:
+and request/response **types** live under the `/api` subpath, **not** the root.
+The README imports some enums from the root — that's a bug: the root never
+re-exports them, and because enums are runtime *values* (not erasable types) a
+root import resolves to `undefined` (so `AuthorityType.MasterMint` throws) or
+fails to compile. Always import enums from `/api`:
 
 ```typescript
 import { api, TransactionBuilder, createPrivateKeySigner } from '@1money/protocol-ts-sdk';
@@ -173,9 +175,11 @@ The builder you call and the endpoint you submit to must match. Quick map:
 | `tokenBurnAndBridge` | `tokens.burnAndBridge` | `{ hash }` |
 | `tokenClawback` | `tokens.clawbackToken` | `{ hash }` |
 
-Exact parameter fields for each builder, the enum values they need, a
-custom-signer pattern (wallets/HSM, when you can't hold the raw key), and
-verifying the result are in `references/transactions.md`.
+Exact parameter fields for each builder, the enum values they need, the optional
+`memo` field (and how it switches a tx to the V2 envelope), a custom-signer
+pattern (wallets/HSM, when you can't hold the raw key), the alternate **EIP-712
+typed-data payment** path (`preparePaymentTypedTx`, for `eth_signTypedData_v4`
+wallets), and verifying the result are in `references/transactions.md`.
 
 ## Non-negotiable conventions
 
@@ -195,3 +199,7 @@ violating them throws or silently produces a bad transaction.
   wallet/HSM.
 - **Prefer `TransactionBuilder` over `signMessage`/`encodePayload`.** The latter
   are `@deprecated` legacy helpers; the builder flow is the supported path.
+- **`memo` is optional but not cosmetic.** Every builder accepts `memo?: Memo`
+  (`{ type?, format?, data? }`). Passing *any* memo — even `{}` — switches the tx
+  to the V2 envelope and changes its signature/tx hash vs. the no-memo V1 form.
+  Omit it unless you actually want a memo. Details in `references/transactions.md`.
