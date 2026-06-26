@@ -1,7 +1,7 @@
 
 // Base URLs for the API
 export const TESTNET_API_URL = 'https://api.testnet.1money.network';
-export const MAINNET_API_URL = 'https://api.1money.network';
+export const MAINNET_API_URL = 'https://api.mainnet.1money.network';
 export const LOCAL_API_URL = 'http://localhost:18555';
 
 // Chain IDs for different networks
