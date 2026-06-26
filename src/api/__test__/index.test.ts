@@ -24,7 +24,7 @@ describe('api test', function () {
 
   it('should export API URLs', function () {
     expect(TESTNET_API_URL).to.equal('https://api.testnet.1money.network');
-    expect(MAINNET_API_URL).to.equal('https://api.1money.network');
+    expect(MAINNET_API_URL).to.equal('https://api.mainnet.1money.network');
     expect(LOCAL_API_URL).to.equal('http://localhost:18555');
   });
 
