@@ -182,6 +182,11 @@ export const TransactionBuilderV2 = {
       u,
       o
     ),
+  createMultisig: (
+    u: OperationUnsignedMap['createMultisig'],
+    o?: PrepareOptionsV2
+  ) =>
+    prepareTransactionV2('createMultisig', u, o),
   batchPayment: (
     u: OperationUnsignedMap['batchPayment']
   ) => prepareTransactionV2('batchPayment', u)

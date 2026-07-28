@@ -4,6 +4,11 @@ import {
   validateBatchPayment
 } from '../builders/batchPayment';
 import {
+  createMultisigPayloadFields,
+  createMultisigWireFields,
+  validateCreateMultisig
+} from '../builders/createMultisig';
+import {
   paymentPayloadFields,
   validatePayment
 } from '../builders/payment';
@@ -55,6 +60,7 @@ import {
 
 import type { PlpPayload } from '@/utils';
 import type { BatchPaymentUnsigned } from '../builders/batchPayment';
+import type { CreateMultisigUnsigned } from '../builders/createMultisig';
 import type { PaymentUnsigned } from '../builders/payment';
 import type { TokenAuthorityUnsigned } from '../builders/tokenAuthority';
 import type { TokenBridgeAndMintUnsigned } from '../builders/tokenBridgeAndMint';
@@ -85,6 +91,7 @@ export interface OperationUnsignedMap {
   tokenMetadata: WithoutMemo<TokenMetadataUnsigned>;
   tokenBridgeAndMint: WithoutMemo<TokenBridgeAndMintUnsigned>;
   tokenBurnAndBridge: WithoutMemo<TokenBurnAndBridgeUnsigned>;
+  createMultisig: CreateMultisigUnsigned;
   batchPayment: WithoutMemo<BatchPaymentUnsigned>;
 }
 
@@ -221,6 +228,18 @@ export const OPERATION_REGISTRY: {
     payloadFields:
       tokenBurnAndBridgePayloadFields,
     validate: validateTokenBurnAndBridge
+  },
+  createMultisig: {
+    operationType:
+      NativeOperationType.CreateMultiSig,
+    memoCapable: true,
+    // v2-only: legacy clients used POST /v1/transactions/raw,
+    // which is retired and returns 410 Gone.
+    pathV1: null,
+    pathV2: '/v2/accounts/multisig',
+    payloadFields: createMultisigPayloadFields,
+    validate: validateCreateMultisig,
+    wireFields: createMultisigWireFields
   },
   batchPayment: {
     operationType:
