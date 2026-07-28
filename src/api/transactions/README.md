@@ -25,7 +25,8 @@ const apiClient = api();
   for the full prepare → sign → authorize → submit flow.
 - `legacyV1.payment` — the pre-3.0 signed-payload path, explicit opt-in during
   the migration window. POSTs to `/v1/transactions/payment` and is rejected
-  with 410 once the node reaches `NativeWriteMode.V2Only`. There is no
+  with 410 once the node's `native_write_mode` reaches `'v2_only'` (the
+  runtime value is a lowercase string, not an enum member). There is no
   `legacyV1.batchPayment` — batch payment is v2-only.
 
 ### Memo field

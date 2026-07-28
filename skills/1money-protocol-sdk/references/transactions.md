@@ -1,11 +1,13 @@
 # Building, signing & submitting transactions
 
 Since **3.0**, `TransactionBuilder` means the **native v2** domain-separated
-scheme. It targets the node's `/v2` write surface, requires an explicit memo
-on every operation (see below), and produces a plain-JSON authorized request
-instead of a mutable "signed tx" object. The pre-3.0 scheme still exists,
-namespaced under `LegacyV1TransactionBuilder` — see
-[Legacy v1](#legacy-v1) at the end of this file.
+scheme. It targets the node's `/v2` write surface, always sends a memo object
+on the wire for every memo-capable operation (see below) — supplying one is
+optional for the caller, but the field itself is never absent from the
+request — and produces a plain-JSON authorized request instead of a mutable
+"signed tx" object. The pre-3.0 scheme still exists, namespaced under
+`LegacyV1TransactionBuilder` — see [Legacy v1](#legacy-v1) at the end of this
+file.
 
 ## The v2 pipeline
 
@@ -351,8 +353,21 @@ truncated to the last 20 bytes — byte-for-byte identical to what the node
 assigns at execution. It's pure and side-effect free, so call it before
 building the transaction to confirm the address you expect, and it throws on
 an empty signer list, an invalid/off-curve public key, a non-canonical
-(non-SEC1-compressed) key encoding, a zero/negative weight, a weight sum that
-overflows `u16`, or a threshold exceeding the total signer weight.
+(non-SEC1-compressed) key encoding, a zero/negative weight, a **weight over
+255** (each signer's weight is packed as a single byte in the address
+preimage), a **duplicate public key**, a weight sum that overflows `u16`, or a
+threshold exceeding the total signer weight.
+
+> **A real asymmetry, not a bug to route around:** `createMultisig` (the
+> builder in `src/signing/builders/createMultisig.ts`) does **not** enforce
+> the weight-≤255 or duplicate-pubkey rules — it only checks that each weight
+> is a positive integer, so `createMultisig({ ..., weight: 1000 })` builds and
+> signs without error. `deriveMultisigAddress` (`src/signing/v2/multisigAddress.ts`)
+> is stricter and throws on both. This means you can successfully submit a
+> `createMultisig` transaction whose address you cannot compute locally with
+> `deriveMultisigAddress` — if you rely on client-side address derivation,
+> validate `weight <= 255` and uniqueness yourself before calling
+> `createMultisig`, don't assume the builder will catch it for you.
 
 ## Custom signer (wallet / HSM / no raw key in process)
 
@@ -443,8 +458,9 @@ Retrying resubmits a *second* transaction on the same nonce. See
 
 The pre-3.0 signing scheme is still available, namespaced under
 `LegacyV1TransactionBuilder` and `api().<module>.legacyV1.*`, as an explicit
-opt-in during the migration window. A node that has moved to `NativeWriteMode
-V2Only` rejects every legacy write with 410 — check
+opt-in during the migration window. A node whose `NativeWriteMode` is
+`'v2_only'` (the runtime value of `native_write_mode` — lowercase, not
+`V2Only`) rejects every legacy write with 410 — check
 `client.status.getNativeWriteStatus()` before relying on it (see
 `api-reference.md` and `client-and-errors.md`).
 

@@ -42,7 +42,7 @@ const apiClient = api({
 You can set custom HTTP headers that will be included in all API requests:
 
 ```typescript
-import { setInitConfig } from '@1money/protocol-ts-sdk';
+import { setInitConfig } from '@1money/protocol-ts-sdk/client';
 
 // Set custom headers for all requests
 setInitConfig({
@@ -111,7 +111,17 @@ const checkpoint = await apiClient.checkpoints.getByNumber(1)
 
 ## Error Handling
 
-All API methods return a promise-like object with `.success()`, `.timeout()`, `.error()` and `.rest()` handlers. Always implement both handlers for proper error management:
+**Reads return a chainable promise-like wrapper; v2 writes return a plain promise.**
+Every read (`apiClient.<module>.get*`, `apiClient.<module>.estimateFee`, etc.) and
+every `legacyV1.*` write returns a promise-like object with `.success()`,
+`.timeout()`, `.error()` and `.rest()` handlers, shown below. The **native v2**
+write methods (`apiClient.tokens.issueToken`, `apiClient.transactions.payment`,
+and the rest of the `TransactionBuilder` → `authorize` → submit pipeline) are
+plain `async` functions and return a native `Promise` — `await` them in a
+`try/catch` instead of chaining `.success()/.error()`; see the write examples
+under [API Methods](#api-methods) below.
+
+For the chainable wrapper, always implement both handlers for proper error management:
 
 1. `.success()`: Handles successful API responses
 2. `.timeout()`: Specifically handles timeout errors
@@ -271,22 +281,23 @@ const prepared = TransactionBuilder.tokenIssue({
 const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
 const authorized = prepared.authorize(signature);
 
-apiClient.tokens.issueToken(authorized)
-  .success(response => {
-    console.log('Token issued:', response.token, 'in tx', response.hash);
-  })
-  .error(err => {
-    console.error('Error:', err);
-  });
+// v2 write: submitAuthorized returns a plain Promise, not the chainable
+// wrapper -- await it in a try/catch.
+try {
+  const response = await apiClient.tokens.issueToken(authorized);
+  console.log('Token issued:', response.token, 'in tx', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
 ```
 
 #### Manage Token Blacklist/Whitelist
 ```typescript
 import {
-  ManageListAction,
   TransactionBuilder,
   createPrivateKeySigner
 } from '@1money/protocol-ts-sdk';
+import { ManageListAction } from '@1money/protocol-ts-sdk/api';
 
 // Your private key (DO NOT share or commit your private key)
 const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
@@ -310,13 +321,13 @@ const prepared = TransactionBuilder.tokenBlacklist({
 const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
 const authorized = prepared.authorize(signature);
 
-apiClient.tokens.manageBlacklist(authorized)
-  .success(response => {
-    console.log('Blacklist update transaction hash:', response.hash);
-  })
-  .error(err => {
-    console.error('Error:', err);
-  });
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.tokens.manageBlacklist(authorized);
+  console.log('Blacklist update transaction hash:', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
 ```
 
 #### Burn Tokens
@@ -344,23 +355,22 @@ const prepared = TransactionBuilder.tokenBurn({
 const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
 const authorized = prepared.authorize(signature);
 
-apiClient.tokens.burnToken(authorized)
-  .success(response => {
-    console.log('Burn transaction hash:', response.hash);
-  })
-  .error(err => {
-    console.error('Error:', err);
-  });
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.tokens.burnToken(authorized);
+  console.log('Burn transaction hash:', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
 ```
 
 #### Grant Token Authority
 ```typescript
 import {
-  AuthorityAction,
-  AuthorityType,
   TransactionBuilder,
   createPrivateKeySigner
 } from '@1money/protocol-ts-sdk';
+import { AuthorityAction, AuthorityType } from '@1money/protocol-ts-sdk/api';
 
 // Your private key (DO NOT share or commit your private key)
 const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
@@ -383,13 +393,13 @@ const prepared = TransactionBuilder.tokenAuthority({
 const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
 const authorized = prepared.authorize(signature);
 
-apiClient.tokens.grantAuthority(authorized)
-  .success(response => {
-    console.log('Authority update transaction hash:', response.hash);
-  })
-  .error(err => {
-    console.error('Error:', err);
-  });
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.tokens.grantAuthority(authorized);
+  console.log('Authority update transaction hash:', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
 ```
 
 #### Bridge and Mint
@@ -421,13 +431,13 @@ const prepared = TransactionBuilder.tokenBridgeAndMint({
 const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
 const authorized = prepared.authorize(signature);
 
-apiClient.tokens.bridgeAndMint(authorized)
-  .success(response => {
-    console.log('Bridge and mint transaction hash:', response.hash);
-  })
-  .error(err => {
-    console.error('Error:', err);
-  });
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.tokens.bridgeAndMint(authorized);
+  console.log('Bridge and mint transaction hash:', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
 ```
 
 #### Burn and Bridge
@@ -461,13 +471,13 @@ const prepared = TransactionBuilder.tokenBurnAndBridge({
 const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
 const authorized = prepared.authorize(signature);
 
-apiClient.tokens.burnAndBridge(authorized)
-  .success(response => {
-    console.log('Burn and bridge transaction hash:', response.hash);
-  })
-  .error(err => {
-    console.error('Error:', err);
-  });
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.tokens.burnAndBridge(authorized);
+  console.log('Burn and bridge transaction hash:', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
 ```
 
 ### Transactions API
@@ -541,13 +551,13 @@ const prepared = TransactionBuilder.payment({
 const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
 const authorized = prepared.authorize(signature); // signature.v must be 0 or 1
 
-apiClient.transactions.payment(authorized)
-  .success(response => {
-    console.log('Payment transaction hash:', response.hash);
-  })
-  .error(err => {
-    console.error('Error:', err);
-  });
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.transactions.payment(authorized);
+  console.log('Payment transaction hash:', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
 ```
 
 

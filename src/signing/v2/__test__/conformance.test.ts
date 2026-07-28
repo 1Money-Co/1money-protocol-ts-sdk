@@ -190,3 +190,42 @@ describe('native v2 proof integer canonicalization', function () {
     ).to.throw(/must be 0 or 1/);
   });
 });
+
+describe('multisigProof ordering rule', function () {
+  const lowKey =
+    '0x021111111111111111111111111111111111111111111111111111111111111111' as `0x${string}`;
+  const highKey =
+    '0x032222222222222222222222222222222222222222222222222222222222222222' as `0x${string}`;
+  const sig: Signature = {
+    r: `0x${'11'.repeat(32)}` as `0x${string}`,
+    s: `0x${'22'.repeat(32)}` as `0x${string}`,
+    v: 0
+  };
+
+  it('accepts strictly ascending, distinct pubkeys', function () {
+    expect(() =>
+      multisigProof([
+        { signerPubkey: lowKey, signature: sig },
+        { signerPubkey: highKey, signature: sig }
+      ])
+    ).to.not.throw();
+  });
+
+  it('rejects a duplicate pubkey', function () {
+    expect(() =>
+      multisigProof([
+        { signerPubkey: lowKey, signature: sig },
+        { signerPubkey: lowKey, signature: sig }
+      ])
+    ).to.throw(/duplicate signerPubkey/);
+  });
+
+  it('rejects out-of-order entries (does not silently sort)', function () {
+    expect(() =>
+      multisigProof([
+        { signerPubkey: highKey, signature: sig },
+        { signerPubkey: lowKey, signature: sig }
+      ])
+    ).to.throw(/not in strictly ascending order/);
+  });
+});

@@ -1,10 +1,11 @@
-import { keccak256 } from 'viem';
+import { hexToBytes, keccak256 } from 'viem';
 
 import {
   encodeRlpPayload,
   rlpValue
 } from '@/utils';
 import { NATIVE_TX_DOMAIN_V2 } from './domain';
+import { toParityV } from './authorization';
 
 import type {
   PlpPayload,
@@ -23,24 +24,6 @@ export interface RequiredMemo {
 export interface MultiSigProofEntry {
   signerPubkey: ZeroXString;
   signature: Signature;
-}
-
-// v must be y-parity on the v2 surface. A legacy 27/28 is evidence
-// the caller signed the wrong digest, so it is rejected rather than
-// normalized. See native-v2-signing-spec section 3.
-function parityV(signature: Signature): 0 | 1 {
-  const v =
-    typeof signature.v === 'boolean'
-      ? signature.v
-        ? 1
-        : 0
-      : signature.v;
-  if (v !== 0 && v !== 1) {
-    throw new Error(
-      `[1Money SDK]: Invalid signature v for native v2: ${String(signature.v)} (must be 0 or 1)`
-    );
-  }
-  return v;
 }
 
 // payload_rlp — the canonical payload's own complete RLP encoding.
@@ -96,16 +79,63 @@ export function singleProof(
   return rlpValue.list([
     rlpValue.uint(BigInt(signature.r)),
     rlpValue.uint(BigInt(signature.s)),
-    rlpValue.uint(parityV(signature))
+    rlpValue.uint(toParityV(signature))
   ]);
 }
 
+function compareBytes(
+  a: Uint8Array,
+  b: Uint8Array
+): number {
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i += 1) {
+    if (a[i] !== b[i]) {
+      return a[i] - b[i];
+    }
+  }
+  return a.length - b.length;
+}
+
+// Multisig authorization submission is out of scope for this
+// release, but a caller can still call this directly and get a
+// confidently-computed transactionHash for a transaction the node
+// will reject -- so the ordering rule is enforced here rather than
+// left to the caller. Reject, never reorder: the spec requires
+// strictly-ascending order by compressed pubkey with no duplicates,
+// and silently sorting would compute a hash for a different (and
+// possibly unintended) signer ordering than the one passed in.
+function assertAscendingPubkeys(
+  entries: MultiSigProofEntry[]
+): void {
+  for (let i = 1; i < entries.length; i += 1) {
+    const prev = hexToBytes(
+      entries[i - 1].signerPubkey as `0x${string}`
+    );
+    const curr = hexToBytes(
+      entries[i].signerPubkey as `0x${string}`
+    );
+    const cmp = compareBytes(curr, prev);
+    if (cmp === 0) {
+      throw new Error(
+        `[1Money SDK]: Invalid multisig proof: duplicate signerPubkey ${entries[i].signerPubkey}`
+      );
+    }
+    if (cmp < 0) {
+      throw new Error(
+        `[1Money SDK]: Invalid multisig proof: signerPubkey ${entries[i].signerPubkey} is not in strictly ascending order (must sort after ${entries[i - 1].signerPubkey})`
+      );
+    }
+  }
+}
+
 // [[signer_pubkey, r, s, v], ...] with each pubkey an ordinary
-// 33-byte string. Entries are encoded in the order supplied; the
-// canonical ascending order is enforced where the list is built.
+// 33-byte string. Entries must already be in strictly ascending
+// order by compressed pubkey with no duplicates -- enforced above,
+// not reordered.
 export function multisigProof(
   entries: MultiSigProofEntry[]
 ): PlpPayload {
+  assertAscendingPubkeys(entries);
   return rlpValue.list(
     entries.map(entry =>
       rlpValue.list([
@@ -114,7 +144,7 @@ export function multisigProof(
         rlpValue.hex(entry.signerPubkey),
         rlpValue.uint(BigInt(entry.signature.r)),
         rlpValue.uint(BigInt(entry.signature.s)),
-        rlpValue.uint(parityV(entry.signature))
+        rlpValue.uint(toParityV(entry.signature))
       ])
     )
   );

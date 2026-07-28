@@ -30,7 +30,8 @@ const apiClient = api();
   operations (`legacyV1.manageBlacklist` and `legacyV1.manageWhitelist` both
   take the single legacy `TokenManageListPayload` shape), explicit opt-in
   during the migration window. POSTs to `/v1/tokens/*` and is rejected with
-  410 once the node reaches `NativeWriteMode.V2Only`.
+  410 once the node's `native_write_mode` reaches `'v2_only'` (the runtime
+  value is a lowercase string, not an enum member).
 
 ### Memo field
 

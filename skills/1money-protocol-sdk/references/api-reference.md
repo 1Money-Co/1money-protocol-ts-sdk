@@ -1,9 +1,12 @@
 # API reference — read endpoints & response shapes
 
-Every method below returns the SDK promise wrapper (see
-`client-and-errors.md`). The value handed to `.success(cb)` / resolved by
-`await` is the **decoded response body directly** — the shapes shown here are
-exactly what you get.
+Every **read** method below (and every `legacyV1.*` write) returns the SDK
+promise wrapper (see `client-and-errors.md`) — the value handed to
+`.success(cb)` / resolved by `await` is the **decoded response body
+directly**, exactly the shapes shown here. The native v2 **write** methods
+listed under [Write endpoints (index)](#write-endpoints-index) are plain
+`async` functions and return a native `Promise` instead — `await` them in a
+`try/catch`, they have no `.success()`/`.error()`.
 
 All addresses, hashes, and large numbers are hex/decimal **strings**. `U256`
 amounts are decimal strings (base units); `B256`/address values are `0x…` hex.
@@ -37,7 +40,7 @@ hits the node's `/v1` REST surface regardless of whether native writes are on
 v1, v2, or both. `/v2` is a **write-only** surface — there is no `/v2` read
 endpoint to switch to. See `references/transactions.md` for the write side.
 
-Base URLs by network: mainnet `https://api.1money.network`, testnet
+Base URLs by network: mainnet `https://api.mainnet.1money.network`, testnet
 `https://api.testnet.1money.network`, local `http://localhost:18555`.
 
 ## chain

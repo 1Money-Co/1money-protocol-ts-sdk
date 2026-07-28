@@ -97,17 +97,28 @@ export function isLegacyWriteDisabled(
   );
 }
 
+// `serverHash` originates from a parsed HTTP
+// response body -- the static `string` type on the
+// caller's side does not guarantee the runtime shape.
+// Anything that is not a pair of strings is treated
+// as a mismatch (never a silent pass-through) so this
+// stays fail-closed: the transaction was already
+// admitted by the time this runs, and only
+// TransactionHashMismatchError carries `submitted`
+// to the caller.
 export function assertTransactionHash(
-  localHash: string,
-  serverHash: string
+  localHash: unknown,
+  serverHash: unknown
 ): void {
   if (
+    typeof localHash !== 'string' ||
+    typeof serverHash !== 'string' ||
     localHash.toLowerCase() !==
-    serverHash.toLowerCase()
+      serverHash.toLowerCase()
   ) {
     throw new TransactionHashMismatchError(
-      localHash,
-      serverHash
+      String(localHash),
+      String(serverHash)
     );
   }
 }

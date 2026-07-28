@@ -101,8 +101,17 @@ const slow = api({ network: 'testnet', timeout: 5000 }); // ms, default 10000
 
 ## The promise-wrapper pattern (read this before any call)
 
-Every API method returns a thenable with handler methods. **You can either chain
-handlers or `await` directly — but be deliberate about which.**
+**Reads return the chainable wrapper; native v2 writes return a plain
+`Promise`.** Every read method (all `get*`/`estimateFee` calls) and every
+`legacyV1.*` write returns a thenable with handler methods — chain handlers or
+`await` directly, your choice. The native v2 write methods (`payment`,
+`batchPayment`, `issueToken`, `mintToken`, `burnToken`, `clawbackToken`,
+`grantAuthority`, `manageBlacklist`, `manageWhitelist`, `pauseToken`,
+`updateMetadata`, `bridgeAndMint`, `burnAndBridge`, `createMultisig` — anything
+taking an `AuthorizedTxV2`) are plain `async` functions under the hood
+(`submitAuthorized` in `src/api/submit.ts`), so they return a native `Promise`
+with no `.success()`/`.error()`/`.timeout()`/`.rest()` — `await` them in a
+`try/catch` (see the submit step in the next section).
 
 ```typescript
 // Chain style — handlers transform the result; errors are HANDLED, not thrown.
@@ -258,8 +267,10 @@ violating them throws or silently produces a bad transaction.
   process boundary for offline signing.
 - **Prefer `TransactionBuilder` over `LegacyV1TransactionBuilder`.** The legacy
   builder targets the `/v1` write surface, which a node rejects with 410 once
-  it reaches `V2Only`. Use it only as an explicit, deliberate opt-in during a
-  migration window — never as a fallback triggered by retrying a failed v2
-  submission (see `TransactionHashMismatchError` in `client-and-errors.md`).
+  its `NativeWriteMode` reaches `'v2_only'` (the runtime value is the
+  lowercase string, not `V2Only`). Use it only as an explicit, deliberate
+  opt-in during a migration window — never as a fallback triggered by
+  retrying a failed v2 submission (see `TransactionHashMismatchError` in
+  `client-and-errors.md`).
 - **Prefer `TransactionBuilder`/`LegacyV1TransactionBuilder` over
   `signMessage`/`encodePayload`.** The latter are `@deprecated` legacy helpers.

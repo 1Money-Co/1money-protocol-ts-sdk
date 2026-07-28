@@ -83,4 +83,33 @@ describe('v2 errors', function () {
       expect(err.serverHash).to.equal(OTHER);
     }
   );
+
+  // Fail-closed: a malformed serverHash must never
+  // escape as a bare TypeError. The tx was already
+  // admitted, so this must still surface as
+  // TransactionHashMismatchError with
+  // submitted === true.
+  for (const bad of [
+    undefined,
+    null,
+    12345
+  ] as unknown[]) {
+    it(
+      `throws TransactionHashMismatchError (submitted: true) for serverHash ${String(bad)}`,
+      function () {
+        let caught: unknown;
+        try {
+          assertTransactionHash(LOCAL, bad);
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).to.be.instanceOf(
+          TransactionHashMismatchError
+        );
+        const err =
+          caught as TransactionHashMismatchError;
+        expect(err.submitted).to.equal(true);
+      }
+    );
+  }
 });

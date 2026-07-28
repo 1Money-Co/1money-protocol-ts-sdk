@@ -27,7 +27,8 @@ DEV*.md
 *.conf.js
 tsconfig.json
 .mocharc.*
-.env
+.env*
+.claude
 
 _config.yml
 .nyc_output

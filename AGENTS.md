@@ -59,7 +59,9 @@ This is a TypeScript SDK for the 1Money Network Protocol with a modular architec
 - **src/index.ts** - Main entry point, exports api client and utilities
 - **src/api/** - API client modules for different endpoints (accounts, tokens, transactions, checkpoints, chain)
 - **src/client/** - Core HTTP client with promise wrapper system
-- **src/signing/** - Transaction signing: EIP-712 (`eip712/`), payload `builders/`, `signer.ts`, `core.ts`
+- **src/signing/** - Transaction signing: EIP-712 (`eip712/`), payload `builders/`, `signer.ts`, `core.ts`,
+  and the native v2 domain-separated scheme (`v2/` - `prepare.ts`, `encoding.ts`, `authorization.ts`,
+  `domain.ts`, `registry.ts`, `wire.ts`, `multisigAddress.ts`)
 - **src/utils/** - Helpers: address derivation, tx hashing, `encode.ts`, `memo/`
 
 ### Key Architecture Patterns

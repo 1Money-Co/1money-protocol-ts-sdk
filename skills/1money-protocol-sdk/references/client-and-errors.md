@@ -2,8 +2,15 @@
 
 ## The promise wrapper in depth
 
-Every API method returns an object that is **both** a `Promise` and a builder of
-handler chains. You consume it one of two ways.
+Every **read** method (and every `legacyV1.*` write) returns an object that is
+**both** a `Promise` and a builder of handler chains, consumed one of two ways
+below. The native v2 **write** methods (`transactions.payment`,
+`tokens.issueToken`, and the rest of the `AuthorizedTxV2`-taking methods) are
+plain `async` functions (`submitAuthorized` in `src/api/submit.ts`) and return
+a native `Promise` only — no `.success()`/`.error()`/`.timeout()`/`.rest()`.
+Always `await` a v2 write in a `try/catch`; see
+[`TransactionHashMismatchError`](#transactionhashmismatcherror) below for why
+that `catch` matters.
 
 ### Await style
 
@@ -83,10 +90,11 @@ interface ParsedError<T extends string = string> {
 
 ## v2 write errors
 
-Imported from the package root or `/api` (`isNativeV2NotActive`,
-`isLegacyWriteDisabled`, and `TransactionHashMismatchError` are root exports;
-the raw `V2_ERROR_CODES` map is exported from `/api`). These only apply to the
-native v2 / legacy v1 **write** surface — read endpoints don't raise them.
+Imported from the package **root only** — `isNativeV2NotActive`,
+`isLegacyWriteDisabled`, `TransactionHashMismatchError`, and the raw
+`V2_ERROR_CODES` map are all root exports (`src/index.ts` re-exports
+`./api/errors`); none of them are re-exported from `/api`. These only apply to
+the native v2 / legacy v1 **write** surface — read endpoints don't raise them.
 
 ### The five error codes
 
