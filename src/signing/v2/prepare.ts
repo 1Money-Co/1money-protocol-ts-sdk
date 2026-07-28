@@ -181,5 +181,8 @@ export const TransactionBuilderV2 = {
       'tokenBurnAndBridge',
       u,
       o
-    )
+    ),
+  batchPayment: (
+    u: OperationUnsignedMap['batchPayment']
+  ) => prepareTransactionV2('batchPayment', u)
 };

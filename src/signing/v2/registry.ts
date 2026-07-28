@@ -1,4 +1,9 @@
 import {
+  batchPaymentPayloadFields,
+  batchPaymentWireFields,
+  validateBatchPayment
+} from '../builders/batchPayment';
+import {
   paymentPayloadFields,
   validatePayment
 } from '../builders/payment';
@@ -49,6 +54,7 @@ import {
 } from './wire';
 
 import type { PlpPayload } from '@/utils';
+import type { BatchPaymentUnsigned } from '../builders/batchPayment';
 import type { PaymentUnsigned } from '../builders/payment';
 import type { TokenAuthorityUnsigned } from '../builders/tokenAuthority';
 import type { TokenBridgeAndMintUnsigned } from '../builders/tokenBridgeAndMint';
@@ -79,6 +85,7 @@ export interface OperationUnsignedMap {
   tokenMetadata: WithoutMemo<TokenMetadataUnsigned>;
   tokenBridgeAndMint: WithoutMemo<TokenBridgeAndMintUnsigned>;
   tokenBurnAndBridge: WithoutMemo<TokenBurnAndBridgeUnsigned>;
+  batchPayment: WithoutMemo<BatchPaymentUnsigned>;
 }
 
 export type OperationName =
@@ -214,5 +221,15 @@ export const OPERATION_REGISTRY: {
     payloadFields:
       tokenBurnAndBridgePayloadFields,
     validate: validateTokenBurnAndBridge
+  },
+  batchPayment: {
+    operationType:
+      NativeOperationType.BatchPayment,
+    memoCapable: false,
+    pathV1: '/v1/transactions/batch_payment',
+    pathV2: '/v2/transactions/batch_payment',
+    payloadFields: batchPaymentPayloadFields,
+    validate: validateBatchPayment,
+    wireFields: batchPaymentWireFields
   }
 };

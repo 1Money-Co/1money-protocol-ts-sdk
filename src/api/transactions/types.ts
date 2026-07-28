@@ -153,6 +153,26 @@ export interface TokenUnpauseData {
   token: AddressSchema;
 }
 
+// One recipient/amount pair inside a batch payment.
+export interface PaymentOperation {
+  recipient: AddressSchema;
+  amount: string;
+}
+
+// Batch payment payload. `operations_hash` and `batch_id` are the
+// only optional fields and are strictly trailing.
+export interface BatchPaymentPayload {
+  chain_id: number;
+  nonce: number;
+  token: AddressSchema;
+  operations: PaymentOperation[];
+  max_fee: string;
+  created_at: number;
+  operations_hash?: B256Schema;
+  batch_id?: string;
+  signature: RestSignature;
+}
+
 // Base transaction fields shared by all transaction types
 interface BaseTransaction {
   hash: B256Schema;

@@ -1,3 +1,4 @@
+export * from './batchPayment';
 export * from './payment';
 export * from './tokenAuthority';
 export * from './tokenBridgeAndMint';
