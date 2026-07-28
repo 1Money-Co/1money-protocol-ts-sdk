@@ -39,6 +39,10 @@ export type PlpPayload =
       value: Uint8Array;
     }
   | {
+      kind: 'byteList';
+      value: Uint8Array;
+    }
+  | {
       kind: 'list';
       value: PlpPayload[];
     }

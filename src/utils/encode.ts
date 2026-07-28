@@ -47,6 +47,18 @@ function innerEncodeRlpPayload(
         : new Uint8Array([]);
     case 'bytes':
       return value.value;
+    case 'byteList':
+      // A Vec<u8> field that the Rust encoder emits as a
+      // list of individually RLP-encoded single-byte
+      // integers, not one byte string. See
+      // native-v2-signing-spec section 3, and
+      // CreateMultiSigPayload.signers[].public_key in
+      // section 4.2.
+      return Array.from(value.value).map(byte =>
+        byte === 0
+          ? new Uint8Array([])
+          : hexToBytes(numberToHex(byte))
+      );
     case 'list':
       return value.value.map(v => innerEncodeRlpPayload(v));
     case 'address':
@@ -95,6 +107,10 @@ export const rlpValue = {
   }),
   bytes: (v: Uint8Array): PlpPayload => ({
     kind: 'bytes',
+    value: v
+  }),
+  byteList: (v: Uint8Array): PlpPayload => ({
+    kind: 'byteList',
     value: v
   }),
   list: (v: PlpPayload[]): PlpPayload => ({
