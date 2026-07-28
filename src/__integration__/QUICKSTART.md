@@ -69,6 +69,11 @@ INTEGRATION_TEST_NETWORK=local
 # For local testing, use these default keys
 INTEGRATION_TEST_OPERATOR_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 INTEGRATION_TEST_MASTER_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+
+# Only needed for src/__integration__/nativeV2.test.ts
+INTEGRATION_TEST_OPERATOR_ADDRESS=0x...address matching INTEGRATION_TEST_OPERATOR_KEY...
+INTEGRATION_TEST_RECIPIENT=0x...recipient address...
+INTEGRATION_TEST_TOKEN=0x...token address...
 ```
 
 ### 2. Fund Test Accounts (if needed)
@@ -168,6 +173,26 @@ INTEGRATION_TEST_TIMEOUT=300000 npm run test:integration
 2. ✓ Pause and unpause token
 3. ✓ Blacklist management
 4. ✓ Whitelist management
+
+### Native v2 Signing Flow
+
+`nativeV2.test.ts` exercises the domain-separated v2 signing scheme
+against a live node:
+
+1. ✓ Health probe
+2. ✓ Submit a v2 payment and confirm the node's returned hash
+   matches the locally computed `transactionHash`
+
+Before submitting, the test reads the node's `native_write_mode`
+from `GET /api/status`. A `v1_only` node has not activated the v2
+surface yet -- that is a valid deployment state, not a failure, so
+the suite skips rather than fails. It also skips when integration
+testing is disabled (`RUN_INTEGRATION_TESTS` unset).
+
+This test needs three additional environment variables beyond the
+ones above: `INTEGRATION_TEST_OPERATOR_ADDRESS` (the address for
+`INTEGRATION_TEST_OPERATOR_KEY`), `INTEGRATION_TEST_RECIPIENT`, and
+`INTEGRATION_TEST_TOKEN`. See `.env.integration.example`.
 
 ## Next Steps
 
