@@ -1,7 +1,9 @@
 import { API_VERSION } from '@/api/constants';
+import { submitAuthorized } from '@/api/submit';
 import { get, post } from '@/client';
 
 import type { Hash } from '@/api/types';
+import type { AuthorizedTxV2 } from '@/signing/v2';
 import type {
   EstimateFee,
   FinalizedTransactionReceipt,
@@ -57,12 +59,31 @@ export const transactionsApi = {
   },
 
   /**
-   * Submit payment transaction
-   * @param payload Payment transaction payload
-   * @returns Promise with transaction hash response
+   * Submit a domain-separated v2 payment.
+   * @param authorized Output of TransactionBuilderV2.payment(..).authorize(sig)
    */
-  payment: (payload: PaymentPayload) => {
-    return post<'custom', Hash>(`${API_PREFIX}/payment`, payload, { withCredentials: false });
+  payment: (authorized: AuthorizedTxV2) =>
+    submitAuthorized<Hash>(authorized),
+
+  /**
+   * Submit a domain-separated v2 batch payment.
+   */
+  batchPayment: (authorized: AuthorizedTxV2) =>
+    submitAuthorized<Hash>(authorized),
+
+  /**
+   * Legacy v1 writes. Explicit opt-in for the migration window;
+   * rejected with 410 once the node reaches V2Only.
+   */
+  legacyV1: {
+    /**
+     * Submit payment transaction
+     * @param payload Payment transaction payload
+     * @returns Promise with transaction hash response
+     */
+    payment: (payload: PaymentPayload) => {
+      return post<'custom', Hash>(`${API_PREFIX}/payment`, payload, { withCredentials: false });
+    }
   }
 };
 

@@ -116,7 +116,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.operator.privateKey));
 
       logStep('Issuing token...');
-      const response = await client.tokens.issueToken(signed.toRequest());
+      const response = await client.tokens.legacyV1.issueToken(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
 
       issueTokenTxHash = response.hash;
@@ -200,7 +200,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Granting authority...');
-      const response = await client.tokens.grantAuthority(signed.toRequest());
+      const response = await client.tokens.legacyV1.grantAuthority(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       grantAuthorityTxHash = response.hash;
 
@@ -235,7 +235,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.user1.privateKey));
 
       logStep('Minting tokens...');
-      const response = await client.tokens.mintToken(signed.toRequest());
+      const response = await client.tokens.legacyV1.mintToken(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       mintTokenTxHash = response.hash;
 
@@ -280,7 +280,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.user2.privateKey));
 
       logStep('Transferring tokens...');
-      const response = await client.transactions.payment(signed.toRequest());
+      const response = await client.transactions.legacyV1.payment(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       transferTokenTxHash = response.hash;
 
@@ -321,7 +321,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Granting clawback authority to master...');
-      const response = await client.tokens.grantAuthority(signed.toRequest());
+      const response = await client.tokens.legacyV1.grantAuthority(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       grantClawbackAuthorityTxHash = response.hash;
 
@@ -357,7 +357,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
     //   const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
     //   logStep('Clawing back tokens from user3 to user1...');
-    //   const response = await client.tokens.clawbackToken(signed.toRequest());
+    //   const response = await client.tokens.legacyV1.clawbackToken(signed.toRequest());
     //   expect(response.hash).to.equal(signed.txHash);
     //   clawbackTxHash = response.hash;
 
@@ -393,7 +393,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Revoking clawback authority from master...');
-      const response = await client.tokens.grantAuthority(signed.toRequest());
+      const response = await client.tokens.legacyV1.grantAuthority(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
 
       logStep('Clawback authority revoked');
@@ -428,7 +428,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Granting burn authority to user3...');
-      const response = await client.tokens.grantAuthority(signed.toRequest());
+      const response = await client.tokens.legacyV1.grantAuthority(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       grantAuthorityUser3TxHash = response.hash;
 
@@ -462,7 +462,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.user3.privateKey));
 
       logStep('Burning tokens...');
-      const response = await client.tokens.burnToken(signed.toRequest());
+      const response = await client.tokens.legacyV1.burnToken(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       burnTokenTxHash = response.hash;
 
@@ -500,7 +500,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Granting bridge authority to user1...');
-      const response = await client.tokens.grantAuthority(signed.toRequest());
+      const response = await client.tokens.legacyV1.grantAuthority(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       grantBridgeAuthorityUser1TxHash = response.hash;
 
@@ -542,7 +542,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.user1.privateKey));
 
       logStep('Bridging and minting tokens...');
-      const response = await client.tokens.bridgeAndMint(signed.toRequest());
+      const response = await client.tokens.legacyV1.bridgeAndMint(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       bridgeAndMintTxHash = response.hash;
 
@@ -586,7 +586,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.user2.privateKey));
 
       logStep('Burning and bridging tokens...');
-      const response = await client.tokens.burnAndBridge(signed.toRequest());
+      const response = await client.tokens.legacyV1.burnAndBridge(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       burnAndBridgeTxHash = response.hash;
 
@@ -624,7 +624,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Revoking authority from user1...');
-      const response = await client.tokens.grantAuthority(signed.toRequest());
+      const response = await client.tokens.legacyV1.grantAuthority(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       revokeAuthorityTxHash = response.hash;
 
@@ -660,7 +660,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Revoking authority from user3...');
-      const response = await client.tokens.grantAuthority(signed.toRequest());
+      const response = await client.tokens.legacyV1.grantAuthority(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       revokeAuthorityUser3TxHash = response.hash;
 
@@ -696,7 +696,7 @@ import { getTestAccounts, logTestAccounts } from './setup';
       const signed = await prepared.sign(createPrivateKeySigner(accounts.master.privateKey));
 
       logStep('Revoking bridge authority from user1...');
-      const response = await client.tokens.grantAuthority(signed.toRequest());
+      const response = await client.tokens.legacyV1.grantAuthority(signed.toRequest());
       expect(response.hash).to.equal(signed.txHash);
       revokeBridgeAuthorityUser1TxHash = response.hash;
 

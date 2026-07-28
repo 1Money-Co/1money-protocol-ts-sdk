@@ -1,6 +1,9 @@
 import { API_VERSION } from '@/api/constants';
+import { submitAuthorized } from '@/api/submit';
 import { get } from '@/client';
 
+import type { Hash } from '@/api/types';
+import type { AuthorizedTxV2 } from '@/signing/v2';
 import type { AccountInfo, AssociatedTokenAccount, BbNonceInfo } from './types';
 
 
@@ -36,7 +39,16 @@ export const accountsApi = {
    */
   getTokenAccount: (address: string, token: string) => {
     return get<'custom', AssociatedTokenAccount>(`${API_PREFIX}/token_account?address=${address}&token=${token}`, { withCredentials: false });
-  }
+  },
+
+  /**
+   * Create a native multisig account. v2-only: legacy clients
+   * used POST /v1/transactions/raw, which is retired.
+   * Compute the resulting address locally with
+   * deriveMultisigAddress -- the node returns only the hash.
+   */
+  createMultisig: (authorized: AuthorizedTxV2) =>
+    submitAuthorized<Hash>(authorized)
 };
 
 export default accountsApi;
