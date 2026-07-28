@@ -95,10 +95,12 @@ only ever signs a 32-byte digest, and doesn't know which scheme produced it.
 | `tokenClawback` | `tokens.clawbackToken` | `/v2/tokens/clawback` | `{ hash }` |
 | `createMultisig` | `accounts.createMultisig` | `/v2/accounts/multisig` | `{ hash }` |
 
-Two operations are **v2-only** — there is no legacy form and no `legacyV1`
-counterpart: `createMultisig` (legacy clients used `POST /v1/transactions/raw`,
-which is retired and returns 410) and `batchPayment` (`accounts` has no
-`legacyV1` namespace at all; `transactions.legacyV1` exposes only `payment`).
+Two operations are **v2-only** — there is no legacy form:
+
+- `createMultisig` — legacy clients used `POST /v1/transactions/raw`, which is
+  retired and returns 410. `accounts` has no `legacyV1` namespace at all.
+- `batchPayment` — `transactions.legacyV1` exposes only `payment`; there is no
+  `transactions.legacyV1.batchPayment`.
 
 `tokenManageList` from pre-3.0 SDKs **no longer exists**. It split into
 `tokenBlacklist` and `tokenWhitelist` — these are distinct v2 operations with
@@ -129,9 +131,16 @@ TransactionBuilder.batchPayment({
   operations_hash?: string,  // 0x… 32-byte hash — trailing optional field
   batch_id?: string,         // trailing optional field
 });
-// No `{ memo }` option — batchPayment does not accept one; passing memo
-// throws "[1Money SDK]: batchPayment does not carry a memo".
 ```
+`batchPayment` is the one operation with no memo at all — the public wrapper
+takes a single parameter (the unsigned payload) and never accepts a second,
+options argument. In TypeScript this is a compile-time guard:
+`TransactionBuilder.batchPayment(unsigned, { memo })` fails to type-check,
+because the function signature only declares one parameter. There is no
+runtime throw to catch instead — a plain-JavaScript caller who passes a
+second argument anyway has it **silently ignored**: no memo is sent, and no
+error is raised. Don't rely on a try/catch here; the TypeScript signature is
+the only thing standing between a JS caller and a quietly-dropped memo.
 `operations_hash` and `batch_id` are positionally trailing in the signed
 payload: supplying `batch_id` without `operations_hash` still reserves the
 `operations_hash` slot (encoded as an empty placeholder) so decoding stays
@@ -280,8 +289,13 @@ TransactionBuilder.payment(unsigned, {
 });
 ```
 
-`batchPayment` is the one exception: it is not memo-capable at all. Passing
-`{ memo }` to `TransactionBuilder.batchPayment` throws.
+`batchPayment` is the one exception: it is not memo-capable at all, and its
+builder wrapper only declares one parameter (the unsigned payload) — there is
+no options argument to pass a memo through. TypeScript callers get this as a
+compile error on `TransactionBuilder.batchPayment(unsigned, { memo })`; a
+plain-JavaScript caller who passes a memo anyway does **not** get an error —
+it is silently dropped, and the resulting transaction carries no memo. See
+[`batchPayment`](#batchpayment--transactionsbatchpayment) above.
 
 Validation runs at `prepare` time (mirrors the server's Rust rules) and throws
 `MemoValidationError` (carries a `.code`) on violation:
