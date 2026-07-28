@@ -15,6 +15,7 @@ amounts are decimal strings (base units); `B256`/address values are `0x…` hex.
 - [tokens (read)](#tokens-read)
 - [transactions (read)](#transactions-read)
 - [checkpoints](#checkpoints)
+- [status](#status)
 - [Write endpoints (index)](#write-endpoints-index)
 - [Constants](#constants)
 
@@ -27,8 +28,14 @@ const client = api(options?: {
   network?: 'testnet' | 'mainnet' | 'local'; // default 'mainnet'
   timeout?: number;                           // ms, default 10000
 });
-// → { accounts, checkpoints, tokens, transactions, chain }
+// → { accounts, checkpoints, tokens, transactions, chain, status }
 ```
+
+**Reads stay on `/v1`.** Every read method below (and every method in this
+file except the `status` endpoints, which sit outside any `/v1`/`/v2` prefix)
+hits the node's `/v1` REST surface regardless of whether native writes are on
+v1, v2, or both. `/v2` is a **write-only** surface — there is no `/v2` read
+endpoint to switch to. See `references/transactions.md` for the write side.
 
 Base URLs by network: mainnet `https://api.1money.network`, testnet
 `https://api.testnet.1money.network`, local `http://localhost:18555`.
@@ -153,25 +160,68 @@ interface Checkpoint {
 }
 ```
 
-## Write endpoints (index)
+## status
 
-These take a **signed payload** built via `TransactionBuilder` — see
-`transactions.md`. Listed here only so you pick the right one.
+Operational status endpoints. Not under the `/v1` (or `/v2`) prefix at all.
 
 ```typescript
-client.transactions.payment(payload)        // → { hash }
-client.tokens.issueToken(payload)           // → { hash, token }
-client.tokens.mintToken(payload)            // → { hash }
-client.tokens.burnToken(payload)            // → { hash }
-client.tokens.grantAuthority(payload)       // → { hash }
-client.tokens.manageBlacklist(payload)      // → { hash }
-client.tokens.manageWhitelist(payload)      // → { hash }
-client.tokens.pauseToken(payload)           // → { hash }
-client.tokens.updateMetadata(payload)       // → { hash }
-client.tokens.bridgeAndMint(payload)        // → { hash }
-client.tokens.burnAndBridge(payload)        // → { hash }
-client.tokens.clawbackToken(payload)        // → { hash }
+client.status.getNativeWriteStatus()
+// → GET /api/status
+// → {
+//     native_write_mode: 'v1_only' | 'dual' | 'v2_only';
+//     read_only: boolean;              // true on an archive/read-only profile
+//     activation_source: 'not_activated' | 'capability_full' | 'binary_release';
+//     dual_activated_at_secs: number | null;
+//     native_domain_separated_transactions: {
+//       support_count: number; required_count: number; full_support: boolean;
+//     };
+//   }
+
+client.status.getHealth()
+// → GET /api/health — plain-text body (e.g. "UP"), not JSON.
 ```
+
+Check `getNativeWriteStatus()` before switching between the v2 and `legacyV1`
+surfaces — never probe by submitting under the other scheme, because a retry
+under a different signing scheme is a *new* signed transaction, not a retry
+of the same one, and can create a second transaction on the same nonce. The
+capability counts are a recent observation, not an instantaneous one: a
+validator that stops broadcasting can still be counted for roughly 150
+seconds.
+
+## Write endpoints (index)
+
+These take an **`AuthorizedTxV2`** built via `TransactionBuilder.<op>(...)
+.authorize(sig)` — see `transactions.md`. All fourteen native v2 operations,
+listed here only so you pick the right one:
+
+```typescript
+client.transactions.payment(authorized)        // POST /v2/transactions/payment        → { hash }
+client.transactions.batchPayment(authorized)   // POST /v2/transactions/batch_payment   → { hash }
+client.tokens.issueToken(authorized)           // POST /v2/tokens/issue                 → { hash, token }
+client.tokens.mintToken(authorized)            // POST /v2/tokens/mint                  → { hash }
+client.tokens.burnToken(authorized)            // POST /v2/tokens/burn                  → { hash }
+client.tokens.grantAuthority(authorized)       // POST /v2/tokens/grant_authority       → { hash }
+client.tokens.manageBlacklist(authorized)      // POST /v2/tokens/manage_blacklist      → { hash }
+client.tokens.manageWhitelist(authorized)      // POST /v2/tokens/manage_whitelist      → { hash }
+client.tokens.pauseToken(authorized)           // POST /v2/tokens/pause                 → { hash }
+client.tokens.updateMetadata(authorized)       // POST /v2/tokens/update_metadata       → { hash }
+client.tokens.bridgeAndMint(authorized)        // POST /v2/tokens/bridge_and_mint       → { hash }
+client.tokens.burnAndBridge(authorized)        // POST /v2/tokens/burn_and_bridge       → { hash }
+client.tokens.clawbackToken(authorized)        // POST /v2/tokens/clawback              → { hash }
+client.accounts.createMultisig(authorized)     // POST /v2/accounts/multisig            → { hash }
+```
+
+Each of the above (except `batchPayment` and `createMultisig`, which are
+v2-only) has a `legacyV1` counterpart that takes the old signed-payload shape
+directly and posts to the matching `/v1` path, e.g.
+`client.transactions.legacyV1.payment(payload)` →
+`POST /v1/transactions/payment`, `client.tokens.legacyV1.manageBlacklist(payload)`
+→ `POST /v1/tokens/manage_blacklist`. `accounts` has no `legacyV1` namespace.
+
+`POST /v1/transactions/raw` — the endpoint legacy clients used for
+account-type operations like multisig creation — is **retired**: it returns
+410 on every node. There is no v1 replacement; use `accounts.createMultisig`.
 
 ## Constants
 

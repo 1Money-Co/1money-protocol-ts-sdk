@@ -233,6 +233,13 @@ apiClient.tokens.getTokenMetadata(tokenAddress)
   });
 ```
 
+Every write below follows the same **native v2** shape: `prepare` → sign the
+digest → `authorize` → submit the resulting `AuthorizedTxV2`. See
+[Migrating from 2.x to 3.0](#migrating-from-2x-to-30) and
+`skills/1money-protocol-sdk/references/transactions.md` for the full pipeline,
+every builder's fields, and the legacy `LegacyV1TransactionBuilder` /
+`api().<module>.legacyV1.*` path.
+
 #### Issue New Token
 ```typescript
 import {
@@ -241,16 +248,14 @@ import {
 } from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
-const privateKey = 'YOUR_PRIVATE_KEY';
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
 const masterAuthority = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
 // Get chain id and current nonce
-const { chain_id } = await apiClient.chain.getChainId()
-  .success(response => response);
-const { nonce } = await apiClient.accounts.getNonce(masterAuthority)
-  .success(response => response);
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(masterAuthority);
 
-// Build transaction and prepare signature hash internally
+// Prepare (validates fields, computes the digest to sign).
 const prepared = TransactionBuilder.tokenIssue({
   chain_id,
   nonce,
@@ -262,17 +267,13 @@ const prepared = TransactionBuilder.tokenIssue({
   clawback_enabled: true
 });
 
-// Sign with private key
-const signed = await prepared.sign(
-  createPrivateKeySigner(privateKey as `0x${string}`)
-);
+// Sign the digest, then authorize it into a plain-JSON request.
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
 
-// Build request body with signature
-const issuePayload = signed.toRequest();
-
-apiClient.tokens.issueToken(issuePayload)
+apiClient.tokens.issueToken(authorized)
   .success(response => {
-    console.log('Token issued:', response);
+    console.log('Token issued:', response.token, 'in tx', response.hash);
   })
   .error(err => {
     console.error('Error:', err);
@@ -288,17 +289,17 @@ import {
 } from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
-const privateKey = 'YOUR_PRIVATE_KEY';
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
 const operatorAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
 // Get chain id and current nonce
-const { chain_id } = await apiClient.chain.getChainId()
-  .success(response => response);
-const { nonce } = await apiClient.accounts.getNonce(operatorAddress)
-  .success(response => response);
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(operatorAddress);
 
-// Build transaction and prepare signature hash internally
-const prepared = TransactionBuilder.tokenManageList({
+// tokenBlacklist and tokenWhitelist are distinct v2 operations (distinct
+// signing hashes) — build the one you intend to submit, they are not
+// interchangeable the way the pre-3.0 tokenManageList builder was.
+const prepared = TransactionBuilder.tokenBlacklist({
   chain_id,
   nonce,
   action: ManageListAction.Add,
@@ -306,27 +307,12 @@ const prepared = TransactionBuilder.tokenManageList({
   token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
 });
 
-// Sign with private key
-const signed = await prepared.sign(
-  createPrivateKeySigner(privateKey as `0x${string}`)
-);
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
 
-// Build request body with signature
-const manageListPayload = signed.toRequest();
-
-// Use manageBlacklist for blacklist operations
-apiClient.tokens.manageBlacklist(manageListPayload)
+apiClient.tokens.manageBlacklist(authorized)
   .success(response => {
     console.log('Blacklist update transaction hash:', response.hash);
-  })
-  .error(err => {
-    console.error('Error:', err);
-  });
-
-// Or use manageWhitelist for whitelist operations
-apiClient.tokens.manageWhitelist(manageListPayload)
-  .success(response => {
-    console.log('Whitelist update transaction hash:', response.hash);
   })
   .error(err => {
     console.error('Error:', err);
@@ -341,16 +327,13 @@ import {
 } from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
-const privateKey = 'YOUR_PRIVATE_KEY';
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
 const ownerAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
 // Get chain id and current nonce
-const { chain_id } = await apiClient.chain.getChainId()
-  .success(response => response);
-const { nonce } = await apiClient.accounts.getNonce(ownerAddress)
-  .success(response => response);
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(ownerAddress);
 
-// Build transaction and prepare signature hash internally
 const prepared = TransactionBuilder.tokenBurn({
   chain_id,
   nonce,
@@ -358,15 +341,10 @@ const prepared = TransactionBuilder.tokenBurn({
   token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
 });
 
-// Sign with private key
-const signed = await prepared.sign(
-  createPrivateKeySigner(privateKey as `0x${string}`)
-);
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
 
-// Build request body with signature
-const burnPayload = signed.toRequest();
-
-apiClient.tokens.burnToken(burnPayload)
+apiClient.tokens.burnToken(authorized)
   .success(response => {
     console.log('Burn transaction hash:', response.hash);
   })
@@ -385,16 +363,13 @@ import {
 } from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
-const privateKey = 'YOUR_PRIVATE_KEY';
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
 const masterAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
 // Get chain id and current nonce
-const { chain_id } = await apiClient.chain.getChainId()
-  .success(response => response);
-const { nonce } = await apiClient.accounts.getNonce(masterAddress)
-  .success(response => response);
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(masterAddress);
 
-// Build transaction and prepare signature hash internally
 const prepared = TransactionBuilder.tokenAuthority({
   chain_id,
   nonce,
@@ -405,15 +380,10 @@ const prepared = TransactionBuilder.tokenAuthority({
   value: '1000000000000000000000'
 });
 
-// Sign with private key
-const signed = await prepared.sign(
-  createPrivateKeySigner(privateKey as `0x${string}`)
-);
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
 
-// Build request body with signature
-const authorityPayload = signed.toRequest();
-
-apiClient.tokens.grantAuthority(authorityPayload)
+apiClient.tokens.grantAuthority(authorized)
   .success(response => {
     console.log('Authority update transaction hash:', response.hash);
   })
@@ -430,16 +400,13 @@ import {
 } from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
-const privateKey = 'YOUR_PRIVATE_KEY';
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
 const bridgeOperatorAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
 // Get chain id and current nonce
-const { chain_id } = await apiClient.chain.getChainId()
-  .success(response => response);
-const { nonce } = await apiClient.accounts.getNonce(bridgeOperatorAddress)
-  .success(response => response);
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(bridgeOperatorAddress);
 
-// Build transaction and prepare signature hash internally
 const prepared = TransactionBuilder.tokenBridgeAndMint({
   chain_id,
   nonce,
@@ -451,15 +418,10 @@ const prepared = TransactionBuilder.tokenBridgeAndMint({
   bridge_metadata: 'bridge_from_chain_1'
 });
 
-// Sign with private key
-const signed = await prepared.sign(
-  createPrivateKeySigner(privateKey as `0x${string}`)
-);
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
 
-// Build request body with signature
-const bridgeAndMintPayload = signed.toRequest();
-
-apiClient.tokens.bridgeAndMint(bridgeAndMintPayload)
+apiClient.tokens.bridgeAndMint(authorized)
   .success(response => {
     console.log('Bridge and mint transaction hash:', response.hash);
   })
@@ -476,16 +438,13 @@ import {
 } from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
-const privateKey = 'YOUR_PRIVATE_KEY';
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
 const senderAddress = '0x6324dAc598f9B637824978eD6b268C896E0c40E0';
 
 // Get chain id and current nonce
-const { chain_id } = await apiClient.chain.getChainId()
-  .success(response => response);
-const { nonce } = await apiClient.accounts.getNonce(senderAddress)
-  .success(response => response);
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(senderAddress);
 
-// Build transaction and prepare signature hash internally
 const prepared = TransactionBuilder.tokenBurnAndBridge({
   chain_id,
   nonce,
@@ -499,15 +458,10 @@ const prepared = TransactionBuilder.tokenBurnAndBridge({
   bridge_param: '0x'
 });
 
-// Sign with private key
-const signed = await prepared.sign(
-  createPrivateKeySigner(privateKey as `0x${string}`)
-);
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
 
-// Build request body with signature
-const burnAndBridgePayload = signed.toRequest();
-
-apiClient.tokens.burnAndBridge(burnAndBridgePayload)
+apiClient.tokens.burnAndBridge(authorized)
   .success(response => {
     console.log('Burn and bridge transaction hash:', response.hash);
   })
@@ -566,16 +520,15 @@ import {
 } from '@1money/protocol-ts-sdk';
 
 // Your private key (DO NOT share or commit your private key)
-const privateKey = 'YOUR_PRIVATE_KEY';
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
 const senderAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
 // Get chain id and current nonce
-const { chain_id } = await apiClient.chain.getChainId()
-  .success(response => response);
-const { nonce } = await apiClient.accounts.getNonce(senderAddress)
-  .success(response => response);
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(senderAddress);
 
-// Build transaction and prepare signature hash internally
+// Prepare (validates fields, computes the digest to sign). `memo` is always
+// sent on the wire; omit the option for the all-empty "no business memo".
 const prepared = TransactionBuilder.payment({
   chain_id,
   nonce,
@@ -584,15 +537,11 @@ const prepared = TransactionBuilder.payment({
   token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
 });
 
-// Sign with private key
-const signed = await prepared.sign(
-  createPrivateKeySigner(privateKey as `0x${string}`)
-);
+// Sign the digest, then authorize it into a plain-JSON request.
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature); // signature.v must be 0 or 1
 
-// Build request body with signature
-const paymentPayload = signed.toRequest();
-
-apiClient.transactions.payment(paymentPayload)
+apiClient.transactions.payment(authorized)
   .success(response => {
     console.log('Payment transaction hash:', response.hash);
   })
@@ -646,13 +595,29 @@ console.log('Token account address:', tokenAddress);
 import { toHex } from '@1money/protocol-ts-sdk';
 
 // Convert different types to hex
-const boolHex = toHex(true); // '0x01'
+const boolHex = toHex(true); // '0x1' (minimal hex, not zero-padded)
 const numHex = toHex(123); // '0x7b'
 const strHex = toHex('hello'); // '0x68656c6c6f'
 const arrHex = toHex([1, 2, 3]); // '0x010203'
 ```
 
-### Sign Message
+### Derive a multisig account address
+Compute the address a native multisig account will get *before* creating it —
+`accounts.createMultisig` only returns `{ hash }`, never the address:
+
+```typescript
+import { deriveMultisigAddress } from '@1money/protocol-ts-sdk';
+
+const address = deriveMultisigAddress(
+  [
+    { public_key: '0x02...', weight: 1 },
+    { public_key: '0x03...', weight: 1 },
+  ],
+  2 // threshold
+); // → '0x…'
+```
+
+### Sign Message (deprecated)
 ```typescript
 import { signMessage } from '@1money/protocol-ts-sdk';
 
@@ -671,6 +636,54 @@ const payload = [
 // Sign the message
 const signature = await signMessage(payload, privateKey);
 ```
+`signMessage` and `encodePayload` are legacy `@deprecated` helpers. Prefer
+`TransactionBuilder` (or `LegacyV1TransactionBuilder` during a migration
+window) for new code — see [Migrating from 2.x to 3.0](#migrating-from-2x-to-30).
+
+## Migrating from 2.x to 3.0
+
+3.0 makes the domain-separated **native v2** signing scheme the default and
+moves the pre-3.0 scheme behind an explicit namespace. This is a breaking
+change for any code calling `TransactionBuilder` directly.
+
+- **`TransactionBuilder` now means v2.** `TransactionBuilder.payment(...)` (and
+  every other operation) returns a `PreparedTxV2`, not the old `PreparedTx`.
+  It no longer has `.sign()` / `.attachSignature()` / `.rlpBytes` /
+  `.signatureHash`; it has `.signingHash` and `.authorize(signature)` instead.
+- **The pre-3.0 scheme still exists**, unchanged, as
+  `LegacyV1TransactionBuilder` (same builder names, same `.sign()`/
+  `.attachSignature()`/`.toRequest()` shape as before) paired with
+  `api().<module>.legacyV1.*` submit methods (e.g.
+  `client.transactions.legacyV1.payment(...)`,
+  `client.tokens.legacyV1.manageBlacklist(...)`). `accounts` has no
+  `legacyV1` namespace, and `batchPayment` / `createMultisig` have no legacy
+  form at all — both are v2-only.
+- **Write methods now take an `AuthorizedTxV2`**, the output of
+  `prepared.authorize(signature)`, instead of a request object assembled from
+  `signed.toRequest()`. `AuthorizedTxV2` is plain JSON and can cross a process
+  boundary (sign in one place, submit from another).
+- **`tokenManageList` is gone.** It split into `tokenBlacklist` and
+  `tokenWhitelist` — distinct operations with distinct signing hashes, paired
+  with `tokens.manageBlacklist` / `tokens.manageWhitelist` respectively. You
+  can no longer build one payload and submit it to either endpoint.
+- **`memo` is now always sent** on the v2 surface. Every operation except
+  `batchPayment` always carries a memo on the wire; omitting the `memo` option
+  sends the all-empty `{ type: '', format: '', data: '' }` rather than leaving
+  the field off entirely. This differs from the pre-3.0 behavior, where an
+  absent memo took a different code path from a present one.
+- **Signature `v` must be `0` or `1`** on the v2 surface; a legacy `27`/`28` is
+  rejected by `authorize`, not converted.
+
+There is no published sunset date for the legacy `/v1` write surface or for
+`LegacyV1TransactionBuilder` — the node does not advertise one, and operators
+run the cutover on their own schedule. Check
+`client.status.getNativeWriteStatus()` to see which surface is currently live
+before depending on either one.
+
+See `skills/1money-protocol-sdk/references/transactions.md` for the full v2
+pipeline and every builder's fields, and
+`skills/1money-protocol-sdk/references/client-and-errors.md` for the new v2
+error codes and `TransactionHashMismatchError`.
 
 ## License
 MIT

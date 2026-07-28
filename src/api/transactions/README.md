@@ -16,13 +16,24 @@ const apiClient = api();
 
 ## Available Endpoints
 
-*To be implemented*
+- `getByHash`, `getReceiptByHash`, `getFinalizedByHash`, `estimateFee` — reads,
+  always against `/v1`.
+- `payment`, `batchPayment` — native v2 writes. Take an `AuthorizedTxV2` built
+  via `TransactionBuilder.payment(...)` / `TransactionBuilder.batchPayment(...)`
+  followed by `.authorize(signature)`, and POST to `/v2/transactions/payment`
+  / `/v2/transactions/batch_payment`. See the root `../../../skills/1money-protocol-sdk/references/transactions.md`
+  for the full prepare → sign → authorize → submit flow.
+- `legacyV1.payment` — the pre-3.0 signed-payload path, explicit opt-in during
+  the migration window. POSTs to `/v1/transactions/payment` and is rejected
+  with 410 once the node reaches `NativeWriteMode.V2Only`. There is no
+  `legacyV1.batchPayment` — batch payment is v2-only.
 
-### Optional memo field
+### Memo field
 
-Every write endpoint (payment, mint, burn, issue, authority, manage list,
-pause, metadata, bridge_and_mint, burn_and_bridge, clawback) accepts an
-optional `memo` field of shape:
+On the v2 surface (`payment`), the request always carries a `memo` object —
+omitting the `memo` option when building sends the all-empty
+`{ type: '', format: '', data: '' }`, which is itself a specific signed value,
+not an omitted field:
 
 ```ts
 interface Memo {
@@ -32,13 +43,12 @@ interface Memo {
 }
 ```
 
-When `memo` is omitted, the request takes the legacy V1 envelope path —
-byte-for-byte identical to pre-memo SDK behavior, including transaction
-hash. When `memo` is present (even with all subfields empty), the request
-takes the V2 envelope path with a disjoint transaction-hash domain; the
-client signs over `WithMemo<T>` and the response includes the memo on
-`Transaction.memo`.
+On the `legacyV1` surface, an **absent** `memo` takes the byte-identical
+pre-memo legacy path; a **present** `memo` (even `{}`) switches to a disjoint
+transaction-hash domain. This absent/present distinction does not apply to
+the v2 surface, which always sends a memo.
 
-Validation runs at builder time and throws `MemoValidationError` with
-codes (`MEMO_TYPE_INVALID_CHARS`, `MEMO_DATA_CONTROL_CHARS`,
-`MEMO_TOO_LARGE`, etc.) matching the server's error codes 1:1.
+Validation runs at builder time (for both surfaces) and throws
+`MemoValidationError` with codes (`MEMO_TYPE_INVALID_CHARS`,
+`MEMO_DATA_CONTROL_CHARS`, `MEMO_TOO_LARGE`, etc.) matching the server's error
+codes 1:1.
