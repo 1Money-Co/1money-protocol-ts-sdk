@@ -20,16 +20,15 @@ export function validateTokenAuthority(unsigned: TokenAuthorityUnsigned) {
 export function tokenAuthorityPayloadFields(
   unsigned: TokenAuthorityUnsigned
 ): PlpPayload[] {
-  const fields: PlpPayload[] = [
+  return [
     rlpValue.string(unsigned.action),
     rlpValue.string(unsigned.authority_type),
     rlpValue.address(unsigned.authority_address as `0x${string}`),
     rlpValue.address(unsigned.token as `0x${string}`),
+    // Rust `TokenAuthorityPayload.value` is a non-optional U256
+    // defaulting to 0, so the field is always encoded.
+    rlpValue.uint(unsigned.value ?? '0'),
   ];
-  if (unsigned.value !== undefined) {
-    fields.push(rlpValue.uint(unsigned.value));
-  }
-  return fields;
 }
 
 export function prepareTokenAuthorityTx(unsigned: TokenAuthorityUnsigned) {
