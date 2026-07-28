@@ -27,7 +27,10 @@
  */
 
 import { AuthorityAction, AuthorityType } from '@/api/tokens/types';
-import { createPrivateKeySigner, TransactionBuilder } from '@/signing';
+import {
+  createPrivateKeySigner,
+  LegacyV1TransactionBuilder as TransactionBuilder
+} from '@/signing';
 import { expect } from 'chai';
 import { getConfig, shouldRunIntegrationTests } from './config';
 import {
