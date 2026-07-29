@@ -92,7 +92,8 @@ interface ParsedError<T extends string = string> {
 
 Imported from the package **root only** — `isNativeV2NotActive`,
 `isLegacyWriteDisabled`, `TransactionHashMismatchError`,
-`TransactionSubmissionError`, `TransactionOutcomeUnknownError`, and the raw
+`TransactionSubmissionError`, `TransactionOutcomeUnknownError`, the
+`TransactionSubmittedState` type (`= true | false | 'unknown'`), and the raw
 `V2_ERROR_CODES` map are all root exports (`src/index.ts` re-exports
 `./api/errors`); none of them are re-exported from `/api`. These only apply to
 the native v2 / legacy v1 **write** surface — read endpoints don't raise them.
@@ -101,14 +102,18 @@ the native v2 / legacy v1 **write** surface — read endpoints don't raise them.
 
 `submitAuthorized` (`src/api/submit.ts`, backing every `AuthorizedTxV2`-taking
 method) classifies the result of `await client.<module>.<method>(authorized)`
-into exactly three, deliberately distinct thrown-error shapes — check
-`instanceof`, not `.message`, to branch on them:
+into exactly three, deliberately distinct thrown-error shapes. **Branch on
+`instanceof`, not on `.message` and not on a truthiness check of
+`submitted`** — `submitted` is typed `TransactionSubmittedState = true |
+false | 'unknown'` (exported from the package root), and only the two
+strict-equality checks `submitted === true` / `submitted === false` carry
+meaning on their own:
 
 | Thrown | `submitted` | Safe to retry? | Meaning |
 | --- | --- | --- | --- |
 | `TransactionHashMismatchError` | `true` | **No** | The node admitted the write, but the hash it returned doesn't match the one computed locally. |
 | `TransactionSubmissionError` | `false` | **Yes**, once the cause is fixed | The node refused the write outright (HTTP error with a response body, e.g. a 403/400/410) — it never reached the mempool. |
-| `TransactionOutcomeUnknownError` | *(no `submitted` field at all)* | **No — verify first** | Ambiguous: e.g. a client-side timeout, a network error, or a 2xx body with no `hash`. The node may or may not have admitted the transaction. |
+| `TransactionOutcomeUnknownError` | `'unknown'` | **No — verify first** | Ambiguous: e.g. a client-side timeout, a network error, or a 2xx body with no `hash`. The node may or may not have admitted the transaction. |
 
 ```typescript
 import {
@@ -137,10 +142,22 @@ try {
 }
 ```
 
-`TransactionOutcomeUnknownError` deliberately has **no** `submitted` field
-(not even `submitted: undefined` for symmetry) — a caller that naively gates
-a retry on `err.submitted === false` will correctly fall through to "don't
-retry" for this case instead of accidentally matching it.
+> **A falsy `submitted` is never "safe to retry" — only `submitted === false`
+> is.** `TransactionOutcomeUnknownError.submitted` is the literal string
+> `'unknown'`, not `undefined`/absent and not `false`. An earlier version of
+> this error had no `submitted` field at all, on the theory that a caller
+> checking `err.submitted === false` (`TransactionSubmissionError`'s
+> contract) would then correctly fail to match. But the natural — and
+> wrong — code people actually write is `if (!err.submitted) retry()`, which
+> reads *any* falsy value as "not submitted, retry away". `undefined` is
+> falsy, so that check would have retried on exactly the one outcome where
+> retrying is most dangerous: the ambiguous case that may already be
+> on-chain. `'unknown'` is truthy, so `if (!err.submitted)` correctly does
+> **not** retry here, while `if (err.submitted === true)` still correctly
+> declines to treat it as a confirmed submission. **Never write `if
+> (!err.submitted)` or `if (err.submitted)` to decide whether to retry** —
+> use `instanceof`, or `submitted === true` / `submitted === false`
+> specifically.
 
 > **Why this needed fixing:** the underlying HTTP client
 > (`src/client/core.ts`) **resolves** its promise instead of rejecting it

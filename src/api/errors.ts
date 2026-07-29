@@ -25,6 +25,21 @@ export const V2_ERROR_CODES = {
 export type V2ErrorCode =
   (typeof V2_ERROR_CODES)[keyof typeof V2_ERROR_CODES];
 
+// The three possible `submitted` values across the write-outcome
+// error hierarchy below (TransactionHashMismatchError /
+// TransactionSubmissionError / TransactionOutcomeUnknownError).
+// Exported so callers can name the union explicitly instead of
+// re-deriving it. `true` and `false` are unconditional and safe to
+// branch on with strict equality; `'unknown'` is deliberately a
+// truthy, non-boolean value -- see TransactionOutcomeUnknownError.
+// Never treat a falsy `submitted` as "safe to retry": only
+// `submitted === false` means that. Prefer `instanceof` over reading
+// `submitted` at all when you have the error classes in scope.
+export type TransactionSubmittedState =
+  | true
+  | false
+  | 'unknown';
+
 // The transaction WAS accepted by the node before
 // this was thrown. `submitted` is load-bearing:
 // treating this as "not sent" and retrying would
@@ -116,13 +131,22 @@ export class TransactionSubmissionError extends
 // field entirely. This is genuinely ambiguous: the node may or may
 // not have admitted the transaction, so unlike
 // TransactionSubmissionError this must NOT claim "safe to retry".
-// Deliberately has no `submitted` field at all (rather than, say,
-// `submitted: undefined`) -- callers checking `err.submitted ===
-// false` before retrying will correctly fall through to "don't
-// retry" instead of matching this case. Query `transactionHash`
-// against the node before deciding what to do next.
+//
+// `submitted` is the literal string 'unknown', not `undefined`/absent.
+// An earlier version of this error had no `submitted` field at all, on
+// the theory that `err.submitted === false` (TransactionSubmissionError's
+// contract) would then correctly fail to match. But `undefined` is
+// FALSY, and the natural (wrong) caller code is `if (!err.submitted)
+// retry()` -- that reads "not submitted" as "falsy", not as "exactly
+// false", so an absent field made the single most dangerous outcome
+// (possibly already on-chain) satisfy the least safe check. `'unknown'`
+// is truthy, so `if (!err.submitted)` no longer retries here, while
+// `if (err.submitted === true)` still correctly declines to treat this
+// as a confirmed submission. Query `transactionHash` against the node
+// before deciding what to do next.
 export class TransactionOutcomeUnknownError extends
   Error {
+  readonly submitted = 'unknown' as const;
   readonly transactionHash: string;
 
   constructor(transactionHash: string) {
@@ -165,9 +189,9 @@ export function isLegacyWriteDisabled(
 // Anything that is not a pair of strings is treated
 // as a mismatch (never a silent pass-through) so this
 // stays fail-closed: the transaction was already
-// admitted by the time this runs, and only
-// TransactionHashMismatchError carries `submitted`
-// to the caller.
+// admitted by the time this runs, and this path always
+// throws TransactionHashMismatchError (`submitted:
+// true`) to the caller.
 export function assertTransactionHash(
   localHash: unknown,
   serverHash: unknown

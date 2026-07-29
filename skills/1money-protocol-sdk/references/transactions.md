@@ -46,9 +46,11 @@ const authorized = prepared.authorize(signature);
 // 5. SUBMIT to the matching endpoint. Throws one of three distinct errors —
 //    see client-and-errors.md for the full contract and which are safe to
 //    retry:
-//      - TransactionHashMismatchError   (submitted: true  -- do NOT retry)
-//      - TransactionSubmissionError     (submitted: false -- safe to retry)
-//      - TransactionOutcomeUnknownError (ambiguous -- query the hash first)
+//      - TransactionHashMismatchError   (submitted: true      -- do NOT retry)
+//      - TransactionSubmissionError     (submitted: false     -- safe to retry)
+//      - TransactionOutcomeUnknownError (submitted: 'unknown' -- query the
+//        hash first; 'unknown' is truthy on purpose, so `if (!err.submitted)`
+//        does not mistake this for "safe to retry")
 //    Also throws synchronously (before any network call) if `authorized`
 //    came from a different builder than the method you called it with, e.g.
 //    passing a `tokenBurn` authorization to `client.transactions.payment`.

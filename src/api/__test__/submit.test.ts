@@ -275,13 +275,20 @@ describe('submitAuthorized', function () {
       expect(err.transactionHash).to.equal(
         LOCAL_HASH
       );
-      // Naive callers gate a retry on `err.submitted === false`
-      // (TransactionSubmissionError's contract) -- this case must
-      // not accidentally satisfy that check.
-      expect(
-        (err as unknown as { submitted?: unknown })
-          .submitted
-      ).to.equal(undefined);
+      // `submitted` is the literal string 'unknown' -- not
+      // `undefined`/absent, and not `false`
+      // (TransactionSubmissionError's contract). Both distinctions
+      // matter:
+      expect(err.submitted).to.equal('unknown');
+      expect(err.submitted).to.not.equal(false);
+      expect(err.submitted).to.not.equal(true);
+      // The point of the change: 'unknown' must be truthy, so a
+      // caller writing the natural-but-wrong `if (!err.submitted)
+      // retry()` does NOT retry on the one outcome where retrying is
+      // most dangerous (possibly already on-chain).
+      expect(Boolean(err.submitted)).to.equal(
+        true
+      );
     });
   });
 });
