@@ -194,6 +194,38 @@ ones above: `INTEGRATION_TEST_OPERATOR_ADDRESS` (the address for
 `INTEGRATION_TEST_OPERATOR_KEY`), `INTEGRATION_TEST_RECIPIENT`, and
 `INTEGRATION_TEST_TOKEN`. See `.env.integration.example`.
 
+### Read-Endpoint API Tests
+
+`accounts-api.test.ts`, `chain-api.test.ts`, `checkpoints-api.test.ts`,
+`tokens-api.test.ts`, and `transactions-api.test.ts` exercise the read
+endpoints of each `src/api/*` module against the live testnet
+(`https://api.testnet.1money.network`). They used to live as unit
+tests under `src/api/*/__test__/index.test.ts`, but since they launch
+puppeteer and make real network calls, they were moved here so the
+unit suite (`npm test`) stays deterministic and network-independent.
+
+Each suite reads `src/__integration__/config.ts` in a `before` hook
+and calls `this.skip()` when `RUN_INTEGRATION_TESTS` is not `'true'`,
+the same pattern `nativeV2.test.ts` uses. Run them like any other
+integration test:
+
+```bash
+npm run test:integration:testnet
+# or target a single file:
+npx cross-env RUN_INTEGRATION_TESTS=true INTEGRATION_TEST_NETWORK=testnet \
+  mocha --config .mocharc.integration.js src/__integration__/accounts-api.test.ts
+```
+
+They additionally honor `RUN_ENV` (default `local`): when set to
+`local` they also drive the same calls through a headless Chromium
+page via puppeteer (set `CHROME_PATH` to point at a local Chrome/
+Chromium binary if the bundled one isn't available), to catch
+browser-bundle-specific issues; set `RUN_ENV=remote` to skip the
+puppeteer path. A few of these tests were already `it.skip`-marked
+before the move (e.g. write-path checkpoint/token/transaction flows)
+and remain skipped -- that's pre-existing, not something the move
+changed.
+
 ## Next Steps
 
 - Read the full [Integration Tests README](./README.md)

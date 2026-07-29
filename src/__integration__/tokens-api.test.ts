@@ -2,28 +2,31 @@ import { expect } from 'chai';
 import 'dotenv/config';
 import 'mocha';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
-import { tokensApi } from '../';
-import { api } from '../../';
-import { safePromiseAll, safePromiseLine, signMessage, toHex } from '../../../utils';
-import { accountsApi } from '../../accounts';
-import { checkpointsApi } from '../../checkpoints';
-import { CHAIN_IDS } from '../../constants';
-import { AuthorityAction, AuthorityType, ManageListAction, PauseAction } from '../types';
+import { tokensApi } from '@/api/tokens';
+import { api } from '@/api';
+import { safePromiseAll, safePromiseLine, signMessage, toHex } from '@/utils';
+import { accountsApi } from '@/api/accounts';
+import { checkpointsApi } from '@/api/checkpoints';
+import { CHAIN_IDS } from '@/api/constants';
+import { AuthorityAction, AuthorityType, ManageListAction, PauseAction } from '@/api/tokens/types';
+import { getConfig } from './config';
 
-import type { ZeroXString } from '../../../utils';
+import type { ZeroXString } from '@/utils';
+import type { CheckpointNumberResponse } from '@/api/checkpoints/types';
+import type { AccountInfo } from '@/api/accounts/types';
 
 declare global {
   interface Window {
     signMessage: typeof signMessage;
     getNonce: typeof accountsApi.getNonce;
-    burnToken: typeof tokensApi.burnToken;
-    grantAuthority: typeof tokensApi.grantAuthority;
-    issueToken: typeof tokensApi.issueToken;
-    mintToken: typeof tokensApi.mintToken;
-    pauseToken: typeof tokensApi.pauseToken;
-    updateMetadata: typeof tokensApi.updateMetadata;
-    manageBlacklist: typeof tokensApi.manageBlacklist;
-    manageWhitelist: typeof tokensApi.manageWhitelist;
+    burnToken: typeof tokensApi.legacyV1.burnToken;
+    grantAuthority: typeof tokensApi.legacyV1.grantAuthority;
+    issueToken: typeof tokensApi.legacyV1.issueToken;
+    mintToken: typeof tokensApi.legacyV1.mintToken;
+    pauseToken: typeof tokensApi.legacyV1.pauseToken;
+    updateMetadata: typeof tokensApi.legacyV1.updateMetadata;
+    manageBlacklist: typeof tokensApi.legacyV1.manageBlacklist;
+    manageWhitelist: typeof tokensApi.legacyV1.manageWhitelist;
     getTokenMetadata: typeof tokensApi.getTokenMetadata;
     getNumber: typeof checkpointsApi.getNumber;
   }
@@ -35,6 +38,8 @@ describe('tokens API test', function () {
   // Set a longer timeout for all tests in this suite
   this.timeout(10000);
 
+  const config = getConfig();
+
   const apiClient = api({
     timeout: 3000,
     network: 'testnet',
@@ -42,6 +47,12 @@ describe('tokens API test', function () {
 
   let browser: Browser;
   let pageOne: Page;
+
+  before(function () {
+    if (!config.enabled) {
+      this.skip();
+    }
+  });
 
   if (RUN_ENV === 'local') {
     before(async () => {
@@ -54,14 +65,14 @@ describe('tokens API test', function () {
         return Promise.all([
           pageOne.exposeFunction('signMessage', signMessage),
           pageOne.exposeFunction('getNonce', apiClient.accounts.getNonce),
-          pageOne.exposeFunction('burnToken', apiClient.tokens.burnToken),
-          pageOne.exposeFunction('grantAuthority', apiClient.tokens.grantAuthority),
-          pageOne.exposeFunction('issueToken', apiClient.tokens.issueToken),
-          pageOne.exposeFunction('mintToken', apiClient.tokens.mintToken),
-          pageOne.exposeFunction('pauseToken', apiClient.tokens.pauseToken),
-          pageOne.exposeFunction('updateMetadata', apiClient.tokens.updateMetadata),
-          pageOne.exposeFunction('manageBlacklist', apiClient.tokens.manageBlacklist),
-          pageOne.exposeFunction('manageWhitelist', apiClient.tokens.manageWhitelist),
+          pageOne.exposeFunction('burnToken', apiClient.tokens.legacyV1.burnToken),
+          pageOne.exposeFunction('grantAuthority', apiClient.tokens.legacyV1.grantAuthority),
+          pageOne.exposeFunction('issueToken', apiClient.tokens.legacyV1.issueToken),
+          pageOne.exposeFunction('mintToken', apiClient.tokens.legacyV1.mintToken),
+          pageOne.exposeFunction('pauseToken', apiClient.tokens.legacyV1.pauseToken),
+          pageOne.exposeFunction('updateMetadata', apiClient.tokens.legacyV1.updateMetadata),
+          pageOne.exposeFunction('manageBlacklist', apiClient.tokens.legacyV1.manageBlacklist),
+          pageOne.exposeFunction('manageWhitelist', apiClient.tokens.legacyV1.manageWhitelist),
           pageOne.exposeFunction('getTokenMetadata', apiClient.tokens.getTokenMetadata),
           pageOne.exposeFunction('getNumber', apiClient.checkpoints.getNumber),
         ])
@@ -69,7 +80,7 @@ describe('tokens API test', function () {
     });
 
     after(async () => {
-      await browser.close();
+      if (browser) await browser.close();
     });
   }
 
@@ -148,7 +159,7 @@ describe('tokens API test', function () {
       })
       .rest(err => {
         done(err?.data ?? err.message ?? err);
-      });
+      }, ['error', 'timeout']);
   });
 
   if (!(RUN_ENV === 'remote' || !operatorAddress || !operatorPK || !testAddress)) {
@@ -160,7 +171,7 @@ describe('tokens API test', function () {
           const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
-          ]);
+          ]) as [CheckpointNumberResponse, AccountInfo];
           const payload = [
             chainId,
             nonce,
@@ -192,12 +203,12 @@ describe('tokens API test', function () {
         () => safePromiseAll([
           apiClient.checkpoints.getNumber()
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
           apiClient.accounts.getNonce(operatorAddress)
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
-          const nonce = nonceResponse.nonce;
+          const nonce = (nonceResponse as AccountInfo).nonce;
           const action = ManageListAction.Add;
           const payload = [
             chainId,
@@ -208,7 +219,7 @@ describe('tokens API test', function () {
           ]
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
-          apiClient.tokens.manageBlacklist({
+          apiClient.tokens.legacyV1.manageBlacklist({
             chain_id: chainId,
             nonce,
             action,
@@ -219,7 +230,7 @@ describe('tokens API test', function () {
             .success(response => {
               expect(response).to.be.an('object');
             })
-            .rest(err => { throw (err?.data ?? err.message ?? err) });
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']);
         }).catch(err => { throw (err?.data ?? err.message ?? err) }),
       ]).then(() => done()).catch(done);
     });
@@ -232,7 +243,7 @@ describe('tokens API test', function () {
           const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
-          ]);
+          ]) as [CheckpointNumberResponse, AccountInfo];
 
           const burnValue = '10';
           const payload = [
@@ -258,17 +269,17 @@ describe('tokens API test', function () {
           issuedToken,
         }).then(response => {
           expect(response).to.be.an('object');
-          expect(response.hash).to.be.a('string');
+          expect((response as any).hash).to.be.a('string');
         }) : Promise.resolve(),
         () => safePromiseAll([
           apiClient.checkpoints.getNumber()
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
           apiClient.accounts.getNonce(operatorAddress)
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
-          const nonce = nonceResponse.nonce;
+          const nonce = (nonceResponse as AccountInfo).nonce;
           const burnValue = '10';
           const payload = [
             chainId,
@@ -278,7 +289,7 @@ describe('tokens API test', function () {
           ]
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
-          apiClient.tokens.burnToken({
+          apiClient.tokens.legacyV1.burnToken({
             chain_id: chainId,
             nonce,
             value: burnValue,
@@ -287,12 +298,11 @@ describe('tokens API test', function () {
           })
             .success(response => {
               expect(response).to.be.an('object');
-              expect(response.hash).to.be.a('string');
+              expect((response as any).hash).to.be.a('string');
             })
             .rest(err => {
-              console.info(11111, err);
               throw (err?.data ?? err.message ?? err);
-            });
+            }, ['error', 'timeout']);
         }).catch(err => { throw (err?.data ?? err.message ?? err) })
       ]).then(() => done()).catch(done);
     });
@@ -307,7 +317,7 @@ describe('tokens API test', function () {
           const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
-          ]);
+          ]) as [CheckpointNumberResponse, AccountInfo];
           const tokenValue = '15000';
           const payload = [
             chainId,
@@ -345,12 +355,12 @@ describe('tokens API test', function () {
         () => safePromiseAll([
           apiClient.checkpoints.getNumber()
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
           apiClient.accounts.getNonce(operatorAddress)
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
-          const nonce = nonceResponse.nonce;
+          const nonce = (nonceResponse as AccountInfo).nonce;
           const tokenValue = '15000';
           const payload = [
             chainId,
@@ -363,7 +373,7 @@ describe('tokens API test', function () {
           ]
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
-          apiClient.tokens.grantAuthority({
+          apiClient.tokens.legacyV1.grantAuthority({
             chain_id: chainId,
             nonce,
             action: AuthorityAction.Grant,
@@ -376,7 +386,7 @@ describe('tokens API test', function () {
             .success(response => {
               expect(response).to.be.an('object');
             })
-            .rest(err => { throw (err?.data ?? err.message ?? err) });
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']);
         }).catch(err => { throw (err?.data ?? err.message ?? err) })
       ]).then(() => done()).catch(done);
     });
@@ -391,7 +401,7 @@ describe('tokens API test', function () {
           const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
-          ]);
+          ]) as [CheckpointNumberResponse, AccountInfo];
           const name = 'USDT 1Money';
           const symbol = 'USDT';
           const decimals = 6;
@@ -427,7 +437,7 @@ describe('tokens API test', function () {
           chainId,
         }).then(response => {
           expect(response).to.be.an('object');
-          expect(response.token).to.be.a('string');
+          expect((response as any).token).to.be.a('string');
         }),
         // {
         //   hash: '0x43e64ff66da8ef0fe5d2d09b69b19a4163c4ce9c25379c287d5409ac1d9b49bd',
@@ -436,12 +446,12 @@ describe('tokens API test', function () {
         () => safePromiseAll([
           apiClient.checkpoints.getNumber()
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
           apiClient.accounts.getNonce(operatorAddress)
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) })
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout'])
         ]).then(async ([checkpointResponse, nonceResponse]) => {
-          const nonce = nonceResponse.nonce;
+          const nonce = (nonceResponse as AccountInfo).nonce;
           const name = 'USDT 1Money';
           const symbol = 'USDT1';
           const decimals = 6;
@@ -459,7 +469,7 @@ describe('tokens API test', function () {
           ];
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
-          return apiClient.tokens.issueToken({
+          return apiClient.tokens.legacyV1.issueToken({
             chain_id: chainId,
             nonce,
             symbol,
@@ -472,9 +482,9 @@ describe('tokens API test', function () {
           })
             .success(response => {
               expect(response).to.be.an('object');
-              expect(response.token).to.be.a('string');
+              expect((response as any).token).to.be.a('string');
             })
-            .rest(err => { throw (err?.data ?? err.message ?? err) });
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']);
         }).catch(err => { throw (err?.data ?? err.message ?? err) })
       ]).then(() => done()).catch(done);
 
@@ -490,7 +500,7 @@ describe('tokens API test', function () {
           const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
-          ]);
+          ]) as [CheckpointNumberResponse, AccountInfo];
           const mintValue = '100000';
           const payload = [
             chainId,
@@ -518,17 +528,17 @@ describe('tokens API test', function () {
           issuedToken,
         }).then(response => {
           expect(response).to.be.an('object');
-          expect(response.hash).to.be.a('string');
+          expect((response as any).hash).to.be.a('string');
         }),
         () => safePromiseAll([
           apiClient.checkpoints.getNumber()
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
           apiClient.accounts.getNonce(operatorAddress)
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
-          const nonce = nonceResponse.nonce;
+          const nonce = (nonceResponse as AccountInfo).nonce;
           const mintValue = '100000';
           const payload = [
             chainId,
@@ -539,7 +549,7 @@ describe('tokens API test', function () {
           ];
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
-          apiClient.tokens.mintToken({
+          apiClient.tokens.legacyV1.mintToken({
             chain_id: chainId,
             nonce,
             recipient: testAddress,
@@ -549,9 +559,9 @@ describe('tokens API test', function () {
           })
             .success(response => {
               expect(response).to.be.an('object');
-              expect(response.hash).to.be.a('string');
+              expect((response as any).hash).to.be.a('string');
             })
-            .rest(err => { throw (err?.data ?? err.message ?? err) });
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']);
         }).catch(err => { throw (err?.data ?? err.message ?? err) })
       ]).then(() => done()).catch(done);
     });
@@ -566,7 +576,7 @@ describe('tokens API test', function () {
           const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
-          ]);
+          ]) as [CheckpointNumberResponse, AccountInfo];
           const payload = [
             chainId,
             nonce,
@@ -591,17 +601,17 @@ describe('tokens API test', function () {
           issuedToken,
         }).then(response => {
           expect(response).to.be.an('object');
-          expect(response.hash).to.be.a('string');
+          expect((response as any).hash).to.be.a('string');
         }),
         () => safePromiseAll([
           apiClient.checkpoints.getNumber()
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
           apiClient.accounts.getNonce(operatorAddress)
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
-          const nonce = nonceResponse.nonce;
+          const nonce = (nonceResponse as AccountInfo).nonce;
           const action = PauseAction.Unpause;
           const payload = [
             chainId,
@@ -611,7 +621,7 @@ describe('tokens API test', function () {
           ];
           const signature = await signMessage(payload, operatorPK);
           if (!signature) return done(new Error('Failed to sign message'));
-          return apiClient.tokens.pauseToken({
+          return apiClient.tokens.legacyV1.pauseToken({
             chain_id: chainId,
             nonce,
             action,
@@ -620,9 +630,9 @@ describe('tokens API test', function () {
           })
             .success(response => {
               expect(response).to.be.an('object');
-              expect(response.hash).to.be.a('string');
+              expect((response as any).hash).to.be.a('string');
             })
-            .rest(err => { throw (err?.data ?? err.message ?? err) });
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']);
         }).catch(err => { throw (err?.data ?? err.message ?? err) })
       ]).then(() => done()).catch(done);
     });
@@ -637,7 +647,7 @@ describe('tokens API test', function () {
           const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(operatorAddress)
-          ]);
+          ]) as [CheckpointNumberResponse, AccountInfo];
           const name = 'USDC';
           const uri = 'https://usdc.com/metadata';
           const additional_metadata = [
@@ -673,17 +683,17 @@ describe('tokens API test', function () {
           issuedToken,
         }).then(response => {
           expect(response).to.be.an('object');
-          expect(response.hash).to.be.a('string');
+          expect((response as any).hash).to.be.a('string');
         }),
         () => safePromiseAll([
           apiClient.checkpoints.getNumber()
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
           apiClient.accounts.getNonce(operatorAddress)
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
         ]).then(async ([checkpointResponse, nonceResponse]) => {
-          const nonce = nonceResponse.nonce;
+          const nonce = (nonceResponse as AccountInfo).nonce;
           const name = 'USDC';
           const uri = 'https://usdc.com/metadata';
           const additional_metadata = [
@@ -702,7 +712,7 @@ describe('tokens API test', function () {
           ];
           const signature = await signMessage(payload, operatorPK)
           if (!signature) return done(new Error('Failed to sign message'));
-          apiClient.tokens.updateMetadata({
+          apiClient.tokens.legacyV1.updateMetadata({
             chain_id: chainId,
             nonce,
             name,
@@ -713,9 +723,9 @@ describe('tokens API test', function () {
           })
             .success(response => {
               expect(response).to.be.an('object');
-              expect(response.hash).to.be.a('string');
+              expect((response as any).hash).to.be.a('string');
             })
-            .rest(err => { throw (err?.data ?? err.message ?? err) });
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']);
         }).catch(err => { throw (err?.data ?? err.message ?? err) })
       ]).then(() => done()).catch(done);
     });

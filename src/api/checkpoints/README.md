@@ -38,13 +38,20 @@ Returns the current checkpoint number.
 
 ## Testing
 
-The API includes tests that verify the structure and behavior of the API client. The tests make real API calls to the remote endpoint to ensure the API is working correctly. To run the tests, use:
+Unit tests for the structure of this API client run with:
 
 ```bash
 npm test
 ```
 
-This will run all tests, including the checkpoint API tests that make real API calls.
+The tests that make real API calls to the remote endpoint live in the
+integration suite (`src/__integration__/checkpoints-api.test.ts`), not
+in `npm test`, so the unit suite stays deterministic and network-free.
+Run them with:
+
+```bash
+npm run test:integration:testnet
+```
 
 ### Example
 

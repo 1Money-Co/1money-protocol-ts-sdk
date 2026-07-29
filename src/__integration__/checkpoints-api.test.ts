@@ -1,9 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
-import { checkpointsApi } from '../';
-import { api } from '../../';
-import { CHAIN_IDS } from '../../constants';
+import { checkpointsApi } from '@/api/checkpoints';
+import { api } from '@/api';
+import { CHAIN_IDS } from '@/api/constants';
+import { getConfig } from './config';
+
+import type { Transaction } from '@/api/checkpoints/types';
 
 const RUN_ENV = process.env.RUN_ENV || 'local';
 
@@ -19,6 +22,8 @@ describe('checkpoint API test', function () {
   // Set a longer timeout for all tests in this suite
   this.timeout(10000);
 
+  const config = getConfig();
+
   const apiClient = api({
     timeout: 3000,
     network: 'testnet',
@@ -26,6 +31,12 @@ describe('checkpoint API test', function () {
 
   let browser: Browser;
   let pageOne: Page;
+
+  before(function () {
+    if (!config.enabled) {
+      this.skip();
+    }
+  });
 
   if (RUN_ENV === 'local') {
     before(async () => {
@@ -44,7 +55,7 @@ describe('checkpoint API test', function () {
     });
 
     after(async () => {
-      await browser.close();
+      if (browser) await browser.close();
     });
   }
 
@@ -77,7 +88,7 @@ describe('checkpoint API test', function () {
         })
         .rest(err => {
           throw (err?.data ?? err.message ?? err);
-        }),
+        }, ['error', 'timeout']),
     ]).then(() => done()).catch(done);
   });
 
@@ -115,7 +126,7 @@ describe('checkpoint API test', function () {
 
         expect(response).to.have.property('transactions');
         expect(response.transactions).to.be.an('array');
-        response.transactions.forEach(transaction => {
+        (response.transactions as Transaction[]).forEach(transaction => {
           expect(transaction).to.have.property('hash');
           expect(transaction.hash).to.be.a('string');
 
@@ -138,16 +149,16 @@ describe('checkpoint API test', function () {
           expect(transaction.nonce).to.be.a('number');
 
           expect(transaction).to.have.property('fee');
-          expect(transaction.fee).to.be.a('number');
+          expect((transaction as any).fee).to.be.a('number');
 
           expect(transaction).to.have.property('from');
           expect(transaction.from).to.be.a('string');
 
           expect(transaction).to.have.property('data');
           expect(transaction.data).to.be.an('object');
-          expect(transaction.data.value).to.be.a('string');
-          expect(transaction.data.to).to.be.a('string');
-          expect(transaction.data.token).to.be.a('string');
+          expect((transaction.data as any).value).to.be.a('string');
+          expect((transaction.data as any).to).to.be.a('string');
+          expect((transaction.data as any).token).to.be.a('string');
 
           expect(transaction).to.have.property('signature');
           expect(transaction.signature).to.be.an('object');
@@ -189,7 +200,7 @@ describe('checkpoint API test', function () {
 
           expect(response).to.have.property('transactions');
           expect(response.transactions).to.be.an('array');
-          response.transactions.forEach(transaction => {
+          (response.transactions as Transaction[]).forEach(transaction => {
             expect(transaction).to.have.property('hash');
             expect(transaction.hash).to.be.a('string');
 
@@ -212,16 +223,16 @@ describe('checkpoint API test', function () {
             expect(transaction.nonce).to.be.a('number');
 
             expect(transaction).to.have.property('fee');
-            expect(transaction.fee).to.be.a('number');
+            expect((transaction as any).fee).to.be.a('number');
 
             expect(transaction).to.have.property('from');
             expect(transaction.from).to.be.a('string');
 
             expect(transaction).to.have.property('data');
             expect(transaction.data).to.be.an('object');
-            expect(transaction.data.value).to.be.a('string');
-            expect(transaction.data.to).to.be.a('string');
-            expect(transaction.data.token).to.be.a('string');
+            expect((transaction.data as any).value).to.be.a('string');
+            expect((transaction.data as any).to).to.be.a('string');
+            expect((transaction.data as any).token).to.be.a('string');
 
             expect(transaction).to.have.property('signature');
             expect(transaction.signature).to.be.an('object');
@@ -235,7 +246,7 @@ describe('checkpoint API test', function () {
         })
         .rest(err => {
           throw (err?.data ?? err.message ?? err);
-        }),
+        }, ['error', 'timeout']),
     ]).then(() => done()).catch(done);
   });
 
@@ -273,7 +284,7 @@ describe('checkpoint API test', function () {
 
         expect(response).to.have.property('transactions');
         expect(response.transactions).to.be.an('array');
-        response.transactions.forEach(transaction => {
+        (response.transactions as Transaction[]).forEach(transaction => {
           expect(transaction).to.have.property('hash');
           expect(transaction.hash).to.be.a('string');
 
@@ -296,16 +307,16 @@ describe('checkpoint API test', function () {
           expect(transaction.nonce).to.be.a('number');
 
           expect(transaction).to.have.property('fee');
-          expect(transaction.fee).to.be.a('number');
+          expect((transaction as any).fee).to.be.a('number');
 
           expect(transaction).to.have.property('from');
           expect(transaction.from).to.be.a('string');
 
           expect(transaction).to.have.property('data');
           expect(transaction.data).to.be.an('object');
-          expect(transaction.data.value).to.be.a('string');
-          expect(transaction.data.to).to.be.a('string');
-          expect(transaction.data.token).to.be.a('string');
+          expect((transaction.data as any).value).to.be.a('string');
+          expect((transaction.data as any).to).to.be.a('string');
+          expect((transaction.data as any).token).to.be.a('string');
 
           expect(transaction).to.have.property('signature');
           expect(transaction.signature).to.be.an('object');
@@ -347,7 +358,7 @@ describe('checkpoint API test', function () {
 
           expect(response).to.have.property('transactions');
           expect(response.transactions).to.be.an('array');
-          response.transactions.forEach(transaction => {
+          (response.transactions as Transaction[]).forEach(transaction => {
             expect(transaction).to.have.property('hash');
             expect(transaction.hash).to.be.a('string');
 
@@ -370,16 +381,16 @@ describe('checkpoint API test', function () {
             expect(transaction.nonce).to.be.a('number');
 
             expect(transaction).to.have.property('fee');
-            expect(transaction.fee).to.be.a('number');
+            expect((transaction as any).fee).to.be.a('number');
 
             expect(transaction).to.have.property('from');
             expect(transaction.from).to.be.a('string');
 
             expect(transaction).to.have.property('data');
             expect(transaction.data).to.be.an('object');
-            expect(transaction.data.value).to.be.a('string');
-            expect(transaction.data.to).to.be.a('string');
-            expect(transaction.data.token).to.be.a('string');
+            expect((transaction.data as any).value).to.be.a('string');
+            expect((transaction.data as any).to).to.be.a('string');
+            expect((transaction.data as any).token).to.be.a('string');
 
             expect(transaction).to.have.property('signature');
             expect(transaction.signature).to.be.an('object');
@@ -393,7 +404,7 @@ describe('checkpoint API test', function () {
         })
         .rest(err => {
           throw (err?.data ?? err.message ?? err);
-        }),
+        }, ['error', 'timeout']),
     ]).then(() => done()).catch(done);
   });
 });

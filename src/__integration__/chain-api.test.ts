@@ -1,8 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
-import { chainApi } from '../';
-import { api } from '../../';
+import { chainApi } from '@/api/chain';
+import { api } from '@/api';
+import { getConfig } from './config';
 
 const RUN_ENV = process.env.RUN_ENV || 'local';
 
@@ -16,6 +17,8 @@ describe('checkpoint API test', function () {
   // Set a longer timeout for all tests in this suite
   this.timeout(10000);
 
+  const config = getConfig();
+
   const apiClient = api({
     timeout: 3000,
     network: 'testnet',
@@ -23,6 +26,12 @@ describe('checkpoint API test', function () {
 
   let browser: Browser;
   let pageOne: Page;
+
+  before(function () {
+    if (!config.enabled) {
+      this.skip();
+    }
+  });
 
   if (RUN_ENV === 'local') {
     before(async () => {
@@ -37,7 +46,7 @@ describe('checkpoint API test', function () {
     });
 
     after(async () => {
-      await browser.close();
+      if (browser) await browser.close();
     });
   }
 
@@ -64,7 +73,7 @@ describe('checkpoint API test', function () {
         })
         .rest(err => {
           throw(err?.data ?? err.message ?? err);
-        })
+        }, ['error', 'timeout'])
     ]).then(() => done()).catch(done);
   });
 });

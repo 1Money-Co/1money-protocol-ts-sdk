@@ -1,15 +1,18 @@
 import 'mocha';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { expect } from 'chai';
-import { api } from '../../';
-import { CHAIN_IDS } from '../../constants';
-import { signMessage, safePromiseAll, safePromiseLine } from '../../../utils';
-import { transactionsApi } from '../';
-import { accountsApi } from '../../accounts';
-import { checkpointsApi } from '../../checkpoints';
+import { api } from '@/api';
+import { CHAIN_IDS } from '@/api/constants';
+import { signMessage, safePromiseAll, safePromiseLine } from '@/utils';
+import { transactionsApi } from '@/api/transactions';
+import { accountsApi } from '@/api/accounts';
+import { checkpointsApi } from '@/api/checkpoints';
 import 'dotenv/config';
+import { getConfig } from './config';
 
-import type { ZeroXString } from '../../../utils';
+import type { ZeroXString } from '@/utils';
+import type { CheckpointNumberResponse } from '@/api/checkpoints/types';
+import type { AccountInfo } from '@/api/accounts/types';
 
 declare global {
   interface Window {
@@ -18,7 +21,7 @@ declare global {
     _getByHash: typeof transactionsApi.getByHash;
     getReceiptByHash: typeof transactionsApi.getReceiptByHash;
     estimateFee: typeof transactionsApi.estimateFee;
-    payment: typeof transactionsApi.payment;
+    payment: typeof transactionsApi.legacyV1.payment;
     getNumber: typeof checkpointsApi.getNumber;
   }
 }
@@ -29,6 +32,8 @@ describe('transactions API test', function () {
   // Set a longer timeout for all tests in this suite
   this.timeout(10000);
 
+  const config = getConfig();
+
   const apiClient = api({
     timeout: 3000,
     network: 'testnet',
@@ -36,6 +41,12 @@ describe('transactions API test', function () {
 
   let browser: Browser;
   let pageOne: Page;
+
+  before(function () {
+    if (!config.enabled) {
+      this.skip();
+    }
+  });
 
   if (RUN_ENV === 'local') {
     before(async () => {
@@ -51,14 +62,14 @@ describe('transactions API test', function () {
           pageOne.exposeFunction('_getByHash', apiClient.transactions.getByHash),
           pageOne.exposeFunction('getReceiptByHash', apiClient.transactions.getReceiptByHash),
           pageOne.exposeFunction('estimateFee', apiClient.transactions.estimateFee),
-          pageOne.exposeFunction('payment', apiClient.transactions.payment),
+          pageOne.exposeFunction('payment', apiClient.transactions.legacyV1.payment),
           pageOne.exposeFunction('getNumber', apiClient.checkpoints.getNumber),
         ])
       });
     });
 
     after(async () => {
-      await browser.close();
+      if (browser) await browser.close();
     });
   }
 
@@ -117,7 +128,7 @@ describe('transactions API test', function () {
           expect(err).to.have.property('message');
           expect(err.message).to.include('not found');
           throw (err?.data ?? err.message ?? err);
-        })
+        }, ['error', 'timeout'])
     ]).then(() => done()).catch(done);
   });
 
@@ -145,7 +156,7 @@ describe('transactions API test', function () {
           expect(err).to.have.property('message');
           expect(err.message).to.include('not found');
           throw (err?.data ?? err.message ?? err);
-        })
+        }, ['error', 'timeout'])
     ]).then(() => done()).catch(done);
   });
 
@@ -174,7 +185,7 @@ describe('transactions API test', function () {
         })
         .rest(err => {
           throw (err?.data ?? err.message ?? err);
-        })
+        }, ['error', 'timeout'])
     ]).then(() => done()).catch(done);
   });
 
@@ -187,7 +198,7 @@ describe('transactions API test', function () {
           const [{ number: checkpointNumber }, { nonce }] = await safePromiseAll([
             window.getNumber(),
             window.getNonce(testAddress)
-          ])
+          ]) as [CheckpointNumberResponse, AccountInfo]
           const payload = [
             chainId,
             nonce,
@@ -215,16 +226,17 @@ describe('transactions API test', function () {
           issuedToken
         }).then(response => {
           expect(response).to.be.an('object');
-          expect(response.token).to.be.a('string');
+          expect((response as any).token).to.be.a('string');
         }) : Promise.resolve(),
         () => safePromiseAll([
           apiClient.checkpoints.getNumber()
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) }),
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout']),
           apiClient.accounts.getNonce(testAddress)
             .success(res => res)
-            .rest(err => { throw (err?.data ?? err.message ?? err) })
-        ]).then(async ([checkpointResponse, { nonce }]) => {
+            .rest(err => { throw (err?.data ?? err.message ?? err) }, ['error', 'timeout'])
+        ]).then(async ([checkpointResponse, nonceResponse]) => {
+          const { nonce } = nonceResponse as AccountInfo;
           const payload = [
             chainId,
             nonce,
@@ -234,7 +246,7 @@ describe('transactions API test', function () {
           ];
           const signature = await signMessage(payload, testPK)
           if (!signature) return done(new Error('Failed to sign message'));
-          apiClient.transactions.payment({
+          apiClient.transactions.legacyV1.payment({
             chain_id: chainId,
             nonce,
             recipient: operatorAddress,
@@ -251,10 +263,9 @@ describe('transactions API test', function () {
               expect(err).to.have.property('message');
               expect(err?.data?.message).to.include('insufficient funds');
               throw (err?.data ?? err.message ?? err);
-            });
+            }, ['error', 'timeout']);
         }).then(() => done()).catch(done)
       ]);
     });
   }
 });
-
