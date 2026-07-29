@@ -2,8 +2,13 @@ import { expect } from 'chai';
 import 'mocha';
 
 import { LOCAL_API_URL } from '../constants';
-import { axiosStatic } from '../../client';
-import { TransactionHashMismatchError } from '../errors';
+import { axiosStatic, setInitConfig } from '../../client';
+import {
+  isNativeV2NotActive,
+  TransactionHashMismatchError,
+  TransactionOutcomeUnknownError,
+  TransactionSubmissionError
+} from '../errors';
 import { submitAuthorized } from '../submit';
 
 import type { AuthorizedTxV2 } from '@/signing/v2';
@@ -90,7 +95,7 @@ describe('submitAuthorized', function () {
   });
 
   it('posts the request body to the authorized path', async function () {
-    await submitAuthorized(AUTHORIZED);
+    await submitAuthorized(AUTHORIZED, 'payment');
     expect(seenUrl).to.equal(
       '/v2/transactions/payment'
     );
@@ -101,8 +106,10 @@ describe('submitAuthorized', function () {
 
   it('resolves when the hashes match, ignoring case', async function () {
     respondWith(LOCAL_HASH.toUpperCase());
-    const response =
-      await submitAuthorized(AUTHORIZED);
+    const response = await submitAuthorized(
+      AUTHORIZED,
+      'payment'
+    );
     expect(
       response.hash.toLowerCase()
     ).to.equal(LOCAL_HASH);
@@ -114,7 +121,7 @@ describe('submitAuthorized', function () {
 
     let caught: unknown;
     try {
-      await submitAuthorized(AUTHORIZED);
+      await submitAuthorized(AUTHORIZED, 'payment');
     } catch (error) {
       caught = error;
     }
@@ -129,5 +136,152 @@ describe('submitAuthorized', function () {
     expect(err.submitted).to.equal(true);
     expect(err.serverHash).to.equal(serverHash);
     expect(err.localHash).to.equal(LOCAL_HASH);
+  });
+
+  it('rejects with an operation mismatch before making any request', async function () {
+    let caught: unknown;
+    try {
+      await submitAuthorized(AUTHORIZED, 'tokenBurn');
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).to.be.instanceOf(Error);
+    expect((caught as Error).message).to.match(
+      /Expected a "tokenBurn" authorization but received "payment"/
+    );
+    // No request should have been sent for a rejected mismatch.
+    expect(seenUrl).to.equal(undefined);
+  });
+
+  // Regression coverage for the issue-1038 follow-up bug: core.ts's
+  // promise wrapper RESOLVES instead of REJECTS whenever the caller
+  // has a global onError configured (existedHandler.error is then
+  // true) -- see core.ts's errorHandler. Before this fix,
+  // submitAuthorized treated that resolved ParsedError as a
+  // hash-bearing response and threw TransactionHashMismatchError
+  // (submitted: true) for a transaction that was never admitted. A
+  // test that omits the global onError below would still pass
+  // against the broken code, since without it the promise correctly
+  // rejects -- so onError here is load-bearing, not incidental.
+  describe('refused writes (global onError configured)', function () {
+    let originalOnErrorAdapter: typeof axiosStatic.defaults.adapter;
+
+    before(function () {
+      originalOnErrorAdapter =
+        axiosStatic.defaults.adapter;
+      // setInitConfig always reassigns axiosStatic.defaults.baseURL
+      // (falling back to `undefined` in Node when no baseURL is
+      // given), so baseURL must be re-supplied on every call here,
+      // not just once -- otherwise this describe block would wipe
+      // out the baseURL every other suite in the process relies on.
+      setInitConfig({
+        baseURL: LOCAL_API_URL,
+        onError: (err: unknown) => err
+      });
+    });
+
+    after(function () {
+      axiosStatic.defaults.adapter =
+        originalOnErrorAdapter;
+      // No other suite in this repo configures a global onError, so
+      // the pre-suite value is undefined -- restore exactly that
+      // (rather than leaving the identity handler above installed
+      // for every later suite in this process).
+      setInitConfig({
+        baseURL: originalBaseURL,
+        onError: undefined
+      });
+    });
+
+    it('throws TransactionSubmissionError (submitted: false), not TransactionHashMismatchError', async function () {
+      axiosStatic.defaults.adapter = (config =>
+        Promise.reject({
+          message:
+            'Request failed with status code 403',
+          name: 'AxiosError',
+          config,
+          response: {
+            status: 403,
+            statusText: 'Forbidden',
+            headers: {},
+            config,
+            data: {
+              error_code:
+                'DOMAIN_SEPARATED_SIGNATURE_NOT_ACTIVE',
+              message:
+                'native v2 writes are not active on this node'
+            }
+          }
+        })) as typeof originalOnErrorAdapter;
+
+      let caught: unknown;
+      try {
+        await submitAuthorized(AUTHORIZED, 'payment');
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).to.be.instanceOf(
+        TransactionSubmissionError
+      );
+      const err =
+        caught as TransactionSubmissionError;
+      // Never submitted -- safe to retry once /v2 is active.
+      expect(err.submitted).to.equal(false);
+      expect(err.status).to.equal(403);
+      expect(err.errorCode).to.equal(
+        'DOMAIN_SEPARATED_SIGNATURE_NOT_ACTIVE'
+      );
+      expect(caught).to.not.be.instanceOf(
+        TransactionHashMismatchError
+      );
+      // isNativeV2NotActive reads `.data.error_code` -- confirm
+      // TransactionSubmissionError still satisfies it exactly as a
+      // raw ParsedError would have, so migration-window callers that
+      // branch on it don't need to change anything.
+      expect(isNativeV2NotActive(err)).to.equal(
+        true
+      );
+    });
+  });
+
+  describe('ambiguous outcome (no hash in the response)', function () {
+    it('throws TransactionOutcomeUnknownError, neither submitted nor safe to retry', async function () {
+      axiosStatic.defaults.adapter = (config =>
+        Promise.resolve({
+          // A 2xx body that never carries a `hash`: genuinely
+          // ambiguous -- the SDK cannot tell whether the node
+          // admitted this transaction.
+          data: {},
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config
+        })) as typeof originalAdapter;
+
+      let caught: unknown;
+      try {
+        await submitAuthorized(AUTHORIZED, 'payment');
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      const err =
+        caught as TransactionOutcomeUnknownError;
+      expect(err.transactionHash).to.equal(
+        LOCAL_HASH
+      );
+      // Naive callers gate a retry on `err.submitted === false`
+      // (TransactionSubmissionError's contract) -- this case must
+      // not accidentally satisfy that check.
+      expect(
+        (err as unknown as { submitted?: unknown })
+          .submitted
+      ).to.equal(undefined);
+    });
   });
 });

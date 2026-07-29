@@ -22,7 +22,10 @@ const { chain_id } = await client.chain.getChainId();
 const { nonce } = await client.accounts.getNonce(sender);
 
 // 2. PREPARE (validates fields, RLP-encodes the domain-separated payload,
-//    computes the digest to sign). `memo` is an option, not a payload field.
+//    computes the digest to sign). `memo` is an option, not a payload field —
+//    the unsigned payload object itself must NOT carry a `memo` property
+//    (a leftover from migrating a v1-shaped payload); `prepare` throws if it
+//    does, rather than silently overwriting it with the empty memo.
 const prepared = TransactionBuilder.<op>(
   { chain_id, nonce, /* ...fields */ },
   { memo }, // optional at the call site; always sent on the wire (see Memo below)
@@ -33,14 +36,22 @@ const signature = await createPrivateKeySigner(privateKey).signDigest(
   prepared.signingHash
 );
 
-// 4. AUTHORIZE — turns the signature into a plain-JSON request. This is the
-//    only step that can throw for a bad `v`.
+// 4. AUTHORIZE — turns the signature into a plain-JSON request. Throws for a
+//    bad `v`, and also enforces the same low-S (non-malleable) check the
+//    legacy path always ran — a high-S signature is rejected here, locally,
+//    instead of producing a confidently-computed hash for a transaction the
+//    node will reject at admission.
 const authorized = prepared.authorize(signature);
 
-// 5. SUBMIT to the matching endpoint. The SDK re-derives the transaction
-//    hash from the signed bytes and throws TransactionHashMismatchError,
-//    fail-closed, if the node's returned hash doesn't match — see
-//    client-and-errors.md.
+// 5. SUBMIT to the matching endpoint. Throws one of three distinct errors —
+//    see client-and-errors.md for the full contract and which are safe to
+//    retry:
+//      - TransactionHashMismatchError   (submitted: true  -- do NOT retry)
+//      - TransactionSubmissionError     (submitted: false -- safe to retry)
+//      - TransactionOutcomeUnknownError (ambiguous -- query the hash first)
+//    Also throws synchronously (before any network call) if `authorized`
+//    came from a different builder than the method you called it with, e.g.
+//    passing a `tokenBurn` authorization to `client.transactions.payment`.
 const res = await client.<module>.<method>(authorized);
 ```
 
@@ -291,6 +302,15 @@ TransactionBuilder.payment(unsigned, {
 });
 ```
 
+The unsigned payload passed as the **first** argument must never itself carry
+a `memo` property — that field only exists as the second-argument `{ memo }`
+option. `WithoutMemo<T>` only catches this at compile time for an inline
+object literal; a caller migrating a v1-shaped payload *variable* (or any
+plain-JS caller) can still pass one in, so `prepare` throws
+`[1Money SDK]: <op> unsigned payload must not include a memo property` if it
+finds one, rather than silently dropping it and signing/sending the all-empty
+memo instead.
+
 `batchPayment` is the one exception: it is not memo-capable at all, and its
 builder wrapper only declares one parameter (the unsigned payload) — there is
 no options argument to pass a memo through. TypeScript callers get this as a
@@ -358,23 +378,35 @@ an empty signer list, an invalid/off-curve public key, a non-canonical
 preimage), a **duplicate public key**, a weight sum that overflows `u16`, or a
 threshold exceeding the total signer weight.
 
-> **A real asymmetry, not a bug to route around:** `createMultisig` (the
-> builder in `src/signing/builders/createMultisig.ts`) does **not** enforce
-> the weight-≤255 or duplicate-pubkey rules — it only checks that each weight
-> is a positive integer, so `createMultisig({ ..., weight: 1000 })` builds and
-> signs without error. `deriveMultisigAddress` (`src/signing/v2/multisigAddress.ts`)
-> is stricter and throws on both. This means you can successfully submit a
-> `createMultisig` transaction whose address you cannot compute locally with
-> `deriveMultisigAddress` — if you rely on client-side address derivation,
-> validate `weight <= 255` and uniqueness yourself before calling
-> `createMultisig`, don't assume the builder will catch it for you.
+> **Numeric bounds match, duplicate-pubkey checking still doesn't:**
+> `createMultisig` (the builder in `src/signing/builders/createMultisig.ts`)
+> enforces the same node-side numeric bounds as `deriveMultisigAddress`
+> (`src/signing/v2/multisigAddress.ts`) — `weight` must be a positive integer
+> `<= 255` (`MultiSigSigner.weight` is a node-side `u8`) and `threshold` must
+> be a positive integer `<= 65535` (a node-side `u16`) — so
+> `createMultisig({ ..., weight: 256 })` now throws at `prepare` time instead
+> of signing and later being rejected by the node. `deriveMultisigAddress` is
+> still the stricter of the two: it additionally rejects a **duplicate public
+> key** and a weight sum that overflows `u16`, neither of which
+> `createMultisig`'s builder checks. If you rely on client-side address
+> derivation, still validate uniqueness yourself before calling
+> `createMultisig` (or just call `deriveMultisigAddress` first, since it will
+> catch it) — don't assume the builder enforces every rule
+> `deriveMultisigAddress` does.
 
 ## Custom signer (wallet / HSM / no raw key in process)
 
 When the private key lives in a browser wallet, KMS, or HSM, implement the
 `SignerAdapter` interface instead of `createPrivateKeySigner`. You only need to
 sign `prepared.signingHash` and return `{ r, s, v }` (low-S, and `v` must end
-up `0` or `1` before you call `.authorize()`):
+up `0` or `1` before you call `.authorize()`). `authorize()` itself enforces
+the low-S bound (the same check the legacy path always ran) and throws
+`[1Money SDK]: Invalid signature - high S value detected (potential
+malleability)` if your signer doesn't normalize `s` — this fails fast
+locally instead of the node rejecting the transaction after submission
+(`om-crypto-types::CryptoError::HighSSignature`). Some HSM/KMS/MPC signers
+don't normalize by default; check your provider's docs, or normalize `s`
+yourself (`s' = N - s` when `s > N/2`) before returning it:
 
 ```typescript
 import type { SignerAdapter, Signature } from '@1money/protocol-ts-sdk';
@@ -485,6 +517,13 @@ methods of the same name family (e.g. `tokens.legacyV1.manageBlacklist` /
 `tokenManageList` shape). There is no legacy `batchPayment` or `createMultisig`
 — those are v2-only.
 
+`LegacyV1TransactionBuilder.tokenAuthority`'s request body also defaults an
+omitted `value` to `'0'`, same as the v2 wire path above: the node's
+`TokenAuthorityPayload.value` is a non-optional `U256` with no
+`#[serde(default)]`, so the signed bytes always encode `value = 0` when it's
+omitted, and the transmitted body now matches — it used to omit the field
+entirely and 400.
+
 The legacy builder still accepts an optional `memo?: Memo` per operation; on
 that scheme (unlike v2) an **absent** memo takes a byte-identical-to-pre-memo
 V1 path, while a **present** memo (even `{}`) switches to a disjoint-hash V2
@@ -501,7 +540,10 @@ in `client-and-errors.md`).
 ## Common mistakes
 
 - **Wrong builder/endpoint pairing** — e.g. building `tokenMint` but calling
-  `tokens.issueToken`. Use the map above.
+  `tokens.issueToken`. Use the map above. `submitAuthorized` now checks
+  `authorized.operation` against the method you called it through and throws
+  synchronously (before any network call) on a mismatch, so this fails loudly
+  instead of quietly POSTing to the wrong route.
 - **Treating `tokenBlacklist`/`tokenWhitelist` as interchangeable** — each has
   its own signing hash; you cannot sign once and submit to either.
 - **Numeric amounts** — `value: 1` or `value: 1.5` is wrong; use a base-unit

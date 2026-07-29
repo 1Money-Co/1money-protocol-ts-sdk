@@ -91,10 +91,69 @@ interface ParsedError<T extends string = string> {
 ## v2 write errors
 
 Imported from the package **root only** — `isNativeV2NotActive`,
-`isLegacyWriteDisabled`, `TransactionHashMismatchError`, and the raw
+`isLegacyWriteDisabled`, `TransactionHashMismatchError`,
+`TransactionSubmissionError`, `TransactionOutcomeUnknownError`, and the raw
 `V2_ERROR_CODES` map are all root exports (`src/index.ts` re-exports
 `./api/errors`); none of them are re-exported from `/api`. These only apply to
 the native v2 / legacy v1 **write** surface — read endpoints don't raise them.
+
+### The three outcomes of a v2 write
+
+`submitAuthorized` (`src/api/submit.ts`, backing every `AuthorizedTxV2`-taking
+method) classifies the result of `await client.<module>.<method>(authorized)`
+into exactly three, deliberately distinct thrown-error shapes — check
+`instanceof`, not `.message`, to branch on them:
+
+| Thrown | `submitted` | Safe to retry? | Meaning |
+| --- | --- | --- | --- |
+| `TransactionHashMismatchError` | `true` | **No** | The node admitted the write, but the hash it returned doesn't match the one computed locally. |
+| `TransactionSubmissionError` | `false` | **Yes**, once the cause is fixed | The node refused the write outright (HTTP error with a response body, e.g. a 403/400/410) — it never reached the mempool. |
+| `TransactionOutcomeUnknownError` | *(no `submitted` field at all)* | **No — verify first** | Ambiguous: e.g. a client-side timeout, a network error, or a 2xx body with no `hash`. The node may or may not have admitted the transaction. |
+
+```typescript
+import {
+  TransactionHashMismatchError,
+  TransactionSubmissionError,
+  TransactionOutcomeUnknownError,
+} from '@1money/protocol-ts-sdk';
+
+try {
+  const { hash } = await client.transactions.payment(authorized);
+} catch (err) {
+  if (err instanceof TransactionHashMismatchError) {
+    // Already submitted. Do NOT retry -- look the transaction up by
+    // err.localHash / err.serverHash instead.
+  } else if (err instanceof TransactionSubmissionError) {
+    // NOT submitted. err.status / err.errorCode identify why (see the five
+    // v2 error codes below, or a plain HTTP error) -- fix the cause, then
+    // retry is safe.
+  } else if (err instanceof TransactionOutcomeUnknownError) {
+    // Genuinely unknown. Query err.transactionHash against the node
+    // (client.transactions.getByHash) before deciding whether to retry --
+    // a blind retry risks double-submitting on the same nonce.
+  } else {
+    throw err;
+  }
+}
+```
+
+`TransactionOutcomeUnknownError` deliberately has **no** `submitted` field
+(not even `submitted: undefined` for symmetry) — a caller that naively gates
+a retry on `err.submitted === false` will correctly fall through to "don't
+retry" for this case instead of accidentally matching it.
+
+> **Why this needed fixing:** the underlying HTTP client
+> (`src/client/core.ts`) **resolves** its promise instead of rejecting it
+> whenever the caller configured a global `onError`/`onTimeout` via
+> `setInitConfig` — a documented, public option. Earlier, `submitAuthorized`
+> only ever checked the resolved value for a string `hash`, so a refused
+> write (e.g. a 403 because `/v2` isn't active yet) under a configured
+> `onError` was misread as a hash-bearing response and thrown as
+> `TransactionHashMismatchError` — telling the caller "already submitted, do
+> not retry" for a transaction that never left the process. `submitAuthorized`
+> now classifies both a caught rejection and a resolved
+> `ParsedError`-shaped value the same way, so the three outcomes above hold
+> regardless of whether a global `onError`/`onTimeout` is configured.
 
 ### The five error codes
 

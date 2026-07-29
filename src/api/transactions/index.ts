@@ -63,13 +63,16 @@ export const transactionsApi = {
    * @param authorized Output of TransactionBuilderV2.payment(..).authorize(sig)
    */
   payment: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(authorized, 'payment'),
 
   /**
    * Submit a domain-separated v2 batch payment.
    */
   batchPayment: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(
+      authorized,
+      'batchPayment'
+    ),
 
   /**
    * Legacy v1 writes. Explicit opt-in for the migration window;

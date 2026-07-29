@@ -40,6 +40,11 @@ export function prepareTokenAuthorityTx(unsigned: TokenAuthorityUnsigned) {
     payloadFields: tokenAuthorityPayloadFields(unsigned),
     toRequest: (payload, signature) => ({
       ...payload,
+      // Rust `TokenAuthorityPayload.value` is a non-optional U256
+      // with no `#[serde(default)]`, so an omitted field 400s even
+      // though the signed bytes above always encode value = 0 -- the
+      // wire body must default it the same way the signature does.
+      value: payload.value ?? '0',
       signature,
     }),
   });

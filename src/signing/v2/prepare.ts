@@ -1,4 +1,5 @@
 import { validateMemo } from '@/utils';
+import { assertLowS } from '../core';
 import { singleSecp256k1 } from './authorization';
 import {
   encodePayloadRlp,
@@ -58,6 +59,26 @@ export function prepareTransactionV2<
     );
   }
 
+  // The /v2 request body never carries memo inside the business
+  // payload -- it is a sibling field supplied through `options.memo`
+  // (see OperationUnsignedMap's WithoutMemo<T>). That is only a
+  // compile-time guarantee for an inline object literal: a caller
+  // migrating a v1-shaped payload *variable* (or any plain-JS caller)
+  // can still pass an object carrying `memo`, which would otherwise be
+  // silently overwritten below and submitted as the empty
+  // three-string memo with no error. Reject it instead of guessing
+  // which memo the caller meant.
+  if (
+    Object.prototype.hasOwnProperty.call(
+      unsigned as object,
+      'memo'
+    )
+  ) {
+    throw new Error(
+      `[1Money SDK]: ${operation} unsigned payload must not include a memo property -- pass it as the { memo } option instead.`
+    );
+  }
+
   spec.validate(unsigned);
 
   if (!spec.memoCapable && options?.memo) {
@@ -92,6 +113,18 @@ export function prepareTransactionV2<
     unsigned,
     signingHash,
     authorize: (signature: Signature) => {
+      // A non-normalized (high-S) signature confidently produces a
+      // transactionHash the node will still reject at admission
+      // (om-crypto-types CryptoError::HighSSignature) -- fail fast
+      // locally with the same check the legacy path runs in
+      // attachSignature, rather than handing the caller a hash for a
+      // transaction that fails remotely. Deliberately placed here
+      // (authorize()) and not inside singleProof/multisigProof: those
+      // low-level encoders are exercised directly by the frozen
+      // conformance vectors, whose fixture signatures are dummies
+      // that are themselves high-S.
+      assertLowS(signature);
+
       const body: Record<string, unknown> = {
         ...(spec.wireFields
           ? spec.wireFields(unsigned)

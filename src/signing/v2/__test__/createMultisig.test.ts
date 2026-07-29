@@ -112,7 +112,7 @@ describe('create multisig v2', function () {
       BASE
     ).authorize({
       r: `0x${'aa'.repeat(32)}` as `0x${string}`,
-      s: `0x${'bb'.repeat(32)}` as `0x${string}`,
+      s: `0x${'11'.repeat(32)}` as `0x${string}`,
       v: 1
     });
     expect(authorized.path).to.equal(
@@ -121,5 +121,26 @@ describe('create multisig v2', function () {
     expect(authorized.request.memo).to.deep.equal(
       { type: '', format: '', data: '' }
     );
+  });
+
+  it('rejects a signer weight over 255 (node-side u8)', function () {
+    expect(() =>
+      prepareTransactionV2('createMultisig', {
+        ...BASE,
+        signers: [
+          { public_key: PK1, weight: 256 },
+          { public_key: PK2, weight: 1 }
+        ]
+      })
+    ).to.throw(/Invalid signers\[0\]\.weight: 256/);
+  });
+
+  it('rejects a threshold over 65535 (node-side u16)', function () {
+    expect(() =>
+      prepareTransactionV2('createMultisig', {
+        ...BASE,
+        threshold: 65536
+      })
+    ).to.throw(/Invalid threshold: 65536/);
   });
 });

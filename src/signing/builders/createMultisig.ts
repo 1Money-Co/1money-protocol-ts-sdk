@@ -2,7 +2,7 @@ import { hexToBytes } from 'viem';
 
 import { rlpValue } from '@/utils';
 import {
-  assertPositiveInteger,
+  assertPositiveIntegerAtMost,
   validateChainAndNonce
 } from './validate';
 
@@ -13,6 +13,14 @@ export type CreateMultisigUnsigned =
   CreateMultiSigPayload;
 
 const COMPRESSED_PUBKEY_BYTES = 33;
+// MultiSigSigner.weight is a node-side u8; MultiSigAccountV1's
+// threshold is a u16. Matches the bounds
+// src/signing/v2/multisigAddress.ts already enforces when deriving
+// the account address -- without this, e.g. weight: 256 would sign
+// and submit, the node would reject it, and the caller would have no
+// way to derive the address locally either.
+const MAX_WEIGHT = 255;
+const MAX_THRESHOLD = 0xffff;
 
 // Structural validation only: 0x-hex of exactly 33 bytes. This
 // layer deliberately does NOT check that the key is a point on
@@ -51,9 +59,10 @@ export function validateCreateMultisig(
   unsigned: CreateMultisigUnsigned
 ): void {
   validateChainAndNonce(unsigned);
-  assertPositiveInteger(
+  assertPositiveIntegerAtMost(
     'threshold',
-    unsigned.threshold
+    unsigned.threshold,
+    MAX_THRESHOLD
   );
   if (unsigned.signers.length === 0) {
     throw new Error(
@@ -62,9 +71,10 @@ export function validateCreateMultisig(
   }
   unsigned.signers.forEach((signer, index) => {
     pubkeyBytes(signer.public_key, index);
-    assertPositiveInteger(
+    assertPositiveIntegerAtMost(
       `signers[${index}].weight`,
-      signer.weight
+      signer.weight,
+      MAX_WEIGHT
     );
   });
 }

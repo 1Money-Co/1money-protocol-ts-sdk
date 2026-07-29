@@ -38,77 +38,101 @@ export const tokensApi = {
    * @param authorized Output of TransactionBuilderV2.tokenIssue(..).authorize(sig)
    */
   issueToken: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<HashWithToken>(authorized),
+    submitAuthorized<HashWithToken>(
+      authorized,
+      'tokenIssue'
+    ),
 
   /**
    * Mint tokens
    * @param authorized Output of TransactionBuilderV2.tokenMint(..).authorize(sig)
    */
   mintToken: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(authorized, 'tokenMint'),
 
   /**
    * Burn tokens
    * @param authorized Output of TransactionBuilderV2.tokenBurn(..).authorize(sig)
    */
   burnToken: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(authorized, 'tokenBurn'),
 
   /**
    * Claw back tokens from a wallet
    * @param authorized Output of TransactionBuilderV2.tokenClawback(..).authorize(sig)
    */
   clawbackToken: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(
+      authorized,
+      'tokenClawback'
+    ),
 
   /**
    * Grant or revoke token authority
    * @param authorized Output of TransactionBuilderV2.tokenAuthority(..).authorize(sig)
    */
   grantAuthority: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(
+      authorized,
+      'tokenAuthority'
+    ),
 
   /**
    * Manage token blacklist
    * @param authorized Output of TransactionBuilderV2.tokenBlacklist(..).authorize(sig)
    */
   manageBlacklist: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(
+      authorized,
+      'tokenBlacklist'
+    ),
 
   /**
    * Manage token whitelist
    * @param authorized Output of TransactionBuilderV2.tokenWhitelist(..).authorize(sig)
    */
   manageWhitelist: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(
+      authorized,
+      'tokenWhitelist'
+    ),
 
   /**
    * Pause or unpause token
    * @param authorized Output of TransactionBuilderV2.tokenPause(..).authorize(sig)
    */
   pauseToken: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(authorized, 'tokenPause'),
 
   /**
    * Update token metadata
    * @param authorized Output of TransactionBuilderV2.tokenMetadata(..).authorize(sig)
    */
   updateMetadata: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(
+      authorized,
+      'tokenMetadata'
+    ),
 
   /**
    * Bridge and mint tokens
    * @param authorized Output of TransactionBuilderV2.tokenBridgeAndMint(..).authorize(sig)
    */
   bridgeAndMint: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(
+      authorized,
+      'tokenBridgeAndMint'
+    ),
 
   /**
    * Burn and bridge tokens
    * @param authorized Output of TransactionBuilderV2.tokenBurnAndBridge(..).authorize(sig)
    */
   burnAndBridge: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized),
+    submitAuthorized<Hash>(
+      authorized,
+      'tokenBurnAndBridge'
+    ),
 
   /**
    * Legacy v1 writes. Explicit opt-in for the migration window;

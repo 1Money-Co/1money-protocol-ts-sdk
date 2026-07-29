@@ -78,53 +78,75 @@ apiClient.transactions.getByHash(testHash)
     console.error('Error fetching transaction:', err);
   });
 
-// Note: The following examples require signing transactions and are shown for reference only
+// Note: The following examples require signing transactions and are shown
+// for reference only. They use the native v2 (domain-separated) signing
+// scheme -- the supported write path as of 3.0. See
+// examples/payment-transaction.js for a runnable, fully-worked version of
+// Example 7, and skills/1money-protocol-sdk/references/transactions.md for
+// the full TransactionBuilder reference (every write method follows this
+// same build -> sign -> authorize -> submit shape).
 
 /*
-// Example 7: Submit payment transaction
-const paymentPayload = {
-  chain_id: 1,
-  nonce: 1,
-  recipient: '0x...',
-  value: '1000000',
-  token: '0x...',
-  signature: {
-    r: '0x...',
-    s: '0x...',
-    v: 28
-  }
-};
+const { TransactionBuilder, createPrivateKeySigner } = require('../src/signing');
 
-apiClient.transactions.payment(paymentPayload)
-  .success(response => {
-    console.log('Payment transaction hash:', response);
-  })
-  .error(err => {
+// Every write follows the same build -> sign -> authorize -> submit shape;
+// only the unsigned payload, the TransactionBuilder method, and the
+// apiClient method it gets posted through change per operation.
+async function buildSignAuthorize(prepared, privateKey) {
+  // 1. Build (already done by the caller: `prepared` is
+  //    TransactionBuilder.<op>(unsignedPayload)) -- this validates the
+  //    payload and computes `signingHash`, the 32-byte digest to sign
+  //    (domain-separated + memo-aware encoding).
+  // 2. Sign: createPrivateKeySigner always produces a low-S signature; a
+  //    custom signer (HSM/KMS/wallet) implementing SignerAdapter works the
+  //    same way.
+  const signer = createPrivateKeySigner(privateKey);
+  const signature = await signer.signDigest(prepared.signingHash);
+  // 3. Authorize: attaches the signature and computes the final
+  //    transactionHash the SDK will verify the node's response against.
+  return prepared.authorize(signature);
+}
+
+// Example 7: Submit a payment transaction
+(async () => {
+  const prepared = TransactionBuilder.payment({
+    chain_id: 1,
+    nonce: 1,
+    recipient: '0x...',
+    value: '1000000',
+    token: '0x...'
+  });
+  const authorized = await buildSignAuthorize(prepared, privateKey);
+  // 4. Submit: a plain Promise, not the .success()/.error() chain used by
+  //    read methods above -- always await it in a try/catch. See
+  //    skills/1money-protocol-sdk/references/client-and-errors.md for what
+  //    each thrown error type means and whether it is safe to retry.
+  try {
+    const response = await apiClient.transactions.payment(authorized);
+    console.log('Payment transaction hash:', response.hash);
+  } catch (err) {
     console.error('Error submitting payment:', err);
-  });
-
-// Example 8: Issue new token
-const issuePayload = {
-  chain_id: 1,
-  nonce: 1,
-  symbol: 'TEST',
-  name: 'Test Token',
-  decimals: 18,
-  master_authority: '0x...',
-  is_private: false,
-  clawback_enabled: true,
-  signature: {
-    r: '0x...',
-    s: '0x...',
-    v: 28
   }
-};
+})();
 
-apiClient.tokens.issueToken(issuePayload)
-  .success(response => {
-    console.log('Token issued:', response);
-  })
-  .error(err => {
-    console.error('Error issuing token:', err);
+// Example 8: Issue a new token
+(async () => {
+  const prepared = TransactionBuilder.tokenIssue({
+    chain_id: 1,
+    nonce: 1,
+    symbol: 'TEST',
+    name: 'Test Token',
+    decimals: 18,
+    master_authority: '0x...',
+    is_private: false,
+    clawback_enabled: true
   });
+  const authorized = await buildSignAuthorize(prepared, privateKey);
+  try {
+    const response = await apiClient.tokens.issueToken(authorized);
+    console.log('Token issued:', response);
+  } catch (err) {
+    console.error('Error issuing token:', err);
+  }
+})();
 */

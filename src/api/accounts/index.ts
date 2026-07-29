@@ -48,7 +48,10 @@ export const accountsApi = {
    * deriveMultisigAddress -- the node returns only the hash.
    */
   createMultisig: (authorized: AuthorizedTxV2) =>
-    submitAuthorized<Hash>(authorized)
+    submitAuthorized<Hash>(
+      authorized,
+      'createMultisig'
+    )
 };
 
 export default accountsApi;

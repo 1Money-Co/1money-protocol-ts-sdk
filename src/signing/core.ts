@@ -14,7 +14,11 @@ import type {
 
 // secp256k1 curve order / 2 (maximum value for low-S signatures)
 // This prevents signature malleability by ensuring S is in the lower half of the curve order
-const SECP256K1_N_DIV_2 = BigInt(
+//
+// Exported so every signing path (legacy and native v2) enforces the
+// same bound from one definition instead of each copying the magic
+// number.
+export const SECP256K1_N_DIV_2 = BigInt(
   '0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0'
 );
 
@@ -44,15 +48,22 @@ export interface PreparedTx<TUnsigned, TRequest> {
   ) => Promise<SignedTx<TUnsigned, TRequest>>;
 }
 
-function validateSignature(signature: Signature): void {
-  // Validate that S value is in the lower half of the curve order
-  // This prevents signature malleability attacks
+// Validate that S value is in the lower half of the curve order.
+// This prevents signature malleability attacks. Exported so the
+// native v2 signing path (src/signing/v2/prepare.ts) reuses this
+// exact check instead of re-implementing it against a copied
+// constant -- there is one definition of "low-S" for the whole SDK.
+export function assertLowS(signature: Signature): void {
   const s = BigInt(signature.s);
   if (s > SECP256K1_N_DIV_2) {
     throw new Error(
       '[1Money SDK]: Invalid signature - high S value detected (potential malleability)'
     );
   }
+}
+
+function validateSignature(signature: Signature): void {
+  assertLowS(signature);
 }
 
 export function calcSignedTxHash(

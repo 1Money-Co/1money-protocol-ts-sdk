@@ -81,7 +81,7 @@ describe('batch payment v2', function () {
       BASE
     ).authorize({
       r: `0x${'aa'.repeat(32)}` as `0x${string}`,
-      s: `0x${'bb'.repeat(32)}` as `0x${string}`,
+      s: `0x${'11'.repeat(32)}` as `0x${string}`,
       v: 1
     });
     expect(

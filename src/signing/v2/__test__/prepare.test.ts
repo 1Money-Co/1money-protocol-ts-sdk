@@ -50,13 +50,21 @@ describe('native v2 prepare', function () {
         }
       }
     );
+    // Not the Payment_single conformance vector's own dummy
+    // signature (r=0xaa.., s=0xbb..) -- that s is high-S, and
+    // authorize() now enforces low-S (see prepare.ts). Using a
+    // low-S dummy here means this transactionHash is pinned to this
+    // SDK's own output (a self-consistency/regression guard), not
+    // cross-checked against the frozen vector fixture; the
+    // conformance suite (conformance.test.ts) still exercises the
+    // real vector directly against the low-level encoders.
     const authorized = prepared.authorize({
       r: `0x${'aa'.repeat(32)}` as `0x${string}`,
-      s: `0x${'bb'.repeat(32)}` as `0x${string}`,
+      s: `0x${'11'.repeat(32)}` as `0x${string}`,
       v: 1
     });
     expect(authorized.transactionHash).to.equal(
-      '0xb6a28315164c84e89e57090639d20e2b0b94d0be7e13551e9630ae230eacf6d7'
+      '0xf6aedca96bc071df12a00d937507b47d45663f4495999b66526368bf9f39f3e5'
     );
     expect(authorized.path).to.equal(
       '/v2/transactions/payment'
@@ -70,7 +78,7 @@ describe('native v2 prepare', function () {
     );
     const authorized = prepared.authorize({
       r: `0x${'aa'.repeat(32)}` as `0x${string}`,
-      s: `0x${'bb'.repeat(32)}` as `0x${string}`,
+      s: `0x${'11'.repeat(32)}` as `0x${string}`,
       v: 1
     });
     expect(authorized.request.memo).to.deep.equal({
@@ -85,7 +93,7 @@ describe('native v2 prepare', function () {
       PAYMENT
     ).authorize({
       r: `0x${'aa'.repeat(32)}` as `0x${string}`,
-      s: `0x${'bb'.repeat(32)}` as `0x${string}`,
+      s: `0x${'11'.repeat(32)}` as `0x${string}`,
       v: 1
     });
     expect(
@@ -127,7 +135,7 @@ describe('native v2 prepare', function () {
       PAYMENT
     ).authorize({
       r: `0x${'aa'.repeat(32)}` as `0x${string}`,
-      s: `0x${'bb'.repeat(32)}` as `0x${string}`,
+      s: `0x${'11'.repeat(32)}` as `0x${string}`,
       v: 1
     });
     const roundTripped = JSON.parse(
@@ -141,6 +149,37 @@ describe('native v2 prepare', function () {
       spec => {
         expect(spec.pathV2).to.match(/^\/v2\//);
       }
+    );
+  });
+
+  it('rejects a high-S signature in authorize() (malleability guard)', function () {
+    const prepared = prepareTransactionV2(
+      'payment',
+      PAYMENT
+    );
+    expect(() =>
+      prepared.authorize({
+        r: `0x${'aa'.repeat(32)}` as `0x${string}`,
+        // Above secp256k1n/2 -- the same bound the legacy path
+        // enforces in attachSignature (src/signing/core.ts).
+        s: `0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF` as `0x${string}`,
+        v: 1
+      })
+    ).to.throw(
+      '[1Money SDK]: Invalid signature - high S value detected (potential malleability)'
+    );
+  });
+
+  it('rejects an unsigned payload that carries a memo property', function () {
+    const withMemo = {
+      ...PAYMENT,
+      memo: { type: '', format: '', data: 'sneaked-in' }
+    } as unknown as typeof PAYMENT;
+
+    expect(() =>
+      prepareTransactionV2('payment', withMemo)
+    ).to.throw(
+      /payment unsigned payload must not include a memo property/
     );
   });
 });
