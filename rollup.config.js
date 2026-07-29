@@ -75,6 +75,11 @@ module.exports = function (getConfig) {
       typescript({
         tsconfig: path.resolve(__dirname, 'tsconfig.json'),
         include: ['src/**/*.ts'],
+        // tsconfig.json sets `rootDir: "./src"`; without an explicit
+        // filterRoot the plugin resolves `include` against rootDir
+        // instead of the project root, so the "src/**/*.ts" pattern
+        // above would look for a nonexistent "src/src/**/*.ts".
+        filterRoot: path.resolve(__dirname),
         compilerOptions: {
           target: 'es2015',
           module: 'ESNext',
