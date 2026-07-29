@@ -143,4 +143,65 @@ describe('create multisig v2', function () {
       })
     ).to.throw(/Invalid threshold: 65536/);
   });
+
+  // Regression coverage for the round-2 finding: the builder validator
+  // used to accept a threshold above the total signer weight, even though
+  // the node rejects it (om-primitives MultiSigAccountV1::validate ->
+  // InvalidThreshold) and deriveMultisigAddress already throws on the
+  // same input -- so the caller couldn't even derive the address locally
+  // for a config the builder was happy to sign and submit.
+  it('rejects a threshold above the total signer weight', function () {
+    expect(() =>
+      prepareTransactionV2('createMultisig', {
+        ...BASE,
+        signers: [
+          { public_key: PK1, weight: 1 },
+          { public_key: PK2, weight: 1 }
+        ],
+        threshold: 3
+      })
+    ).to.throw(
+      /Invalid threshold: 3 exceeds total signer weight 2/
+    );
+  });
+
+  // Regression coverage for the round-2 finding: duplicate signer keys
+  // used to sign and submit happily, even though the node rejects them
+  // (om-primitives MultiSigAccountV1::validate -> DuplicatePublicKey) and
+  // deriveMultisigAddress already throws on the same input.
+  it('rejects a duplicate signer public key', function () {
+    expect(() =>
+      prepareTransactionV2('createMultisig', {
+        ...BASE,
+        signers: [
+          { public_key: PK1, weight: 1 },
+          { public_key: PK1, weight: 1 }
+        ],
+        threshold: 1
+      })
+    ).to.throw(
+      /Invalid signers: duplicate public key/
+    );
+  });
+
+  it('rejects a duplicate signer public key regardless of hex casing', function () {
+    expect(() =>
+      prepareTransactionV2('createMultisig', {
+        ...BASE,
+        signers: [
+          { public_key: PK1, weight: 1 },
+          {
+            public_key: PK1.toUpperCase().replace(
+              '0X',
+              '0x'
+            ),
+            weight: 1
+          }
+        ],
+        threshold: 1
+      })
+    ).to.throw(
+      /Invalid signers: duplicate public key/
+    );
+  });
 });

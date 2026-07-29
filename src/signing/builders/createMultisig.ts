@@ -1,4 +1,4 @@
-import { hexToBytes } from 'viem';
+import { bytesToHex, hexToBytes } from 'viem';
 
 import { rlpValue } from '@/utils';
 import {
@@ -21,6 +21,12 @@ const COMPRESSED_PUBKEY_BYTES = 33;
 // way to derive the address locally either.
 const MAX_WEIGHT = 255;
 const MAX_THRESHOLD = 0xffff;
+// The node sums signer weights with checked u16 arithmetic and
+// rejects threshold > total_weight (om-primitives
+// MultiSigAccountV1::validate). Mirrored here -- and already
+// mirrored in deriveMultisigAddress -- so a config this validator
+// accepts is never one the node certainly rejects.
+const MAX_TOTAL_WEIGHT = 0xffff;
 
 // Structural validation only: 0x-hex of exactly 33 bytes. This
 // layer deliberately does NOT check that the key is a point on
@@ -69,14 +75,37 @@ export function validateCreateMultisig(
       '[1Money SDK]: Invalid signers: must not be empty'
     );
   }
+  const seenKeys = new Set<string>();
+  let totalWeight = 0;
   unsigned.signers.forEach((signer, index) => {
-    pubkeyBytes(signer.public_key, index);
+    const bytes = pubkeyBytes(
+      signer.public_key,
+      index
+    );
     assertPositiveIntegerAtMost(
       `signers[${index}].weight`,
       signer.weight,
       MAX_WEIGHT
     );
+    const key = bytesToHex(bytes);
+    if (seenKeys.has(key)) {
+      throw new Error(
+        '[1Money SDK]: Invalid signers: duplicate public key'
+      );
+    }
+    seenKeys.add(key);
+    totalWeight += signer.weight;
+    if (totalWeight > MAX_TOTAL_WEIGHT) {
+      throw new Error(
+        '[1Money SDK]: Invalid signers: total weight overflows u16'
+      );
+    }
   });
+  if (unsigned.threshold > totalWeight) {
+    throw new Error(
+      `[1Money SDK]: Invalid threshold: ${unsigned.threshold} exceeds total signer weight ${totalWeight}`
+    );
+  }
 }
 
 // public_key is a bare Vec<u8> in the L1 payload, which the Rust

@@ -112,8 +112,47 @@ meaning on their own:
 | Thrown | `submitted` | Safe to retry? | Meaning |
 | --- | --- | --- | --- |
 | `TransactionHashMismatchError` | `true` | **No** | The node admitted the write, but the hash it returned doesn't match the one computed locally. |
-| `TransactionSubmissionError` | `false` | **Yes**, once the cause is fixed | The node refused the write outright (HTTP error with a response body, e.g. a 403/400/410) — it never reached the mempool. |
-| `TransactionOutcomeUnknownError` | `'unknown'` | **No — verify first** | Ambiguous: e.g. a client-side timeout, a network error, or a 2xx body with no `hash`. The node may or may not have admitted the transaction. |
+| `TransactionSubmissionError` | `false` | **Yes**, once the cause is fixed | The node (or a gateway/WAF in front of it) refused the write outright — it never reached the mempool. |
+| `TransactionOutcomeUnknownError` | `'unknown'` | **No — verify first** | Ambiguous: e.g. a client-side timeout, a network error, a `5xx` (or `408`), or a 2xx body with no `hash`. The node may or may not have admitted the transaction. |
+
+**The refused/unknown split is by HTTP status, and it is deliberately not a
+plain "4xx vs 5xx" rule:**
+
+- **`4xx` (except `408`) → `TransactionSubmissionError`, `submitted: false`.**
+  l1client's REST layer returns every other `4xx` — validation failures,
+  resource-not-found, the read-only-node refusal, `/v2` not yet active,
+  rate-limiting — synchronously, before the request ever reaches pool
+  submission (`om-api-types/src/rest/error.rs`'s `get_status_code`,
+  `om-api-types/src/native/error.rs`'s `http_status_code`). None of those
+  branches call into the pool first.
+- **`408` → `TransactionOutcomeUnknownError`, `submitted: 'unknown'`, the one
+  `4xx` exception.** l1client's REST layer wraps every handler — including
+  the pool-admission call — in a `tokio::time::timeout` (10s) that answers
+  `408` and discards whatever the handler was doing if the clock wins the
+  race (`om-api-rest/src/infra/mod.rs`'s `timeout` middleware). If admission
+  completes a hair too late, the transaction can be genuinely on-chain
+  despite the `408` — unlike every other `4xx`, which the handler itself
+  returns before ever calling the pool.
+- **`5xx` → `TransactionOutcomeUnknownError`, `submitted: 'unknown'`, never
+  `TransactionSubmissionError`.** l1client collapses a wide range of `ApiError`
+  variants into one opaque `500` (`SystemDatabaseError` / `SystemNetworkError`
+  / `SystemServiceError` / `SystemConfigError`), and that same `ApiError`
+  family includes `PoolError` — the pool's own admission rejection — mapped
+  to the identical `500`. A client cannot tell "the pool bounced this before
+  admission" from "something failed after the pool accepted it" by status
+  code alone, so a `5xx` can never be trusted as "not submitted". The same
+  reasoning applies a fortiori to a `502`/`503`/`504` from an ALB/nginx/
+  Cloudflare sitting in front of the node — that layer has even less
+  visibility into whether the node's pool admitted the write before the
+  gateway gave up.
+- **A `401` whose HTTP status never reaches `submitAuthorized` still counts
+  as refused.** The underlying HTTP client's login branch (`src/client/
+  core.ts`, triggered by the shared `isLogin` rule in `src/client/index.ts`:
+  `status === 401 || res.code == 401`) resolves with just the response body,
+  discarding the numeric status. `submitAuthorized` recognizes this shape —
+  a body with `code == 401` (the same loose equality `isLogin` itself uses)
+  — and still throws `TransactionSubmissionError` with `status: 401`, since
+  a WAF/gateway 401 is exactly as pre-admission as any other refusal.
 
 ```typescript
 import {
@@ -171,6 +210,19 @@ try {
 > now classifies both a caught rejection and a resolved
 > `ParsedError`-shaped value the same way, so the three outcomes above hold
 > regardless of whether a global `onError`/`onTimeout` is configured.
+
+> **Why the refused/unknown split needed a second fix:** an earlier version
+> of `isRefusedResponse` treated *any* numeric HTTP status with a response
+> body as refused, so a `502` from a gateway or a `500` from the node itself
+> both threw `TransactionSubmissionError` — "NOT submitted, safe to retry" —
+> even though either can follow a successful admission (see the `5xx`/`408`
+> bullets above). That was actively dangerous: a caller following the
+> documented contract would retry the same nonce and double-submit. The fix
+> narrows "refused" to `4xx` excluding `408`, and separately teaches
+> `submitAuthorized` to recognize the body-only `401` shape the login branch
+> produces (see the `401` bullet above), which previously fell through to
+> `TransactionOutcomeUnknownError` despite being just as pre-admission as any
+> other refusal.
 
 ### The five error codes
 

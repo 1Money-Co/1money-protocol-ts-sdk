@@ -14,6 +14,24 @@ export type BatchPaymentUnsigned = Omit<
   'signature'
 >;
 
+const OPERATIONS_HASH_RE =
+  /^0x[0-9a-fA-F]{64}$/;
+
+// `operations_hash`/`batch_id` are declared as optional (`?:`)
+// in BatchPaymentPayload, which types `undefined` as "absent" but
+// says nothing about `null` -- a shape both JSON and SQL round-trips
+// commonly produce for an unset field. Both the encoder
+// (batchPaymentPayloadFields) and the wire body
+// (batchPaymentWireFields) must agree with this same notion of
+// "genuinely present", or a `null` takes the "present" branch in one
+// and the "absent" branch in the other and the signed digest no
+// longer matches what the node recomputes from the JSON body.
+function isPresent<T>(
+  value: T | null | undefined
+): value is T {
+  return value !== undefined && value !== null;
+}
+
 export function validateBatchPayment(
   unsigned: BatchPaymentUnsigned
 ): void {
@@ -39,6 +57,24 @@ export function validateBatchPayment(
       op.amount
     );
   });
+  if (
+    isPresent(unsigned.operations_hash) &&
+    !OPERATIONS_HASH_RE.test(
+      unsigned.operations_hash
+    )
+  ) {
+    throw new Error(
+      `[1Money SDK]: Invalid operations_hash: must be 32-byte 0x-hex, got ${unsigned.operations_hash}`
+    );
+  }
+  if (
+    isPresent(unsigned.batch_id) &&
+    typeof unsigned.batch_id !== 'string'
+  ) {
+    throw new Error(
+      `[1Money SDK]: Invalid batch_id: must be a string, got ${String(unsigned.batch_id)}`
+    );
+  }
 }
 
 // Trailing optional fields follow native-v2-signing-spec section
@@ -66,10 +102,12 @@ export function batchPaymentPayloadFields(
     rlpValue.uint(unsigned.created_at)
   ];
 
-  const hasHash =
-    unsigned.operations_hash !== undefined;
-  const hasBatchId =
-    unsigned.batch_id !== undefined;
+  const hasHash = isPresent(
+    unsigned.operations_hash
+  );
+  const hasBatchId = isPresent(
+    unsigned.batch_id
+  );
 
   if (hasHash) {
     fields.push(
@@ -106,11 +144,11 @@ export function batchPaymentWireFields(
     max_fee: unsigned.max_fee,
     created_at: unsigned.created_at
   };
-  if (unsigned.operations_hash !== undefined) {
+  if (isPresent(unsigned.operations_hash)) {
     body.operations_hash =
       unsigned.operations_hash;
   }
-  if (unsigned.batch_id !== undefined) {
+  if (isPresent(unsigned.batch_id)) {
     body.batch_id = unsigned.batch_id;
   }
   return body;

@@ -221,6 +221,7 @@ export const TransactionBuilderV2 = {
   ) =>
     prepareTransactionV2('createMultisig', u, o),
   batchPayment: (
-    u: OperationUnsignedMap['batchPayment']
-  ) => prepareTransactionV2('batchPayment', u)
+    u: OperationUnsignedMap['batchPayment'],
+    o?: PrepareOptionsV2
+  ) => prepareTransactionV2('batchPayment', u, o)
 };

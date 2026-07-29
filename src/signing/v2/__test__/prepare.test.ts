@@ -182,4 +182,33 @@ describe('native v2 prepare', function () {
       /payment unsigned payload must not include a memo property/
     );
   });
+
+  // Regression coverage for the round-2 finding: the
+  // TransactionBuilderV2.batchPayment wrapper declared only `(u)` and
+  // forwarded no options, so a caller writing
+  // `TransactionBuilder.batchPayment(unsigned, { memo })` had the memo
+  // silently discarded instead of rejected -- while
+  // `prepareTransactionV2('batchPayment', u, { memo })` correctly threw
+  // "does not carry a memo". Both entry points must reject identically.
+  it('rejects a memo passed through the TransactionBuilderV2.batchPayment wrapper', function () {
+    const unsigned = {
+      chain_id: 1212101,
+      nonce: 1,
+      token: TOKEN,
+      operations: [
+        {
+          recipient: RECIPIENT,
+          amount: '1000'
+        }
+      ],
+      max_fee: '5000',
+      created_at: 1747785600
+    } as never;
+
+    expect(() =>
+      TransactionBuilderV2.batchPayment(unsigned, {
+        memo: { data: 'nope' }
+      })
+    ).to.throw(/does not carry a memo/);
+  });
 });

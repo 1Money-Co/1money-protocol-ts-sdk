@@ -246,6 +246,172 @@ describe('submitAuthorized', function () {
     });
   });
 
+  // Regression coverage for the round-2 finding: a 5xx with a body was
+  // previously classified the same as a 4xx (TransactionSubmissionError,
+  // submitted: false, "safe to retry") -- dangerous, since l1client's own
+  // 500 bucket mixes pre-admission pool rejections with failures that can
+  // follow a successful admission (om-api-types/src/native/error.rs
+  // `http_status_code`), and a gateway 502/503/504 can just as easily
+  // follow a successful admission as precede one.
+  describe('ambiguous outcome for a 5xx (never trusted as refused)', function () {
+    function respondWithHttpError(
+      status: number,
+      statusText: string
+    ) {
+      axiosStatic.defaults.adapter = (config =>
+        Promise.reject({
+          message: `Request failed with status code ${status}`,
+          name: 'AxiosError',
+          config,
+          response: {
+            status,
+            statusText,
+            headers: {},
+            config,
+            data: {
+              message: 'downstream failure'
+            }
+          }
+        })) as typeof originalAdapter;
+    }
+
+    it('throws TransactionOutcomeUnknownError for a 502 (gateway may have already admitted the write)', async function () {
+      respondWithHttpError(502, 'Bad Gateway');
+
+      let caught: unknown;
+      try {
+        await submitAuthorized(AUTHORIZED, 'payment');
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(
+        (caught as TransactionOutcomeUnknownError)
+          .submitted
+      ).to.equal('unknown');
+      expect(caught).to.not.be.instanceOf(
+        TransactionSubmissionError
+      );
+    });
+
+    it('throws TransactionOutcomeUnknownError for a 500 (may be a post-pool-insertion failure)', async function () {
+      respondWithHttpError(
+        500,
+        'Internal Server Error'
+      );
+
+      let caught: unknown;
+      try {
+        await submitAuthorized(AUTHORIZED, 'payment');
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(
+        (caught as TransactionOutcomeUnknownError)
+          .submitted
+      ).to.equal('unknown');
+    });
+
+    it('throws TransactionOutcomeUnknownError for a 408 (can follow a successful admission)', async function () {
+      respondWithHttpError(408, 'Request Timeout');
+
+      let caught: unknown;
+      try {
+        await submitAuthorized(AUTHORIZED, 'payment');
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(
+        (caught as TransactionOutcomeUnknownError)
+          .submitted
+      ).to.equal('unknown');
+    });
+
+    it('still throws TransactionSubmissionError for a genuine 4xx refusal (e.g. 400)', async function () {
+      respondWithHttpError(400, 'Bad Request');
+
+      let caught: unknown;
+      try {
+        await submitAuthorized(AUTHORIZED, 'payment');
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).to.be.instanceOf(
+        TransactionSubmissionError
+      );
+      expect(
+        (caught as TransactionSubmissionError)
+          .submitted
+      ).to.equal(false);
+      expect(
+        (caught as TransactionSubmissionError).status
+      ).to.equal(400);
+    });
+  });
+
+  // Regression coverage for the round-2 finding: core.ts's login branch
+  // (src/client/core.ts) resolves with just the response body, discarding
+  // the numeric HTTP status -- so isRefusedResponse's `typeof v.status ===
+  // 'number'` check can never see a refusal that arrived this way (e.g. a
+  // WAF/gateway 401 in front of the node). Before the fix this fell
+  // through to TransactionOutcomeUnknownError even though it is exactly as
+  // pre-admission as any other 4xx.
+  describe('401 refused via the login branch (status discarded by core.ts)', function () {
+    it('throws TransactionSubmissionError (submitted: false), not TransactionOutcomeUnknownError', async function () {
+      axiosStatic.defaults.adapter = (config =>
+        Promise.reject({
+          message:
+            'Request failed with status code 401',
+          name: 'AxiosError',
+          config,
+          response: {
+            status: 401,
+            statusText: 'Unauthorized',
+            headers: {},
+            config,
+            data: {
+              code: 401,
+              data: null,
+              msg: 'authentication required'
+            }
+          }
+        })) as typeof originalAdapter;
+
+      let caught: unknown;
+      try {
+        await submitAuthorized(AUTHORIZED, 'payment');
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).to.be.instanceOf(
+        TransactionSubmissionError
+      );
+      const err =
+        caught as TransactionSubmissionError;
+      expect(err.submitted).to.equal(false);
+      expect(err.status).to.equal(401);
+      expect(err.message).to.match(
+        /authentication required/
+      );
+      expect(caught).to.not.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+    });
+  });
+
   describe('ambiguous outcome (no hash in the response)', function () {
     it('throws TransactionOutcomeUnknownError, neither submitted nor safe to retry', async function () {
       axiosStatic.defaults.adapter = (config =>

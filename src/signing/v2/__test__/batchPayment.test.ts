@@ -104,4 +104,96 @@ describe('batch payment v2', function () {
       )
     ).to.throw(/does not carry a memo/);
   });
+
+  // Regression coverage for the round-2 finding: `rlpValue.string(null)`
+  // encodes to the 4-byte string "null" (TextEncoder coerces `null` via
+  // `String(null)`), so a `null` batch_id/operations_hash -- the normal
+  // shape after a JSON or SQL round-trip -- silently corrupted the signed
+  // digest instead of being treated as absent, like `undefined` already
+  // is.
+  describe('null batch_id / operations_hash (must behave exactly like absent)', function () {
+    it('omits both trailing optionals from the payload fields when batch_id is null', function () {
+      const fields = batchPaymentPayloadFields({
+        ...BASE,
+        batch_id: null as unknown as string
+      });
+      expect(fields).to.have.length(4);
+    });
+
+    it('omits both trailing optionals from the payload fields when operations_hash is null', function () {
+      const fields = batchPaymentPayloadFields({
+        ...BASE,
+        operations_hash:
+          null as unknown as string
+      });
+      expect(fields).to.have.length(4);
+    });
+
+    it('produces the same signing hash for null and absent batch_id', function () {
+      const withNull = prepareTransactionV2(
+        'batchPayment',
+        {
+          ...BASE,
+          batch_id: null as unknown as string
+        }
+      ).signingHash;
+      const absent = prepareTransactionV2(
+        'batchPayment',
+        BASE
+      ).signingHash;
+      expect(withNull).to.equal(absent);
+    });
+
+    it('omits batch_id and operations_hash from the wire body when null', function () {
+      const authorized = prepareTransactionV2(
+        'batchPayment',
+        {
+          ...BASE,
+          batch_id: null as unknown as string,
+          operations_hash:
+            null as unknown as string
+        }
+      ).authorize({
+        r: `0x${'aa'.repeat(32)}` as `0x${string}`,
+        s: `0x${'11'.repeat(32)}` as `0x${string}`,
+        v: 1
+      });
+      expect(
+        'batch_id' in authorized.request
+      ).to.equal(false);
+      expect(
+        'operations_hash' in authorized.request
+      ).to.equal(false);
+    });
+  });
+
+  describe('validateBatchPayment on genuinely present optionals', function () {
+    it('accepts a present, well-formed batch_id and operations_hash', function () {
+      expect(() =>
+        prepareTransactionV2('batchPayment', {
+          ...BASE,
+          batch_id: 'batch-7',
+          operations_hash: `0x${'ab'.repeat(32)}`
+        })
+      ).to.not.throw();
+    });
+
+    it('rejects a non-string batch_id', function () {
+      expect(() =>
+        prepareTransactionV2('batchPayment', {
+          ...BASE,
+          batch_id: 7 as unknown as string
+        })
+      ).to.throw(/Invalid batch_id/);
+    });
+
+    it('rejects a malformed operations_hash', function () {
+      expect(() =>
+        prepareTransactionV2('batchPayment', {
+          ...BASE,
+          operations_hash: '0xabcd'
+        })
+      ).to.throw(/Invalid operations_hash/);
+    });
+  });
 });

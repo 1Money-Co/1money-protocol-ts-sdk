@@ -147,20 +147,24 @@ TransactionBuilder.batchPayment({
   batch_id?: string,         // trailing optional field
 });
 ```
-`batchPayment` is the one operation with no memo at all — the public wrapper
-takes a single parameter (the unsigned payload) and never accepts a second,
-options argument. In TypeScript this is a compile-time guard:
-`TransactionBuilder.batchPayment(unsigned, { memo })` fails to type-check,
-because the function signature only declares one parameter. There is no
-runtime throw to catch instead — a plain-JavaScript caller who passes a
-second argument anyway has it **silently ignored**: no memo is sent, and no
-error is raised. Don't rely on a try/catch here; the TypeScript signature is
-the only thing standing between a JS caller and a quietly-dropped memo.
+`batchPayment` is the one operation with no memo at all — but the public
+wrapper still accepts the same `{ memo }` options argument every other
+operation does, and **throws** `does not carry a memo` if you pass one, just
+like calling `prepareTransactionV2('batchPayment', unsigned, { memo })`
+directly. Both entry points reject a memo identically; a plain-JavaScript
+caller passing `{ memo }` gets the same thrown error a TypeScript caller
+would, not a silently dropped memo.
 `operations_hash` and `batch_id` are positionally trailing in the signed
 payload: supplying `batch_id` without `operations_hash` still reserves the
 `operations_hash` slot (encoded as an empty placeholder) so decoding stays
 positional. Supply whichever ones the node's business rules for this batch
-require.
+require. `null` is treated exactly like an absent field for both — the
+encoder, the signed digest, and the JSON wire body all omit the field
+outright — since a `null` (e.g. after a JSON or SQL round-trip) taking the
+"present" branch in one but not the other would desync the signed digest
+from the transmitted body. When genuinely present, `batch_id` must be a
+string and `operations_hash` must be a `0x…` 32-byte hash; both are
+validated at `prepare` time.
 
 ### tokenIssue → tokens.issueToken
 ```typescript
@@ -277,12 +281,16 @@ The signed payload encodes each `public_key` as a byte list (matching the L1
 inspect or log `authorized.request` directly; the builder does the conversion
 for you.
 
-`createMultisig` validates only that each `public_key` is 33 bytes of `0x…`
-hex — it does **not** check the key is a real point on secp256k1 (a bad key
-just costs a rejected transaction at the node). `deriveMultisigAddress` below
-is the address-computing counterpart and does validate the curve point,
-because handing back an address for an unusable key would be a fund-losing
-bug.
+`createMultisig` validates that each `public_key` is 33 bytes of `0x…` hex,
+that no two signers share the same public key, and that `threshold` does not
+exceed the total signer weight — the same three checks the node itself runs
+(`om-primitives::MultiSigAccountV1::validate`) and that
+`deriveMultisigAddress` below already enforces. It does **not** check that a
+key is a real point on secp256k1 (a bad key just costs a rejected transaction
+at the node, and off-curve dummy keys are load-bearing for the frozen
+`CreateMultiSig_single` conformance vector). `deriveMultisigAddress` below is
+the address-computing counterpart and does validate the curve point, because
+handing back an address for an unusable key would be a fund-losing bug.
 
 ## Memo (always sent on v2)
 
@@ -380,21 +388,23 @@ an empty signer list, an invalid/off-curve public key, a non-canonical
 preimage), a **duplicate public key**, a weight sum that overflows `u16`, or a
 threshold exceeding the total signer weight.
 
-> **Numeric bounds match, duplicate-pubkey checking still doesn't:**
-> `createMultisig` (the builder in `src/signing/builders/createMultisig.ts`)
-> enforces the same node-side numeric bounds as `deriveMultisigAddress`
-> (`src/signing/v2/multisigAddress.ts`) — `weight` must be a positive integer
-> `<= 255` (`MultiSigSigner.weight` is a node-side `u8`) and `threshold` must
-> be a positive integer `<= 65535` (a node-side `u16`) — so
-> `createMultisig({ ..., weight: 256 })` now throws at `prepare` time instead
-> of signing and later being rejected by the node. `deriveMultisigAddress` is
-> still the stricter of the two: it additionally rejects a **duplicate public
-> key** and a weight sum that overflows `u16`, neither of which
-> `createMultisig`'s builder checks. If you rely on client-side address
-> derivation, still validate uniqueness yourself before calling
-> `createMultisig` (or just call `deriveMultisigAddress` first, since it will
-> catch it) — don't assume the builder enforces every rule
-> `deriveMultisigAddress` does.
+> **`createMultisig` and `deriveMultisigAddress` now reject the same
+> configurations:** both enforce the same node-side numeric bounds (`weight`
+> a positive integer `<= 255`, a node-side `u8`; `threshold` a positive
+> integer `<= 65535`, a node-side `u16`), both reject a **duplicate public
+> key**, and both reject a `threshold` exceeding the total signer weight —
+> `createMultisig({ ..., threshold: 3 }, /* two signers, weight 1 each */)`
+> now throws at `prepare` time with the same "exceeds total signer weight"
+> message `deriveMultisigAddress` throws, instead of signing a configuration
+> the node would certainly reject and burning the nonce. The one deliberate
+> remaining asymmetry: `deriveMultisigAddress` additionally rejects an
+> off-curve or non-canonically-encoded public key (it hands back an address
+> someone may fund, so a bad key there is a fund-losing bug), while
+> `createMultisig` does not curve-check (a bad key there just costs a
+> rejected transaction, and off-curve dummy keys are load-bearing for the
+> frozen `CreateMultiSig_single` conformance vector). Still call
+> `deriveMultisigAddress` before submitting if you need the account address —
+> it remains the stricter check on the public key itself.
 
 ## Custom signer (wallet / HSM / no raw key in process)
 

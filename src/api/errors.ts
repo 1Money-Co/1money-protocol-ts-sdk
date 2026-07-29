@@ -91,8 +91,16 @@ export function errorCodeOf(
 }
 
 // The write was rejected by the node (or by the transport, e.g. a
-// caught rejection with the same ParsedError shape) before it ever
-// touched the mempool. Unlike TransactionHashMismatchError,
+// caught rejection with the same ParsedError shape, or a gateway/WAF
+// 401 whose status core.ts's login branch discards -- see
+// src/api/submit.ts's isLoginRefusalBody) before it ever touched the
+// mempool. Only a 4xx status (other than 408 -- see
+// src/api/submit.ts's isRefusedResponse for why that one status
+// cannot be trusted) reaches this class; a 5xx is routed to
+// TransactionOutcomeUnknownError instead, since l1client's own 500
+// bucket mixes pre-admission pool rejections with failures that can
+// follow a successful admission and a client cannot tell them apart
+// from the status code alone. Unlike TransactionHashMismatchError,
 // `submitted` is unconditionally `false` here: it is always safe to
 // retry once the underlying cause (the HTTP status / error_code
 // below) is addressed.
@@ -127,9 +135,11 @@ export class TransactionSubmissionError extends
 }
 
 // The HTTP round-trip did not come back with a string `hash` -- e.g.
-// a client-side timeout, a network error, or a 2xx body missing the
-// field entirely. This is genuinely ambiguous: the node may or may
-// not have admitted the transaction, so unlike
+// a client-side timeout, a network error, a 5xx (including a 408:
+// see src/api/submit.ts's isRefusedResponse for why even that
+// "client error" status cannot be trusted as pre-admission), or a
+// 2xx body missing the field entirely. This is genuinely ambiguous:
+// the node may or may not have admitted the transaction, so unlike
 // TransactionSubmissionError this must NOT claim "safe to retry".
 //
 // `submitted` is the literal string 'unknown', not `undefined`/absent.
