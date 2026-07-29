@@ -321,12 +321,13 @@ plain-JS caller) can still pass one in, so `prepare` throws
 finds one, rather than silently dropping it and signing/sending the all-empty
 memo instead.
 
-`batchPayment` is the one exception: it is not memo-capable at all, and its
-builder wrapper only declares one parameter (the unsigned payload) — there is
-no options argument to pass a memo through. TypeScript callers get this as a
-compile error on `TransactionBuilder.batchPayment(unsigned, { memo })`; a
-plain-JavaScript caller who passes a memo anyway does **not** get an error —
-it is silently dropped, and the resulting transaction carries no memo. See
+`batchPayment` is the one exception: it is not memo-capable at all. Its
+builder wrapper still accepts the same `{ memo }` options argument every
+other operation does — passing `{ memo }` is not a compile error, for
+TypeScript or JavaScript callers — but it **throws**
+`[1Money SDK]: batchPayment does not carry a memo` at prepare time rather
+than silently dropping the field. TypeScript and JavaScript callers get the
+identical thrown error; there is no silent drop in either case. See
 [`batchPayment`](#batchpayment--transactionsbatchpayment) above.
 
 Validation runs at `prepare` time (mirrors the server's Rust rules) and throws
