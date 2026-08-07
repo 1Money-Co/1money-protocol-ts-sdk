@@ -173,6 +173,24 @@ export interface BatchPaymentPayload {
   signature: RestSignature;
 }
 
+export interface BatchPaymentData {
+  token: AddressSchema | null;
+  max_fee: string;
+  operations: PaymentOperation[];
+  operations_hash: B256Schema | null;
+  batch_id: string | null;
+  created_at: number;
+}
+
+export interface CreateMultiSigData {
+  signers: Array<{
+    public_key: string;
+    weight: number;
+  }>;
+  threshold: number;
+  multisig_address: AddressSchema;
+}
+
 // Base transaction fields shared by all transaction types
 interface BaseTransaction {
   hash: B256Schema;
@@ -206,6 +224,10 @@ export type Transaction =
   | (BaseTransaction & {
       transaction_type: 'TokenTransfer';
       data: TokenTransferData;
+    })
+  | (BaseTransaction & {
+      transaction_type: 'BatchPayment';
+      data: BatchPaymentData;
     })
   | (BaseTransaction & {
       transaction_type: 'TokenMint';
@@ -258,6 +280,10 @@ export type Transaction =
   | (BaseTransaction & {
       transaction_type: 'TokenUpdateMetadata';
       data: TokenUpdateMetadataData;
+    })
+  | (BaseTransaction & {
+      transaction_type: 'CreateMultiSig';
+      data: CreateMultiSigData;
     })
   | (BaseTransaction & {
       transaction_type: 'Raw';

@@ -131,10 +131,11 @@ interface TransactionReceipt {
 
 `Transaction` is a **discriminated union** keyed by `transaction_type`
 (`'TokenCreate' | 'TokenTransfer' | 'TokenMint' | 'TokenGrantAuthority' |
-'TokenRevokeAuthority' | 'TokenBlacklistAccount' | 'TokenWhitelistAccount' |
+'BatchPayment' | 'TokenRevokeAuthority' | 'TokenBlacklistAccount' |
+'TokenWhitelistAccount' |
 'TokenBridgeAndMint' | 'TokenBurn' | 'TokenBurnAndBridge' | 'TokenClawback' |
 'TokenCloseAccount' | 'TokenPause' | 'TokenUnpause' | 'TokenUpdateMetadata' |
-'Raw'`). All variants share `hash`, `chain_id`, `from`, `nonce`, `signature`,
+'CreateMultiSig' | 'Raw'`). All variants share `hash`, `chain_id`, `from`, `nonce`, `signature`,
 plus optional `checkpoint_*`/`transaction_index` and an optional `memo` (present
 only for V2/memo-bearing txs); each carries a `data` object specific to its type.
 Narrow on `transaction_type` before reading `data`.

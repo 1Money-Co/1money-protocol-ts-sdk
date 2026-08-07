@@ -29,6 +29,11 @@ const apiClient = api();
   runtime value is a lowercase string, not an enum member). There is no
   `legacyV1.batchPayment` — batch payment is v2-only.
 
+`getByHash` returns a discriminated `Transaction` union. The union includes
+`transaction_type: 'BatchPayment'` with `BatchPaymentData` and
+`transaction_type: 'CreateMultiSig'` with `CreateMultiSigData`, including the
+node-derived `multisig_address`.
+
 ### Memo field
 
 On the v2 surface (`payment`), the request always carries a `memo` object —
