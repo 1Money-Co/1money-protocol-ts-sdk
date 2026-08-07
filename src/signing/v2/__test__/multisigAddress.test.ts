@@ -40,6 +40,18 @@ const OFF_CURVE = `0x02${'11'.repeat(32)}`;
 
 describe('deriveMultisigAddress', function () {
   loadVectors().forEach((vector, index) => {
+    if (vector.signers.length < 2) {
+      it(`rejects uncreatable vector ${index}`, function () {
+        expect(() =>
+          deriveMultisigAddress(
+            vector.signers,
+            vector.threshold
+          )
+        ).to.throw(/between 2 and 20/);
+      });
+      return;
+    }
+
     it(`matches vector ${index}`, function () {
       expect(
         deriveMultisigAddress(
@@ -80,34 +92,18 @@ describe('deriveMultisigAddress', function () {
     ).to.throw(/duplicate/i);
   });
 
-  it('rejects a threshold above the total weight', function () {
+  it('rejects fewer than two signers', function () {
     expect(() =>
       deriveMultisigAddress(
         [{ public_key: PK1, weight: 1 }],
-        2
-      )
-    ).to.throw(/threshold/i);
-  });
-
-  // A 33-byte blob that is not a curve point would still hash to
-  // an address. Funds sent there would be unrecoverable, because
-  // the node rejects the account the key belongs to.
-  it('rejects a 33-byte key that is not on the curve', function () {
-    expect(() =>
-      deriveMultisigAddress(
-        [{ public_key: OFF_CURVE, weight: 1 }],
         1
       )
-    ).to.throw(/secp256k1/);
+    ).to.throw(/between 2 and 20/);
   });
 
-  // 258 signers at weight 255 sum to 65790, past the node's u16
-  // ceiling. Keys are generated rather than hardcoded because the
-  // guard needs more distinct on-curve keys than are worth
-  // pasting.
-  it('rejects a total weight that overflows u16', function () {
+  it('rejects more than twenty signers', function () {
     const signers = Array.from(
-      { length: 258 },
+      { length: 21 },
       (_unused, index) => ({
         public_key: bytesToHex(
           getPublicKey(
@@ -119,12 +115,42 @@ describe('deriveMultisigAddress', function () {
             true
           )
         ),
-        weight: 255
+        weight: 1
       })
     );
 
     expect(() =>
       deriveMultisigAddress(signers, 1)
-    ).to.throw(/overflow/i);
+    ).to.throw(/between 2 and 20/);
+  });
+
+  it('rejects a threshold above the total weight', function () {
+    expect(() =>
+      deriveMultisigAddress(
+        [
+          { public_key: PK1, weight: 1 },
+          { public_key: PK2, weight: 1 }
+        ],
+        3
+      )
+    ).to.throw(/threshold/i);
+  });
+
+  // A 33-byte blob that is not a curve point would still hash to
+  // an address. Funds sent there would be unrecoverable, because
+  // the node rejects the account the key belongs to.
+  it('rejects a 33-byte key that is not on the curve', function () {
+    expect(() =>
+      deriveMultisigAddress(
+        [
+          {
+            public_key: OFF_CURVE,
+            weight: 1
+          },
+          { public_key: PK2, weight: 1 }
+        ],
+        1
+      )
+    ).to.throw(/secp256k1/);
   });
 });

@@ -8,6 +8,8 @@ import type { MultiSigSigner } from '@/api/accounts/types';
 // (L1 DST_MULTISIG_ADDR_V1).
 const DST_MULTISIG_ADDR_V1 = 'MULTISIG_V1';
 const COMPRESSED_PUBKEY_BYTES = 33;
+const MIN_SIGNERS = 2;
+const MAX_SIGNERS = 20;
 // The node sums signer weights with checked u16 arithmetic
 // (om-primitives MultiSigAccountV1::validate).
 const MAX_TOTAL_WEIGHT = 0xffff;
@@ -57,9 +59,12 @@ export function deriveMultisigAddress(
   signers: MultiSigSigner[],
   threshold: number
 ): ZeroXString {
-  if (signers.length === 0) {
+  if (
+    signers.length < MIN_SIGNERS ||
+    signers.length > MAX_SIGNERS
+  ) {
     throw new Error(
-      '[1Money SDK]: Invalid signers: must not be empty'
+      `[1Money SDK]: Invalid signers: expected between ${MIN_SIGNERS} and ${MAX_SIGNERS}, got ${signers.length}`
     );
   }
   if (

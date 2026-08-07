@@ -13,6 +13,8 @@ export type CreateMultisigUnsigned =
   CreateMultiSigPayload;
 
 const COMPRESSED_PUBKEY_BYTES = 33;
+const MIN_SIGNERS = 2;
+const MAX_SIGNERS = 20;
 // MultiSigSigner.weight is a node-side u8; MultiSigAccountV1's
 // threshold is a u16. Matches the bounds
 // src/signing/v2/multisigAddress.ts already enforces when deriving
@@ -65,16 +67,19 @@ export function validateCreateMultisig(
   unsigned: CreateMultisigUnsigned
 ): void {
   validateChainAndNonce(unsigned);
+  if (
+    unsigned.signers.length < MIN_SIGNERS ||
+    unsigned.signers.length > MAX_SIGNERS
+  ) {
+    throw new Error(
+      `[1Money SDK]: Invalid signers: expected between ${MIN_SIGNERS} and ${MAX_SIGNERS}, got ${unsigned.signers.length}`
+    );
+  }
   assertPositiveIntegerAtMost(
     'threshold',
     unsigned.threshold,
     MAX_THRESHOLD
   );
-  if (unsigned.signers.length === 0) {
-    throw new Error(
-      '[1Money SDK]: Invalid signers: must not be empty'
-    );
-  }
   const seenKeys = new Set<string>();
   let totalWeight = 0;
   unsigned.signers.forEach((signer, index) => {

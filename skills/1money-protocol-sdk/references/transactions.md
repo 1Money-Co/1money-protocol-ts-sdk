@@ -288,9 +288,10 @@ The signed payload encodes each `public_key` as a byte list (matching the L1
 inspect or log `authorized.request` directly; the builder does the conversion
 for you.
 
-`createMultisig` validates that each `public_key` is 33 bytes of `0x…` hex,
-that no two signers share the same public key, and that `threshold` does not
-exceed the total signer weight — the same three checks the node itself runs
+`createMultisig` requires **2–20 signers**, validates that each `public_key`
+is 33 bytes of `0x…` hex, that no two signers share the same public key, and
+that `threshold` does not exceed the total signer weight — the same checks
+the node itself runs
 (`om-primitives::MultiSigAccountV1::validate`) and that
 `deriveMultisigAddress` below already enforces. It does **not** check that a
 key is a real point on secp256k1 (a bad key just costs a rejected transaction
@@ -389,8 +390,8 @@ const address = deriveMultisigAddress(
 This is `keccak256("MULTISIG_V1" || sorted(pubkey || weight) || threshold_be_u16)`,
 truncated to the last 20 bytes — byte-for-byte identical to what the node
 assigns at execution. It's pure and side-effect free, so call it before
-building the transaction to confirm the address you expect, and it throws on
-an empty signer list, an invalid/off-curve public key, a non-canonical
+building the transaction to confirm the address you expect, and it throws
+unless there are **2–20 signers**, or on an invalid/off-curve public key, a non-canonical
 (non-SEC1-compressed) key encoding, a zero/negative weight, a **weight over
 255** (each signer's weight is packed as a single byte in the address
 preimage), a **duplicate public key**, a weight sum that overflows `u16`, or a
@@ -399,7 +400,8 @@ threshold exceeding the total signer weight.
 > **`createMultisig` and `deriveMultisigAddress` now reject the same
 > configurations:** both enforce the same node-side numeric bounds (`weight`
 > a positive integer `<= 255`, a node-side `u8`; `threshold` a positive
-> integer `<= 65535`, a node-side `u16`), both reject a **duplicate public
+> integer `<= 65535`, a node-side `u16`), both require **2–20 signers**,
+> both reject a **duplicate public
 > key**, and both reject a `threshold` exceeding the total signer weight —
 > `createMultisig({ ..., threshold: 3 }, /* two signers, weight 1 each */)`
 > now throws at `prepare` time with the same "exceeds total signer weight"

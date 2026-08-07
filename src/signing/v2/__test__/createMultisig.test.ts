@@ -99,11 +99,47 @@ describe('create multisig v2', function () {
       prepareTransactionV2('createMultisig', {
         ...BASE,
         signers: [
-          { public_key: '0x0211', weight: 1 }
+          {
+            public_key: '0x0211',
+            weight: 1
+          },
+          { public_key: PK2, weight: 1 }
         ],
         threshold: 1
       })
     ).to.throw(/33 bytes/);
+  });
+
+  it('rejects fewer than two signers', function () {
+    expect(() =>
+      prepareTransactionV2('createMultisig', {
+        ...BASE,
+        signers: [
+          { public_key: PK1, weight: 1 }
+        ],
+        threshold: 1
+      })
+    ).to.throw(/between 2 and 20/);
+  });
+
+  it('rejects more than twenty signers', function () {
+    const signers = Array.from(
+      { length: 21 },
+      (_unused, index) => ({
+        public_key: `0x02${(index + 1)
+          .toString(16)
+          .padStart(64, '0')}`,
+        weight: 1
+      })
+    );
+
+    expect(() =>
+      prepareTransactionV2('createMultisig', {
+        ...BASE,
+        signers,
+        threshold: 1
+      })
+    ).to.throw(/between 2 and 20/);
   });
 
   it('posts to the v2-only multisig route', function () {
