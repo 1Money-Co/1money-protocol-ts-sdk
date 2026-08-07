@@ -189,6 +189,13 @@ apiClient.someMethod()
 
 ## API Methods
 
+Every write below follows the same **native v2** shape: `prepare` → sign the
+digest → `authorize` → submit the resulting `AuthorizedTxV2`. See
+[Migrating from 2.x to 3.0](#migrating-from-2x-to-30) and
+`skills/1money-protocol-sdk/references/transactions.md` for the full pipeline,
+every builder's fields, and the legacy `LegacyV1TransactionBuilder` /
+`api().<module>.legacyV1.*` path.
+
 ### Chain API
 
 #### Get Chain ID
@@ -229,6 +236,58 @@ apiClient.accounts.getTokenAccount(address, token)
   });
 ```
 
+#### Create a Multisig Account
+`createMultisig` is **v2-only** — there is no `legacyV1` form and no
+`accounts.legacyV1` namespace.
+
+```typescript
+import {
+  TransactionBuilder,
+  createPrivateKeySigner,
+  deriveMultisigAddress
+} from '@1money/protocol-ts-sdk';
+
+// Your private key (DO NOT share or commit your private key)
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
+const creatorAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
+
+// 33-byte SEC1-compressed public keys. 2-20 signers; a weight is a u8
+// (1-255) and the threshold must not exceed the total signer weight.
+const signers = [
+  { public_key: '0x02...', weight: 1 },
+  { public_key: '0x03...', weight: 1 }
+];
+const threshold = 2;
+
+// The node never echoes the new account's address, so compute it first --
+// this is the same value the node derives at execution.
+const multisigAddress = deriveMultisigAddress(signers, threshold);
+
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(creatorAddress);
+
+const prepared = TransactionBuilder.createMultisig({
+  chain_id,
+  nonce,
+  signers,
+  threshold
+});
+
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
+
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.accounts.createMultisig(authorized);
+  console.log('Multisig', multisigAddress, 'created in tx', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
+```
+See [Derive a multisig account address](#derive-a-multisig-account-address) for
+the derivation on its own.
+
 ### Tokens API
 
 #### Get Token Metadata
@@ -242,13 +301,6 @@ apiClient.tokens.getTokenMetadata(tokenAddress)
     console.error('Error:', err);
   });
 ```
-
-Every write below follows the same **native v2** shape: `prepare` → sign the
-digest → `authorize` → submit the resulting `AuthorizedTxV2`. See
-[Migrating from 2.x to 3.0](#migrating-from-2x-to-30) and
-`skills/1money-protocol-sdk/references/transactions.md` for the full pipeline,
-every builder's fields, and the legacy `LegacyV1TransactionBuilder` /
-`api().<module>.legacyV1.*` path.
 
 #### Issue New Token
 ```typescript
@@ -291,6 +343,45 @@ try {
 }
 ```
 
+#### Mint Tokens
+```typescript
+import {
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
+
+// Your private key (DO NOT share or commit your private key)
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
+const mintAuthority = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
+
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(mintAuthority);
+
+const prepared = TransactionBuilder.tokenMint({
+  chain_id,
+  nonce,
+  recipient: '0xa128999Be299373D7881f4aDD11510030ad13512',
+  value: '1000000000000000000',
+  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
+});
+
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
+
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.tokens.mintToken(authorized);
+  console.log('Mint transaction hash:', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
+```
+The signer must be the token's `master_authority` or hold a granted mint
+authority — see [Grant Token Authority](#grant-token-authority). A granted
+authority mints against a finite allowance, which each mint decrements; the
+master authority is not metered.
+
 #### Manage Token Blacklist/Whitelist
 ```typescript
 import {
@@ -330,6 +421,25 @@ try {
 }
 ```
 
+The whitelist is the same shape end to end — swap both the builder and the
+submit method, and sign the one you actually intend to submit:
+
+```typescript
+const prepared = TransactionBuilder.tokenWhitelist({
+  chain_id,
+  nonce,
+  action: ManageListAction.Add,
+  address: '0xa128999Be299373D7881f4aDD11510030ad13512',
+  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
+});
+
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const response = await apiClient.tokens.manageWhitelist(prepared.authorize(signature));
+```
+
+Whitelists apply to tokens issued with `is_private: true`. Use
+`ManageListAction.Remove` to take an address off either list.
+
 #### Burn Tokens
 ```typescript
 import {
@@ -363,6 +473,46 @@ try {
   console.error('Error:', err);
 }
 ```
+
+#### Claw Back Tokens
+```typescript
+import {
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
+
+// Your private key (DO NOT share or commit your private key)
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
+const clawbackAuthority = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
+
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(clawbackAuthority);
+
+const prepared = TransactionBuilder.tokenClawback({
+  chain_id,
+  nonce,
+  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
+  from: '0xa128999Be299373D7881f4aDD11510030ad13512',
+  recipient: clawbackAuthority,
+  value: '1000000000000000000'
+});
+
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
+
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.tokens.clawbackToken(authorized);
+  console.log('Clawback transaction hash:', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
+```
+Clawback moves tokens out of `from` without that account's signature, so it
+only works on a token issued with `clawback_enabled: true` (the default), and
+the signer must be the token's `master_authority` or hold a granted
+`AuthorityType.Clawback` authority.
 
 #### Grant Token Authority
 ```typescript
@@ -401,6 +551,79 @@ try {
   console.error('Error:', err);
 }
 ```
+
+#### Pause / Unpause a Token
+```typescript
+import {
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
+import { PauseAction } from '@1money/protocol-ts-sdk/api';
+
+// Your private key (DO NOT share or commit your private key)
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
+const pauseAuthority = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
+
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(pauseAuthority);
+
+const prepared = TransactionBuilder.tokenPause({
+  chain_id,
+  nonce,
+  action: PauseAction.Pause, // PauseAction.Unpause to lift it
+  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
+});
+
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
+
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.tokens.pauseToken(authorized);
+  console.log('Pause transaction hash:', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
+```
+
+#### Update Token Metadata
+```typescript
+import {
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
+
+// Your private key (DO NOT share or commit your private key)
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
+const metadataAuthority = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
+
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(metadataAuthority);
+
+const prepared = TransactionBuilder.tokenMetadata({
+  chain_id,
+  nonce,
+  name: 'My Token',
+  uri: 'https://example.com/my-token.json',
+  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
+  additional_metadata: [{ key: 'category', value: 'stablecoin' }]
+});
+
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
+
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.tokens.updateMetadata(authorized);
+  console.log('Metadata transaction hash:', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
+```
+`additional_metadata` replaces the whole list rather than merging into it —
+send every pair you want to keep. Pass `[]` to clear it.
 
 #### Bridge and Mint
 ```typescript
@@ -559,6 +782,54 @@ try {
   console.error('Error:', err);
 }
 ```
+
+#### Submit Batch Payment
+Pay many recipients of one token in a single transaction. `batchPayment` is
+**v2-only** — there is no `transactions.legacyV1.batchPayment`.
+
+```typescript
+import {
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
+
+// Your private key (DO NOT share or commit your private key)
+const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
+const senderAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
+
+// Get chain id and current nonce
+const { chain_id } = await apiClient.chain.getChainId();
+const { nonce } = await apiClient.accounts.getNonce(senderAddress);
+
+const prepared = TransactionBuilder.batchPayment({
+  chain_id,
+  nonce,
+  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
+  operations: [
+    { recipient: '0xa128999Be299373D7881f4aDD11510030ad13512', amount: '1000000000' },
+    { recipient: '0x6324dAc598f9B637824978eD6b268C896E0c40E0', amount: '2000000000' }
+  ],
+  max_fee: '1000000000000000',
+  created_at: Math.floor(Date.now() / 1000) // unix seconds
+});
+
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const authorized = prepared.authorize(signature);
+
+// v2 write: returns a plain Promise -- await it in a try/catch.
+try {
+  const response = await apiClient.transactions.batchPayment(authorized);
+  console.log('Batch payment transaction hash:', response.hash);
+} catch (err) {
+  console.error('Error:', err);
+}
+```
+`operations` must not be empty. `batchPayment` is the **one operation that
+carries no memo** — passing a `{ memo }` option throws at prepare time rather
+than dropping it silently. The optional trailing `operations_hash` (a `0x…`
+32-byte hash) and `batch_id` are positional in the signed payload: supplying
+`batch_id` alone still reserves the `operations_hash` slot, and `null` is
+treated exactly like an absent field in both the digest and the wire body.
 
 
 ## Utility Functions
