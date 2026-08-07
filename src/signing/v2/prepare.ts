@@ -45,6 +45,26 @@ export interface PreparedTxV2<TUnsigned> {
   ) => AuthorizedTxV2;
 }
 
+function snapshotUnsigned<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map(item =>
+      snapshotUnsigned(item)
+    ) as T;
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null
+  ) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        snapshotUnsigned(item)
+      ])
+    ) as T;
+  }
+  return value;
+}
+
 export function prepareTransactionV2<
   K extends OperationName
 >(
@@ -79,7 +99,14 @@ export function prepareTransactionV2<
     );
   }
 
-  spec.validate(unsigned);
+  // Keep the value used for hashing private from both the caller's
+  // input object and PreparedTxV2.unsigned. authorize() must always
+  // serialize this exact snapshot, even if either public object is
+  // mutated between preparation and signing.
+  const canonicalUnsigned =
+    snapshotUnsigned(unsigned);
+
+  spec.validate(canonicalUnsigned);
 
   if (!spec.memoCapable && options?.memo) {
     throw new Error(
@@ -95,9 +122,11 @@ export function prepareTransactionV2<
   }
 
   const payloadRlp = encodePayloadRlp({
-    chainId: unsigned.chain_id,
-    nonce: unsigned.nonce,
-    payloadFields: spec.payloadFields(unsigned),
+    chainId: canonicalUnsigned.chain_id,
+    nonce: canonicalUnsigned.nonce,
+    payloadFields: spec.payloadFields(
+      canonicalUnsigned
+    ),
     memo
   });
 
@@ -110,7 +139,9 @@ export function prepareTransactionV2<
 
   return {
     operation,
-    unsigned,
+    unsigned: snapshotUnsigned(
+      canonicalUnsigned
+    ),
     signingHash,
     authorize: (signature: Signature) => {
       // A non-normalized (high-S) signature confidently produces a
@@ -127,8 +158,8 @@ export function prepareTransactionV2<
 
       const body: Record<string, unknown> = {
         ...(spec.wireFields
-          ? spec.wireFields(unsigned)
-          : { ...unsigned })
+          ? spec.wireFields(canonicalUnsigned)
+          : { ...canonicalUnsigned })
       };
       if (memo) {
         body.memo = memo;

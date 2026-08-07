@@ -86,6 +86,13 @@ interface AuthorizedTxV2 {
 }
 ```
 
+Preparation snapshots the canonical unsigned payload. Mutating either the
+original input object or `prepared.unsigned` later cannot change the request
+produced by `authorize`; the transmitted business fields therefore remain
+identical to the fields used for `signingHash`. Treat `prepared.unsigned` as
+diagnostic data rather than a way to edit a prepared transaction—prepare a
+new transaction when any field changes.
+
 `createPrivateKeySigner(privateKey: \`0x${string}\`)` produces a
 `SignerAdapter` (`{ signDigest(digest) => Promise<Signature> }`) that signs
 with low-S. The same adapter works for both the v2 and legacy v1 flows — it

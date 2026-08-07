@@ -144,6 +144,42 @@ describe('native v2 prepare', function () {
     expect(roundTripped).to.deep.equal(authorized);
   });
 
+  it('snapshots nested unsigned data for signing and authorization', function () {
+    const unsigned = {
+      chain_id: 1212101,
+      nonce: 1,
+      token: TOKEN,
+      operations: [
+        {
+          recipient: RECIPIENT,
+          amount: '1000'
+        }
+      ],
+      max_fee: '5000',
+      created_at: 1747785600
+    };
+    const prepared =
+      TransactionBuilderV2.batchPayment(unsigned);
+
+    unsigned.operations[0].amount = '9999';
+    prepared.unsigned.operations[0].recipient =
+      '0x0303030303030303030303030303030303030303';
+
+    const authorized = prepared.authorize({
+      r: `0x${'aa'.repeat(32)}` as `0x${string}`,
+      s: `0x${'11'.repeat(32)}` as `0x${string}`,
+      v: 1
+    });
+    expect(
+      authorized.request.operations
+    ).to.deep.equal([
+      {
+        recipient: RECIPIENT,
+        amount: '1000'
+      }
+    ]);
+  });
+
   it('registers a v2 path for every operation', function () {
     Object.values(OPERATION_REGISTRY).forEach(
       spec => {
