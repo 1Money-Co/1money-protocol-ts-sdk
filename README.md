@@ -943,6 +943,24 @@ change for any code calling `TransactionBuilder` directly.
   `prepared.authorize(signature)`, instead of a request object assembled from
   `signed.toRequest()`. `AuthorizedTxV2` is plain JSON and can cross a process
   boundary (sign in one place, submit from another).
+- **Write methods now return a native `Promise`, not the chainable wrapper.**
+  This is the easy one to miss, because **reads are unchanged** — the same
+  client now has two call styles:
+
+  ```typescript
+  // Read: still the promise wrapper.
+  apiClient.tokens.getTokenMetadata(token).success(res => …).error(err => …);
+
+  // Write: a plain Promise. Calling .success() on it throws
+  // "apiClient.tokens.issueToken(...).success is not a function".
+  try {
+    const res = await apiClient.tokens.issueToken(authorized);
+  } catch (err) { … }
+  ```
+
+  So `.success()`/`.error()`/`.timeout()`/`.rest()` chains on any 2.x **write**
+  call must become `await` in a `try`/`catch`. TypeScript flags these at
+  compile time; plain-JavaScript callers only find out at runtime.
 - **`tokenManageList` is gone.** It split into `tokenBlacklist` and
   `tokenWhitelist` — distinct operations with distinct signing hashes, paired
   with `tokens.manageBlacklist` / `tokens.manageWhitelist` respectively. You
