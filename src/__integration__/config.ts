@@ -16,18 +16,45 @@ const envPath = path.resolve(process.cwd(), '.env.integration');
 dotenv.config({ path: envPath });
 
 export interface IntegrationTestConfig {
-  network: 'local' | 'testnet' | 'mainnet';
+  network: IntegrationTestNetwork;
   operatorKey: string;
   masterKey: string;
   enabled: boolean;
   timeout: number;
 }
 
+const NETWORKS = [
+  'local',
+  'testnet',
+  'mainnet'
+] as const;
+
+export type IntegrationTestNetwork =
+  (typeof NETWORKS)[number];
+
+function parseNetwork(
+  value: string | undefined
+): IntegrationTestNetwork {
+  const network = value ?? 'local';
+  if (
+    !NETWORKS.includes(
+      network as IntegrationTestNetwork
+    )
+  ) {
+    throw new Error(
+      `[1Money SDK integration]: Invalid INTEGRATION_TEST_NETWORK: ${network}`
+    );
+  }
+  return network as IntegrationTestNetwork;
+}
+
 /**
  * Get integration test configuration from environment variables
  */
 export function getConfig(): IntegrationTestConfig {
-  const network = (process.env.INTEGRATION_TEST_NETWORK || 'local') as 'local' | 'testnet' | 'mainnet';
+  const network = parseNetwork(
+    process.env.INTEGRATION_TEST_NETWORK
+  );
 
   // Default keys for local testing (these should be replaced with real keys in CI/CD)
   const operatorKey = process.env.INTEGRATION_TEST_OPERATOR_KEY ||

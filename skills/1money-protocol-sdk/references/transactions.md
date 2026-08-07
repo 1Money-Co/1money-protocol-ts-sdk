@@ -502,6 +502,33 @@ Receipts may not be available immediately — poll `getReceiptByHash` (or
 `getFinalizedByHash` for finality) with a short backoff rather than a single
 call.
 
+## Integration-testing the public v2 flow
+
+The repository's local integration gate exercises all fourteen v2 operations
+against a live node:
+
+```bash
+npm run test:integration:local
+```
+
+The same consumer sequence can be used in an application without the test
+helper:
+
+```typescript
+const prepared = TransactionBuilder.payment(input);
+const signature = await signer.signDigest(
+  prepared.signingHash
+);
+const authorized =
+  prepared.authorize(signature);
+const result =
+  await client.transactions.payment(authorized);
+```
+
+Read the sender's current nonce before preparing, compare `result.hash` with
+`authorized.transactionHash`, then poll the receipt by hash. Do not
+automatically resubmit when the outcome is unknown.
+
 If `client.<module>.<method>(authorized)` throws `TransactionHashMismatchError`
 instead, **do not retry** — `submitted` is `true` on that error, meaning the
 node already accepted the transaction before the mismatch was detected.
