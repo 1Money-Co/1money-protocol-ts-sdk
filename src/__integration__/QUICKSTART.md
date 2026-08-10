@@ -19,6 +19,20 @@ The default local operator and master keys are already in the example file.
 The suite derives their addresses, generates temporary users, and issues the
 token fixtures it needs.
 
+### Batch Payment
+
+Enable Batch Payment in the local l1client governance configuration before
+running this suite. The node must expose
+`/v1/transactions/batch_payment/estimate_fee`; the lifecycle treats a disabled
+or unavailable estimate endpoint as a configuration failure rather than a
+skip. Its sender must have enough token balance for all batch operations and
+the actual charged fee.
+
+The estimate is an unsigned, point-in-time quote and is intentionally not
+compared to `receipt.fee_used`. Batch receipt `success_info.receiver` is the
+zero-address sentinel, so use the ordered `PaymentExecuted` execution events
+to identify the recipients.
+
 ## Testnet
 
 Set funded testnet keys in `.env.integration`, then run:

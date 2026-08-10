@@ -17,7 +17,7 @@ describe('transactions API integration', function () {
     }
   });
 
-  it('exposes transaction reads', function () {
+  it('exposes transaction reads and fee estimates', function () {
     const { transactions } = context.client;
 
     expect(transactions.getByHash).to.be.a(
@@ -37,7 +37,7 @@ describe('transactions API integration', function () {
     ).to.be.a('function');
   });
 
-  it('exposes v2 payment methods', function () {
+  it('exposes v2 payment and batch-payment methods', function () {
     expect(
       context.client.transactions.payment
     ).to.be.a('function');

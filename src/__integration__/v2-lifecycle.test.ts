@@ -32,6 +32,35 @@ type PrivateKeySigner = ReturnType<
   typeof createPrivateKeySigner
 >;
 
+const ZERO_ADDRESS = `0x${'00'.repeat(20)}`;
+
+function isBatchPaymentUnavailable(
+  error: unknown
+): boolean {
+  const message =
+    typeof error === 'object' && error !== null
+      ? [
+          (error as { message?: unknown }).message,
+          (error as { data?: unknown }).data
+        ]
+          .map(value =>
+            typeof value === 'string'
+              ? value
+              : JSON.stringify(value)
+          )
+          .join(' ')
+          .toLowerCase()
+      : String(error).toLowerCase();
+  if (message.includes('batch payments are disabled')) {
+    return true;
+  }
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { status?: unknown }).status === 404
+  );
+}
+
 describe('native v2 lifecycle integration', function () {
   let context: Context;
   let operatorSigner: PrivateKeySigner;
@@ -995,6 +1024,67 @@ describe('native v2 lifecycle integration', function () {
   });
 
   it('submits a batch payment through v2', async function () {
+    const operations = [
+      {
+        recipient: context.accounts.user1.address,
+        amount: '10'
+      },
+      {
+        recipient: context.accounts.user3.address,
+        amount: '5'
+      }
+    ];
+    let quote: { fee: string };
+
+    try {
+      quote =
+        await context.client.transactions
+          .estimateBatchPaymentFee({
+            from: context.accounts.user2.address,
+            token: tokenAddress,
+            operations
+          });
+    } catch (error) {
+      if (isBatchPaymentUnavailable(error)) {
+        const configurationError = new Error(
+          '[1Money SDK integration]: Enable Batch Payment in the local l1client governance configuration before running this suite; the local node must also expose /v1/transactions/batch_payment/estimate_fee'
+        );
+        (
+          configurationError as Error & { cause?: unknown }
+        ).cause = error;
+        throw configurationError;
+      }
+      throw error;
+    }
+
+    expect(
+      BigInt(quote.fee) >= BigInt(0)
+    ).to.equal(true);
+
+    const [
+      senderBefore,
+      firstBefore,
+      secondBefore,
+      operatorBefore
+    ] = await Promise.all([
+      context.client.accounts.getTokenAccount(
+        context.accounts.user2.address,
+        tokenAddress
+      ),
+      context.client.accounts.getTokenAccount(
+        context.accounts.user1.address,
+        tokenAddress
+      ),
+      context.client.accounts.getTokenAccount(
+        context.accounts.user3.address,
+        tokenAddress
+      ),
+      context.client.accounts.getTokenAccount(
+        context.accounts.operator.address,
+        tokenAddress
+      )
+    ]);
+
     const nonce = (
       await context.client.accounts.getNonce(
         context.accounts.user2.address
@@ -1005,23 +1095,18 @@ describe('native v2 lifecycle integration', function () {
         chain_id: chainId,
         nonce,
         token: tokenAddress,
-        operations: [
-          {
-            recipient:
-              context.accounts.user1.address,
-            amount: '10'
-          },
-          {
-            recipient:
-              context.accounts.user3.address,
-            amount: '5'
-          }
-        ],
+        operations,
         created_at: Math.floor(Date.now() / 1000),
         batch_id: `v2-${tokenSymbol}`
+      }, {
+        memo: {
+          type: 'integration',
+          format: 'text/plain',
+          data: 'batch payment v2 lifecycle'
+        }
       });
 
-    const { response } =
+    const { authorized, response } =
       await authorizeAndSubmitV2(
         prepared,
         user2Signer,
@@ -1031,6 +1116,10 @@ describe('native v2 lifecycle integration', function () {
           )
       );
 
+    expect(response.hash.toLowerCase()).to.equal(
+      authorized.transactionHash.toLowerCase()
+    );
+
     const receipt = await waitForResult(
       () =>
         context.client.transactions.getReceiptByHash(
@@ -1039,37 +1128,101 @@ describe('native v2 lifecycle integration', function () {
       { intervalMs: 250 }
     );
     expect(receipt.success).to.equal(true);
+    expect(receipt.batch_info?.operations_count).to.equal(
+      operations.length
+    );
+    expect(receipt.batch_info?.total_amount).to.equal(
+      '15'
+    );
+    expect(receipt.batch_info?.failure).to.equal(null);
+    expect(
+      receipt.success_info?.receiver.toLowerCase()
+    ).to.equal(ZERO_ADDRESS);
+
+    const events = receipt.execution_events;
+    expect(events?.map(event => event.event_type)).to.deep.equal([
+      'BatchStarted',
+      'PaymentExecuted',
+      'PaymentExecuted',
+      'BatchCompleted'
+    ]);
+
+    const firstPayment = events?.[1];
+    const secondPayment = events?.[2];
+    if (
+      firstPayment?.event_type !== 'PaymentExecuted' ||
+      secondPayment?.event_type !== 'PaymentExecuted'
+    ) {
+      throw new Error(
+        '[1Money SDK integration]: expected ordered Batch Payment execution events'
+      );
+    }
+    expect(firstPayment.recipient.toLowerCase()).to.equal(
+      operations[0].recipient.toLowerCase()
+    );
+    expect(firstPayment.amount).to.equal(
+      operations[0].amount
+    );
+    expect(secondPayment.recipient.toLowerCase()).to.equal(
+      operations[1].recipient.toLowerCase()
+    );
+    expect(secondPayment.amount).to.equal(
+      operations[1].amount
+    );
 
     await waitForResult(
       async () => {
-        const sender =
-          await context.client.accounts.getTokenAccount(
+        const [
+          senderAfter,
+          firstAfter,
+          secondAfter,
+          operatorAfter
+        ] = await Promise.all([
+          context.client.accounts.getTokenAccount(
             context.accounts.user2.address,
             tokenAddress
-          );
-        const firstRecipient =
-          await context.client.accounts.getTokenAccount(
+          ),
+          context.client.accounts.getTokenAccount(
             context.accounts.user1.address,
             tokenAddress
-          );
-        const secondRecipient =
-          await context.client.accounts.getTokenAccount(
+          ),
+          context.client.accounts.getTokenAccount(
             context.accounts.user3.address,
             tokenAddress
-          );
+          ),
+          context.client.accounts.getTokenAccount(
+            context.accounts.operator.address,
+            tokenAddress
+          )
+        ]);
+        const total = operations.reduce(
+          (sum, operation) =>
+            sum + BigInt(operation.amount),
+          BigInt(0)
+        );
+        const actualFee = BigInt(receipt.fee_used);
+
         if (
-          sender.balance !== '964' ||
-          firstRecipient.balance !== '10' ||
-          secondRecipient.balance !== '70'
+          BigInt(senderAfter.balance) !==
+            BigInt(senderBefore.balance) - total - actualFee ||
+          BigInt(firstAfter.balance) !==
+            BigInt(firstBefore.balance) +
+              BigInt(operations[0].amount) ||
+          BigInt(secondAfter.balance) !==
+            BigInt(secondBefore.balance) +
+              BigInt(operations[1].amount) ||
+          BigInt(operatorAfter.balance) !==
+            BigInt(operatorBefore.balance) + actualFee
         ) {
           throw new Error(
-            `expected balances 964/10/70, received ${sender.balance}/${firstRecipient.balance}/${secondRecipient.balance}`
+            '[1Money SDK integration]: Batch Payment balance accounting did not converge'
           );
         }
         return {
-          sender,
-          firstRecipient,
-          secondRecipient
+          senderAfter,
+          firstAfter,
+          secondAfter,
+          operatorAfter
         };
       },
       { intervalMs: 250 }

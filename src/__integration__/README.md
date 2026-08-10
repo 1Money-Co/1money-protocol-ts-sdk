@@ -83,6 +83,23 @@ When `RUN_INTEGRATION_TESTS` is not `true`, network suites skip. The lifecycle
 also skips on a node reporting `native_write_mode: "v1_only"` because that
 deployment has not activated the v2 write surface.
 
+## Batch Payment local prerequisite
+
+Batch Payment can be disabled by default in a local node's governance
+configuration. The unified v2 lifecycle does not skip that scenario: it first
+requests an unsigned fee estimate, and a disabled or unavailable Batch Payment
+surface fails with an instruction to enable the feature and expose
+`/v1/transactions/batch_payment/estimate_fee`.
+
+Run this suite against a node with Batch Payment enabled and fund the lifecycle
+sender with enough of the issued token to cover every operation plus the
+receipt's actual fee. The estimate is deliberately requested before the
+submission nonce and is not expected to equal `receipt.fee_used`.
+
+Batch receipts use the zero address as `success_info.receiver` because there
+is no single recipient. Read the ordered `PaymentExecuted` entries in
+`execution_events` for the actual recipients and amounts.
+
 ## Adding a transaction scenario
 
 Use the shared context and v2 submission helper:
