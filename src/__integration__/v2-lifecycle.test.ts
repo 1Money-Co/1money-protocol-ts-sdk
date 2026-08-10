@@ -23,6 +23,7 @@ import {
   classifyBatchFailureSubmission,
   classifyFailedBatchObservation,
   classifyNextValidSubmissionError,
+  cleanupBlacklistedAddress,
   generateRandomSymbol,
   isConfirmedReadNotFound,
   observeForWindow,
@@ -545,19 +546,21 @@ describe('native v2 lifecycle integration', function () {
   async function cleanupBatchFailureBlacklist(
     token: string
   ): Promise<void> {
-    const metadata =
-      await context.client.tokens.getTokenMetadata(token);
-    if (
-      !isBlacklisted(
-        metadata.black_list,
-        context.accounts.user3.address
-      )
-    ) {
-      return;
-    }
-    await setBatchFailureBlacklist(
-      token,
-      ManageListAction.Remove
+    await cleanupBlacklistedAddress(
+      () =>
+        context.client.tokens.getTokenMetadata(token),
+      () =>
+        setBatchFailureBlacklist(
+          token,
+          ManageListAction.Remove
+        ),
+      context.accounts.user3.address,
+      {
+        attempts:
+          BATCH_FAILURE_OBSERVATION_ATTEMPTS,
+        intervalMs:
+          BATCH_FAILURE_OBSERVATION_INTERVAL_MS
+      }
     );
   }
 

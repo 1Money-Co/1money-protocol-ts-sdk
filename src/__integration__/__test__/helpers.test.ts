@@ -9,6 +9,7 @@ import {
   classifyBatchFailureSubmission,
   classifyFailedBatchObservation,
   classifyNextValidSubmissionError,
+  cleanupBlacklistedAddress,
   isConfirmedReadNotFound,
   observeForWindow,
   requireSuccessfulReceipt,
@@ -39,6 +40,117 @@ function readError(
 }
 
 describe('integration polling helper', function () {
+  it('observes delayed blacklist visibility before cleanup', async function () {
+    const address = `0x${'ab'.repeat(20)}`;
+    let attempts = 0;
+    let removals = 0;
+
+    const state = await cleanupBlacklistedAddress(
+      async () => {
+        attempts += 1;
+        return {
+          black_list:
+            attempts === 3
+              ? [address.toUpperCase()]
+              : []
+        };
+      },
+      async () => {
+        removals += 1;
+      },
+      address,
+      { attempts: 30, intervalMs: 0 }
+    );
+
+    expect(state).to.equal('removed');
+    expect(attempts).to.equal(3);
+    expect(removals).to.equal(1);
+  });
+
+  it('confirms blacklist absence only after the exact cleanup window', async function () {
+    let attempts = 0;
+    let removals = 0;
+
+    const state = await cleanupBlacklistedAddress(
+      async () => {
+        attempts += 1;
+        return { black_list: [] };
+      },
+      async () => {
+        removals += 1;
+      },
+      `0x${'ab'.repeat(20)}`,
+      { attempts: 30, intervalMs: 0 }
+    );
+
+    expect(state).to.equal('absent');
+    expect(attempts).to.equal(30);
+    expect(removals).to.equal(0);
+  });
+
+  it('surfaces blacklist cleanup lookup and schema failures', async function () {
+    const lookupFailure = new Error('metadata unavailable');
+    let attempts = 0;
+    let caught: unknown;
+
+    try {
+      await cleanupBlacklistedAddress(
+        async () => {
+          attempts += 1;
+          throw lookupFailure;
+        },
+        async () => undefined,
+        `0x${'ab'.repeat(20)}`,
+        { attempts: 30, intervalMs: 0 }
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).to.equal(lookupFailure);
+    expect(attempts).to.equal(1);
+
+    for (const malformed of [
+      null,
+      {},
+      { black_list: 'not-an-array' },
+      { black_list: [123] }
+    ]) {
+      let schemaError: unknown;
+      try {
+        await cleanupBlacklistedAddress(
+          async () => malformed,
+          async () => undefined,
+          `0x${'ab'.repeat(20)}`,
+          { attempts: 30, intervalMs: 0 }
+        );
+      } catch (error) {
+        schemaError = error;
+      }
+      expect(String(schemaError)).to.contain(
+        'malformed token metadata'
+      );
+    }
+
+    const cleanupFailure = new Error('remove failed');
+    let removalError: unknown;
+    try {
+      await cleanupBlacklistedAddress(
+        async () => ({
+          black_list: [`0x${'ab'.repeat(20)}`]
+        }),
+        async () => {
+          throw cleanupFailure;
+        },
+        `0x${'ab'.repeat(20)}`,
+        { attempts: 30, intervalMs: 0 }
+      );
+    } catch (error) {
+      removalError = error;
+    }
+    expect(removalError).to.equal(cleanupFailure);
+  });
+
   it('totals every Batch Payment fixture mint allocation', function () {
     const allocations = [
       { recipient: 'sender', amount: '1000000' },

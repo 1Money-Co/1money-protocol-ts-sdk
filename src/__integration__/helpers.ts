@@ -57,6 +57,57 @@ export async function waitForResult<T>(
   throw failure;
 }
 
+export async function cleanupBlacklistedAddress(
+  lookup: () => PromiseLike<unknown>,
+  remove: () => PromiseLike<unknown>,
+  address: string,
+  options: {
+    attempts: number;
+    intervalMs: number;
+  }
+): Promise<'removed' | 'absent'> {
+  for (
+    let attempt = 0;
+    attempt < options.attempts;
+    attempt += 1
+  ) {
+    const metadata = await lookup();
+    if (
+      typeof metadata !== 'object' ||
+      metadata === null ||
+      !Array.isArray(
+        (metadata as { black_list?: unknown })
+          .black_list
+      ) ||
+      !(metadata as { black_list: unknown[] }).black_list.every(
+        entry => typeof entry === 'string'
+      )
+    ) {
+      throw new Error(
+        '[1Money SDK integration]: blacklist cleanup lookup resolved with malformed token metadata'
+      );
+    }
+
+    const blackList = (
+      metadata as { black_list: string[] }
+    ).black_list;
+    if (
+      blackList.some(
+        entry =>
+          entry.toLowerCase() ===
+          address.toLowerCase()
+      )
+    ) {
+      await remove();
+      return 'removed';
+    }
+    if (attempt + 1 < options.attempts) {
+      await wait(options.intervalMs);
+    }
+  }
+  return 'absent';
+}
+
 export async function observeForWindow<T>(
   lookup: () => PromiseLike<T>,
   options: {

@@ -108,6 +108,11 @@ resource code, a 500, timeout, network error, malformed receipt, or unexpected
 exception aborts calibration immediately so an unhealthy read API cannot be
 recorded as normal receipt absence.
 
+Cleanup uses the same 30-by-250-ms bounded window when checking whether an
+ambiguous blacklist addition became visible. If it appears, the probe removes
+it and waits for confirmed absence; persistent absence is accepted only after
+the complete window. Metadata read and schema failures abort cleanup.
+
 ## Adding a transaction scenario
 
 Use the shared context and v2 submission helper:
