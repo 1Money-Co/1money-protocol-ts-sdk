@@ -864,7 +864,9 @@ provided value must be the canonical
 `calculateBatchPaymentOperationsHash(operations)` result or preparation fails
 locally. `batch_id` is signed correlation metadata only: it has no uniqueness,
 deduplication, idempotency, or replay guarantee. The transaction nonce remains
-the transaction-level replay mechanism.
+the transaction-level replay mechanism. Each operation is signed and sent as
+exactly `{ recipient, amount }`; additional runtime properties from untyped
+callers are ignored and do not reach the authorized request.
 
 Batch Payment always signs and transmits a complete memo. Omitting `memo` is
 valid and sends `{ type: '', format: '', data: '' }`; those three empty strings

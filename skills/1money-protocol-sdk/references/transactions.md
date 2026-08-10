@@ -239,6 +239,10 @@ and the helper never inserts it automatically, but if you supply it, prepare
 recomputes `calculateBatchPaymentOperationsHash(operations)` and rejects any
 mismatch before invoking a signer.
 
+Each operation is signed and transmitted as exactly `{ recipient, amount }`.
+Additional runtime properties from untyped callers are ignored and never reach
+the authorized wire request.
+
 `operations_hash` and `batch_id` are positionally trailing in the signed
 payload: supplying `batch_id` without `operations_hash` reserves the hash slot
 with an empty placeholder. Runtime `null` is treated as absent in the digest

@@ -153,6 +153,49 @@ describe('batch payment v2', function () {
     expect('max_fee' in authorized.request).to.equal(false);
   });
 
+  it('projects exact operation fields without changing canonical hashes', function () {
+    const operation = {
+      ...BASE.operations[0],
+      unsigned_only: 'must-not-reach-wire'
+    };
+    Object.defineProperty(operation, 'hidden', {
+      value: 'also-must-not-reach-wire',
+      enumerable: false
+    });
+    const withExtras = {
+      ...BASE,
+      operations: [operation, ...BASE.operations.slice(1)]
+    } as unknown as BatchPaymentUnsigned;
+    const prepared = prepareTransactionV2(
+      'batchPayment',
+      withExtras
+    );
+    const canonical = prepareTransactionV2(
+      'batchPayment',
+      BASE
+    );
+    const authorized = prepared.authorize(LOW_S_SIGNATURE);
+    const expected = canonical.authorize(LOW_S_SIGNATURE);
+    const wireOperation = (
+      authorized.request.operations as Array<
+        Record<string, unknown>
+      >
+    )[0];
+
+    expect(prepared.signingHash).to.equal(
+      canonical.signingHash
+    );
+    expect(authorized.transactionHash).to.equal(
+      expected.transactionHash
+    );
+    expect(Object.keys(wireOperation).sort()).to.deep.equal([
+      'amount',
+      'recipient'
+    ]);
+    expect('unsigned_only' in wireOperation).to.equal(false);
+    expect('hidden' in wireOperation).to.equal(false);
+  });
+
   it('uses the focused populated-memo hashes', function () {
     const entry = batchVector('batch_option_neither_memo');
     const prepared = prepareTransactionV2(

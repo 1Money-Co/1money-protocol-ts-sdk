@@ -244,9 +244,12 @@ export function batchPaymentWireFields(
     chain_id: unsigned.chain_id,
     nonce: unsigned.nonce,
     token: unsigned.token,
-    // Copied, not aliased -- see tokenMetadataWireFields.
+    // Project the signed shape exactly: untyped callers may supply
+    // extra operation keys that were not encoded and must not reach
+    // the wire.
     operations: unsigned.operations.map(op => ({
-      ...op
+      recipient: op.recipient,
+      amount: op.amount
     })),
     created_at: unsigned.created_at
   };
