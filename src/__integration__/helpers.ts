@@ -1,3 +1,8 @@
+import {
+  TransactionOutcomeUnknownError,
+  TransactionSubmissionError
+} from '@/api/errors';
+
 export function wait(
   ms: number
 ): Promise<void> {
@@ -66,6 +71,39 @@ export async function observeForWindow<T>(
     }
   }
   return { state: 'not_found', error: lastError };
+}
+
+export function classifyBatchFailureSubmission(
+  error: unknown,
+  localHash: string
+): {
+  submission: 'refused' | 'outcome_unknown';
+  raw: Record<string, unknown>;
+} {
+  if (error instanceof TransactionSubmissionError) {
+    return {
+      submission: 'refused',
+      raw: {
+        status: error.status,
+        body: error.data,
+        local_hash: localHash,
+        message: error.message
+      }
+    };
+  }
+  if (error instanceof TransactionOutcomeUnknownError) {
+    return {
+      submission: 'outcome_unknown',
+      raw: {
+        status: error.status,
+        body: error.data,
+        hash: error.transactionHash,
+        local_hash: localHash,
+        message: error.message
+      }
+    };
+  }
+  throw error;
 }
 
 export function generateRandomSymbol(

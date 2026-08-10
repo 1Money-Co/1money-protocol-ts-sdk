@@ -125,6 +125,33 @@ function isLoginRefusalBody(
   return v.code == 401;
 }
 
+function unknownOutcomeDiagnostic(
+  value: unknown
+): {
+  status?: number;
+  data?: unknown;
+  cause?: unknown;
+} {
+  if (
+    typeof value !== 'object' ||
+    value === null
+  ) {
+    return { cause: value };
+  }
+  const result = value as {
+    status?: unknown;
+    data?: unknown;
+  };
+  return {
+    status:
+      typeof result.status === 'number'
+        ? result.status
+        : undefined,
+    data: result.data,
+    cause: value
+  };
+}
+
 // POST an authorized v2 transaction and classify the outcome into
 // three, deliberately distinct cases:
 //
@@ -205,6 +232,7 @@ export async function submitAuthorized<
   }
 
   throw new TransactionOutcomeUnknownError(
-    authorized.transactionHash
+    authorized.transactionHash,
+    unknownOutcomeDiagnostic(response)
   );
 }

@@ -17,13 +17,11 @@ import {
   ManageListAction,
   PauseAction
 } from '@/api/tokens/types';
-import {
-  TransactionOutcomeUnknownError,
-  TransactionSubmissionError
-} from '@/api/errors';
+import { TransactionSubmissionError } from '@/api/errors';
 
 import { getIntegrationContext } from './context';
 import {
+  classifyBatchFailureSubmission,
   generateRandomSymbol,
   observeForWindow,
   waitForResult
@@ -1690,12 +1688,11 @@ describe('native v2 lifecycle integration', function () {
       }
     ];
 
-    await setBatchFailureBlacklist(
-      fixture.tokenAddress,
-      ManageListAction.Add
-    );
-
     try {
+      await setBatchFailureBlacklist(
+        fixture.tokenAddress,
+        ManageListAction.Add
+      );
       const nonceBefore = (
         await context.client.accounts.getNonce(
           context.accounts.batchFailure.address
@@ -1751,26 +1748,13 @@ describe('native v2 lifecycle integration', function () {
           local_hash: transactionHash
         };
       } catch (error) {
-        if (error instanceof TransactionSubmissionError) {
-          submission = 'refused';
-          rawSubmission = {
-            status: error.status,
-            body: error.data,
-            message: error.message
-          };
-        } else {
-          submission = 'outcome_unknown';
-          rawSubmission = {
-            hash:
-              error instanceof TransactionOutcomeUnknownError
-                ? error.transactionHash
-                : transactionHash,
-            message:
-              error instanceof Error
-                ? error.message
-                : String(error)
-          };
-        }
+        const classified =
+          classifyBatchFailureSubmission(
+            error,
+            transactionHash
+          );
+        submission = classified.submission;
+        rawSubmission = classified.raw;
       }
 
       const [receiptResult, finalizedResult] =

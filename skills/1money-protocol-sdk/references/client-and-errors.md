@@ -130,6 +130,12 @@ meaning on their own:
 | `TransactionSubmissionError` | `false` | **Yes**, once the cause is fixed | The node (or a gateway/WAF in front of it) refused the write outright — it never reached the mempool. |
 | `TransactionOutcomeUnknownError` | `'unknown'` | **No — verify first** | Ambiguous: e.g. a client-side timeout, a network error, a `5xx` (or `408`), or a 2xx body with no `hash`. The node may or may not have admitted the transaction. |
 
+When the HTTP client did receive an ambiguous response, a
+`TransactionOutcomeUnknownError` also preserves its optional `status` and raw
+`data` body (and the parsed transport value as `cause`) for diagnostics. These
+fields explain the observation only; they do not make an unknown outcome safe
+to retry.
+
 **The refused/unknown split is by HTTP status, and it is deliberately not a
 plain "4xx vs 5xx" rule:**
 

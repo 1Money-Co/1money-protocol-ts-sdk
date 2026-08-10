@@ -292,6 +292,20 @@ describe('submitAuthorized', function () {
         (caught as TransactionOutcomeUnknownError)
           .submitted
       ).to.equal('unknown');
+      expect(
+        (caught as TransactionOutcomeUnknownError).status
+      ).to.equal(502);
+      expect(
+        (caught as TransactionOutcomeUnknownError).data
+      ).to.deep.equal({
+        message: 'downstream failure'
+      });
+      expect(
+        (
+          (caught as TransactionOutcomeUnknownError)
+            .cause as { status?: unknown }
+        ).status
+      ).to.equal(502);
       expect(caught).to.not.be.instanceOf(
         TransactionSubmissionError
       );

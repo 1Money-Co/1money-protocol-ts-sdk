@@ -1,6 +1,12 @@
 import { expect } from 'chai';
+import {
+  TransactionHashMismatchError,
+  TransactionOutcomeUnknownError,
+  TransactionSubmissionError
+} from '@/api/errors';
 
 import {
+  classifyBatchFailureSubmission,
   observeForWindow,
   waitForResult
 } from '../helpers';
@@ -100,5 +106,64 @@ describe('integration polling helper', function () {
       expect(observation.error).to.equal(finalError);
     }
     expect(attempts).to.equal(2);
+  });
+
+  it('classifies only explicit refused and unknown submission outcomes', function () {
+    expect(
+      classifyBatchFailureSubmission(
+        new TransactionSubmissionError(
+          422,
+          { message: 'rejected' },
+          'rejected'
+        ),
+        '0xlocal'
+      )
+    ).to.deep.equal({
+      submission: 'refused',
+      raw: {
+        status: 422,
+        body: { message: 'rejected' },
+        local_hash: '0xlocal',
+        message:
+          '[1Money SDK]: Transaction submission refused (HTTP 422): rejected. The transaction was NOT submitted -- it is safe to retry once the cause is addressed.'
+      }
+    });
+
+    expect(
+      classifyBatchFailureSubmission(
+        new TransactionOutcomeUnknownError(
+          '0xlocal',
+          {
+            status: 502,
+            data: { message: 'downstream failure' }
+          }
+        ),
+        '0xlocal'
+      )
+    ).to.deep.equal({
+      submission: 'outcome_unknown',
+      raw: {
+        status: 502,
+        body: { message: 'downstream failure' },
+        hash: '0xlocal',
+        local_hash: '0xlocal',
+        message:
+          '[1Money SDK]: Transaction outcome unknown -- the request completed but the response carried no transaction hash, so the SDK cannot confirm whether the node admitted transaction 0xlocal. This is neither a confirmed submission nor a confirmed non-submission. Do NOT blindly retry: query this hash against the node first -- retrying risks double-submitting on the same nonce.'
+      }
+    });
+  });
+
+  it('rethrows a submitted hash mismatch instead of normalizing it', function () {
+    const mismatch = new TransactionHashMismatchError(
+      '0xlocal',
+      '0xserver'
+    );
+
+    expect(() =>
+      classifyBatchFailureSubmission(
+        mismatch,
+        '0xlocal'
+      )
+    ).to.throw(TransactionHashMismatchError);
   });
 });

@@ -158,13 +158,29 @@ export class TransactionOutcomeUnknownError extends
   Error {
   readonly submitted = 'unknown' as const;
   readonly transactionHash: string;
+  /** Raw transport metadata, when the client received it. */
+  readonly status?: number;
+  /** Raw transport response body, when the client received it. */
+  readonly data?: unknown;
+  /** Original parsed transport result, when available. */
+  readonly cause?: unknown;
 
-  constructor(transactionHash: string) {
+  constructor(
+    transactionHash: string,
+    diagnostic: {
+      status?: number;
+      data?: unknown;
+      cause?: unknown;
+    } = {}
+  ) {
     super(
       `[1Money SDK]: Transaction outcome unknown -- the request completed but the response carried no transaction hash, so the SDK cannot confirm whether the node admitted transaction ${transactionHash}. This is neither a confirmed submission nor a confirmed non-submission. Do NOT blindly retry: query this hash against the node first -- retrying risks double-submitting on the same nonce.`
     );
     this.name = 'TransactionOutcomeUnknownError';
     this.transactionHash = transactionHash;
+    this.status = diagnostic.status;
+    this.data = diagnostic.data;
+    this.cause = diagnostic.cause;
   }
 }
 
