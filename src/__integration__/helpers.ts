@@ -40,6 +40,34 @@ export async function waitForResult<T>(
   throw failure;
 }
 
+export async function observeForWindow<T>(
+  lookup: () => PromiseLike<T>,
+  options: {
+    attempts: number;
+    intervalMs: number;
+  }
+): Promise<
+  | { state: 'found'; value: T }
+  | { state: 'not_found'; error: unknown }
+> {
+  let lastError: unknown;
+  for (
+    let attempt = 0;
+    attempt < options.attempts;
+    attempt += 1
+  ) {
+    try {
+      return { state: 'found', value: await lookup() };
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < options.attempts) {
+        await wait(options.intervalMs);
+      }
+    }
+  }
+  return { state: 'not_found', error: lastError };
+}
+
 export function generateRandomSymbol(
   prefix: string = 'TST'
 ): string {

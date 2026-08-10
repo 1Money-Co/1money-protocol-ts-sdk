@@ -1,6 +1,9 @@
 import { expect } from 'chai';
 
-import { waitForResult } from '../helpers';
+import {
+  observeForWindow,
+  waitForResult
+} from '../helpers';
 
 describe('integration polling helper', function () {
   it('returns an immediately available result', async function () {
@@ -45,5 +48,57 @@ describe('integration polling helper', function () {
     expect(String(error)).to.contain(
       'did not become available after 2 attempts'
     );
+  });
+
+  it('observes an immediately available result', async function () {
+    const observation = await observeForWindow(
+      async () => 'ready',
+      { attempts: 1, intervalMs: 0 }
+    );
+
+    expect(observation).to.deep.equal({
+      state: 'found',
+      value: 'ready'
+    });
+  });
+
+  it('observes a result after transient lookup failures', async function () {
+    let attempts = 0;
+    const observation = await observeForWindow(
+      async () => {
+        attempts += 1;
+        if (attempts < 3) {
+          throw new Error('not ready');
+        }
+        return 3;
+      },
+      { attempts: 3, intervalMs: 0 }
+    );
+
+    expect(observation).to.deep.equal({
+      state: 'found',
+      value: 3
+    });
+    expect(attempts).to.equal(3);
+  });
+
+  it('returns the final lookup error after the window expires', async function () {
+    const finalError = new Error('still missing');
+    let attempts = 0;
+    const observation = await observeForWindow(
+      async () => {
+        attempts += 1;
+        throw attempts === 2
+          ? finalError
+          : new Error('not ready');
+      },
+      { attempts: 2, intervalMs: 0 }
+    );
+
+    expect(observation.state).to.equal('not_found');
+    if (observation.state === 'not_found') {
+      expect(observation.error).to.equal(finalError);
+    }
+    expect(attempts).to.equal(2);
   });
 });

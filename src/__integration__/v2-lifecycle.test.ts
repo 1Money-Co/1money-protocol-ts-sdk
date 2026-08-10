@@ -17,10 +17,15 @@ import {
   ManageListAction,
   PauseAction
 } from '@/api/tokens/types';
+import {
+  TransactionOutcomeUnknownError,
+  TransactionSubmissionError
+} from '@/api/errors';
 
 import { getIntegrationContext } from './context';
 import {
   generateRandomSymbol,
+  observeForWindow,
   waitForResult
 } from './helpers';
 import { authorizeAndSubmitV2 } from './v2';
@@ -35,10 +40,29 @@ type PrivateKeySigner = ReturnType<
 const ZERO_ADDRESS = `0x${'00'.repeat(20)}`;
 const BATCH_PAYMENT_FIXTURE_BALANCE = '1000000';
 const BATCH_PAYMENT_RECIPIENT_BALANCE = '1';
+const BATCH_FAILURE_OPERATION_AMOUNT = '1';
+const BATCH_FAILURE_FUNDING_BUFFER = '1000';
+const BATCH_FAILURE_OBSERVATION_ATTEMPTS = 30;
+const BATCH_FAILURE_OBSERVATION_INTERVAL_MS = 250;
 
 interface BatchPaymentFixture {
   tokenAddress: string;
   tokenSymbol: string;
+}
+
+export interface BatchFailureObservation {
+  submission:
+    | 'hash_returned'
+    | 'refused'
+    | 'outcome_unknown';
+  receipt: 'not_found' | 'failure_receipt';
+  finalized: 'not_found' | 'failure_receipt';
+  nonce_delta: 0 | 1;
+  next_valid_transaction:
+    | 'same_nonce_accepted'
+    | 'next_nonce_accepted'
+    | 'blocked';
+  balances_unchanged: true;
 }
 
 function isBatchPaymentUnavailable(
@@ -75,12 +99,16 @@ describe('native v2 lifecycle integration', function () {
   let user1Signer: PrivateKeySigner;
   let user2Signer: PrivateKeySigner;
   let user3Signer: PrivateKeySigner;
+  let batchFailureSigner: PrivateKeySigner;
   let chainId: number;
   let tokenAddress: string;
   let privateTokenAddress: string;
   let issueHash: string;
   let tokenSymbol: string;
   let batchPaymentFixture:
+    | Promise<BatchPaymentFixture>
+    | undefined;
+  let batchFailureFixture:
     | Promise<BatchPaymentFixture>
     | undefined;
 
@@ -121,6 +149,9 @@ describe('native v2 lifecycle integration', function () {
     );
     user3Signer = createPrivateKeySigner(
       context.accounts.user3.privateKey
+    );
+    batchFailureSigner = createPrivateKeySigner(
+      context.accounts.batchFailure.privateKey
     );
   });
 
@@ -348,6 +379,174 @@ describe('native v2 lifecycle integration', function () {
       })();
     }
     return batchPaymentFixture;
+  }
+
+  async function ensureBatchFailureFixture(): Promise<BatchPaymentFixture> {
+    if (!batchFailureFixture) {
+      batchFailureFixture = (async () => {
+        const fixture = await ensureBatchPaymentFixture();
+        const operations = [
+          {
+            recipient: context.accounts.user1.address,
+            amount: BATCH_FAILURE_OPERATION_AMOUNT
+          },
+          {
+            recipient: context.accounts.user3.address,
+            amount: BATCH_FAILURE_OPERATION_AMOUNT
+          }
+        ];
+        const quote =
+          await context.client.transactions
+            .estimateBatchPaymentFee({
+              from: context.accounts.batchFailure.address,
+              token: fixture.tokenAddress,
+              operations
+            });
+        const fundingAmount = (
+          BigInt(quote.fee) +
+          BigInt(BATCH_FAILURE_OPERATION_AMOUNT) *
+            BigInt(operations.length) +
+          BigInt(BATCH_FAILURE_FUNDING_BUFFER)
+        ).toString();
+        const nonce = (
+          await context.client.accounts.getNonce(
+            context.accounts.user2.address
+          )
+        ).nonce;
+        const prepared = TransactionBuilder.payment({
+          chain_id: chainId,
+          nonce,
+          recipient: context.accounts.batchFailure.address,
+          value: fundingAmount,
+          token: fixture.tokenAddress
+        });
+        const { response } =
+          await authorizeAndSubmitV2(
+            prepared,
+            user2Signer,
+            authorized =>
+              context.client.transactions.payment(
+                authorized
+              )
+          );
+        const receipt = await waitForResult(
+          () =>
+            context.client.transactions.getReceiptByHash(
+              response.hash
+            ),
+          { intervalMs: 250 }
+        );
+        expect(receipt.success).to.equal(true);
+
+        await waitForResult(
+          async () => {
+            const account =
+              await context.client.accounts.getTokenAccount(
+                context.accounts.batchFailure.address,
+                fixture.tokenAddress
+              );
+            if (
+              BigInt(account.balance) <
+              BigInt(fundingAmount)
+            ) {
+              throw new Error(
+                'Batch failure fixture account is not funded yet'
+              );
+            }
+            return account;
+          },
+          { intervalMs: 250 }
+        );
+
+        return fixture;
+      })();
+    }
+    return batchFailureFixture;
+  }
+
+  function isBlacklisted(
+    addresses: string[],
+    address: string
+  ): boolean {
+    return addresses.some(
+      entry =>
+        entry.toLowerCase() ===
+        address.toLowerCase()
+    );
+  }
+
+  async function setBatchFailureBlacklist(
+    token: string,
+    action: ManageListAction
+  ): Promise<void> {
+    const nonce = (
+      await context.client.accounts.getNonce(
+        context.accounts.master.address
+      )
+    ).nonce;
+    const prepared = TransactionBuilder.tokenBlacklist({
+      chain_id: chainId,
+      nonce,
+      action,
+      address: context.accounts.user3.address,
+      token
+    });
+    const { response } = await authorizeAndSubmitV2(
+      prepared,
+      masterSigner,
+      authorized =>
+        context.client.tokens.manageBlacklist(
+          authorized
+        )
+    );
+    const receipt = await waitForResult(
+      () =>
+        context.client.transactions.getReceiptByHash(
+          response.hash
+        ),
+      { intervalMs: 250 }
+    );
+    expect(receipt.success).to.equal(true);
+
+    await waitForResult(
+      async () => {
+        const metadata =
+          await context.client.tokens.getTokenMetadata(token);
+        const listed = isBlacklisted(
+          metadata.black_list,
+          context.accounts.user3.address
+        );
+        if (
+          listed !==
+          (action === ManageListAction.Add)
+        ) {
+          throw new Error(
+            `Batch failure recipient blacklist did not ${action.toLowerCase()}`
+          );
+        }
+        return metadata;
+      },
+      { intervalMs: 250 }
+    );
+  }
+
+  async function cleanupBatchFailureBlacklist(
+    token: string
+  ): Promise<void> {
+    const metadata =
+      await context.client.tokens.getTokenMetadata(token);
+    if (
+      !isBlacklisted(
+        metadata.black_list,
+        context.accounts.user3.address
+      )
+    ) {
+      return;
+    }
+    await setBatchFailureBlacklist(
+      token,
+      ManageListAction.Remove
+    );
   }
 
   it('issues a token through v2', async function () {
@@ -1468,6 +1667,297 @@ describe('native v2 lifecycle integration', function () {
       },
       { intervalMs: 250 }
     );
+  });
+
+  it('probes batch payment atomic failure', async function () {
+    this.timeout(context.config.timeout);
+    if (
+      process.env.BATCH_FAILURE_PROBE_MODE !==
+      'record'
+    ) {
+      this.skip();
+    }
+
+    const fixture = await ensureBatchFailureFixture();
+    const operations = [
+      {
+        recipient: context.accounts.user1.address,
+        amount: BATCH_FAILURE_OPERATION_AMOUNT
+      },
+      {
+        recipient: context.accounts.user3.address,
+        amount: BATCH_FAILURE_OPERATION_AMOUNT
+      }
+    ];
+
+    await setBatchFailureBlacklist(
+      fixture.tokenAddress,
+      ManageListAction.Add
+    );
+
+    try {
+      const nonceBefore = (
+        await context.client.accounts.getNonce(
+          context.accounts.batchFailure.address
+        )
+      ).nonce;
+      const [
+        senderBefore,
+        validRecipientBefore,
+        blacklistedRecipientBefore,
+        operatorBefore
+      ] = await Promise.all([
+        context.client.accounts.getTokenAccount(
+          context.accounts.batchFailure.address,
+          fixture.tokenAddress
+        ),
+        context.client.accounts.getTokenAccount(
+          context.accounts.user1.address,
+          fixture.tokenAddress
+        ),
+        context.client.accounts.getTokenAccount(
+          context.accounts.user3.address,
+          fixture.tokenAddress
+        ),
+        context.client.accounts.getTokenAccount(
+          context.accounts.operator.address,
+          fixture.tokenAddress
+        )
+      ]);
+      const prepared = TransactionBuilder.batchPayment({
+        chain_id: chainId,
+        nonce: nonceBefore,
+        token: fixture.tokenAddress,
+        operations,
+        created_at: Math.floor(Date.now() / 1000),
+        batch_id: `failure-${fixture.tokenSymbol}`
+      });
+      const signature = await batchFailureSigner.signDigest(
+        prepared.signingHash
+      );
+      const authorized = prepared.authorize(signature);
+      const transactionHash = authorized.transactionHash;
+      let submission: BatchFailureObservation['submission'];
+      let rawSubmission: Record<string, unknown>;
+
+      try {
+        const response =
+          await context.client.transactions.batchPayment(
+            authorized
+          );
+        submission = 'hash_returned';
+        rawSubmission = {
+          hash: response.hash,
+          local_hash: transactionHash
+        };
+      } catch (error) {
+        if (error instanceof TransactionSubmissionError) {
+          submission = 'refused';
+          rawSubmission = {
+            status: error.status,
+            body: error.data,
+            message: error.message
+          };
+        } else {
+          submission = 'outcome_unknown';
+          rawSubmission = {
+            hash:
+              error instanceof TransactionOutcomeUnknownError
+                ? error.transactionHash
+                : transactionHash,
+            message:
+              error instanceof Error
+                ? error.message
+                : String(error)
+          };
+        }
+      }
+
+      const [receiptResult, finalizedResult] =
+        await Promise.all([
+          observeForWindow(
+            () =>
+              context.client.transactions.getReceiptByHash(
+                transactionHash
+              ),
+            {
+              attempts:
+                BATCH_FAILURE_OBSERVATION_ATTEMPTS,
+              intervalMs:
+                BATCH_FAILURE_OBSERVATION_INTERVAL_MS
+            }
+          ),
+          observeForWindow(
+            () =>
+              context.client.transactions.getFinalizedByHash(
+                transactionHash
+              ),
+            {
+              attempts:
+                BATCH_FAILURE_OBSERVATION_ATTEMPTS,
+              intervalMs:
+                BATCH_FAILURE_OBSERVATION_INTERVAL_MS
+            }
+          )
+        ]);
+      const receiptUnexpectedlySucceeded =
+        receiptResult.state === 'found' &&
+        receiptResult.value.success;
+      const finalizedUnexpectedlySucceeded =
+        finalizedResult.state === 'found' &&
+        finalizedResult.value.success;
+      const receipt: BatchFailureObservation['receipt'] =
+        receiptResult.state === 'found' &&
+        receiptResult.value.success === false
+          ? 'failure_receipt'
+          : 'not_found';
+      const finalized: BatchFailureObservation['finalized'] =
+        finalizedResult.state === 'found' &&
+        finalizedResult.value.success === false
+          ? 'failure_receipt'
+          : 'not_found';
+
+      const [
+        senderAfter,
+        validRecipientAfter,
+        blacklistedRecipientAfter,
+        operatorAfter
+      ] = await Promise.all([
+        context.client.accounts.getTokenAccount(
+          context.accounts.batchFailure.address,
+          fixture.tokenAddress
+        ),
+        context.client.accounts.getTokenAccount(
+          context.accounts.user1.address,
+          fixture.tokenAddress
+        ),
+        context.client.accounts.getTokenAccount(
+          context.accounts.user3.address,
+          fixture.tokenAddress
+        ),
+        context.client.accounts.getTokenAccount(
+          context.accounts.operator.address,
+          fixture.tokenAddress
+        )
+      ]);
+      expect(BigInt(senderAfter.balance)).to.equal(
+        BigInt(senderBefore.balance)
+      );
+      expect(BigInt(validRecipientAfter.balance)).to.equal(
+        BigInt(validRecipientBefore.balance)
+      );
+      expect(
+        BigInt(blacklistedRecipientAfter.balance)
+      ).to.equal(BigInt(blacklistedRecipientBefore.balance));
+      expect(BigInt(operatorAfter.balance)).to.equal(
+        BigInt(operatorBefore.balance)
+      );
+
+      const nodeNonce = (
+        await context.client.accounts.getNonce(
+          context.accounts.batchFailure.address
+        )
+      ).nonce;
+      const nonceDelta = nodeNonce - nonceBefore;
+      if (nonceDelta !== 0 && nonceDelta !== 1) {
+        throw new Error(
+          `[1Money SDK integration]: expected failed batch nonce delta 0 or 1, received ${nonceDelta}`
+        );
+      }
+
+      let nextValidTransaction:
+        BatchFailureObservation['next_valid_transaction'] =
+        'blocked';
+      let rawNextValidTransaction: Record<string, unknown>;
+      try {
+        const nextPrepared = TransactionBuilder.payment({
+          chain_id: chainId,
+          nonce: nodeNonce,
+          recipient: context.accounts.user1.address,
+          value: BATCH_FAILURE_OPERATION_AMOUNT,
+          token: fixture.tokenAddress
+        });
+        const { response } = await authorizeAndSubmitV2(
+          nextPrepared,
+          batchFailureSigner,
+          nextAuthorized =>
+            context.client.transactions.payment(
+              nextAuthorized
+            )
+        );
+        const nextReceipt = await waitForResult(
+          () =>
+            context.client.transactions.getReceiptByHash(
+              response.hash
+            ),
+          { intervalMs: 250 }
+        );
+        expect(nextReceipt.success).to.equal(true);
+        nextValidTransaction =
+          nonceDelta === 0
+            ? 'same_nonce_accepted'
+            : 'next_nonce_accepted';
+        rawNextValidTransaction = {
+          hash: response.hash,
+          nonce: nodeNonce
+        };
+      } catch (error) {
+        rawNextValidTransaction = {
+          nonce: nodeNonce,
+          status:
+            error instanceof TransactionSubmissionError
+              ? error.status
+              : undefined,
+          body:
+            error instanceof TransactionSubmissionError
+              ? error.data
+              : undefined,
+          message:
+            error instanceof Error
+              ? error.message
+              : String(error)
+        };
+      }
+
+      const observation: BatchFailureObservation = {
+        submission,
+        receipt,
+        finalized,
+        nonce_delta: nonceDelta,
+        next_valid_transaction:
+          nextValidTransaction,
+        balances_unchanged: true
+      };
+      console.log('BATCH_FAILURE_DIAGNOSTIC', {
+        submission: rawSubmission,
+        receipt:
+          receiptResult.state === 'found'
+            ? receiptResult.value
+            : receiptResult.error,
+        finalized:
+          finalizedResult.state === 'found'
+            ? finalizedResult.value
+            : finalizedResult.error,
+        next_valid_transaction:
+          rawNextValidTransaction
+      });
+      console.log('BATCH_FAILURE_OBSERVATION_BEGIN');
+      console.log(JSON.stringify(observation, null, 2));
+      console.log('BATCH_FAILURE_OBSERVATION_END');
+
+      if (
+        receiptUnexpectedlySucceeded ||
+        finalizedUnexpectedlySucceeded
+      ) {
+        throw new Error(
+          '[1Money SDK integration]: the deliberately invalid Batch Payment unexpectedly succeeded'
+        );
+      }
+    } finally {
+      await cleanupBatchFailureBlacklist(
+        fixture.tokenAddress
+      );
+    }
   });
 
   it('issues a private token through v2', async function () {
