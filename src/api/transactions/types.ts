@@ -174,7 +174,6 @@ export interface BatchPaymentPayload {
 
 export interface BatchPaymentData {
   token: AddressSchema | null;
-  max_fee: string;
   operations: PaymentOperation[];
   operations_hash: B256Schema | null;
   batch_id: string | null;

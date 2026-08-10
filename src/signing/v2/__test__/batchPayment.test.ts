@@ -361,4 +361,24 @@ describe('Batch Payment static validation', function () {
       'Batch Payment no longer accepts max_fee; call estimateBatchPaymentFee() for an unsigned quote'
     );
   });
+
+  it('rejects a non-enumerable legacy max_fee from untyped callers', function () {
+    const unsigned = { ...BASE } as Record<
+      string,
+      unknown
+    >;
+    Object.defineProperty(unsigned, 'max_fee', {
+      value: '1',
+      enumerable: false
+    });
+
+    expect(() =>
+      prepareTransactionV2(
+        'batchPayment',
+        unsigned as BatchPaymentUnsigned
+      )
+    ).to.throw(
+      'Batch Payment no longer accepts max_fee; call estimateBatchPaymentFee() for an unsigned quote'
+    );
+  });
 });

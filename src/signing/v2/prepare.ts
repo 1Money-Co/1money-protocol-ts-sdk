@@ -65,6 +65,18 @@ function snapshotUnsigned<T>(value: T): T {
   return value;
 }
 
+function assertNoBatchPaymentMaxFee(
+  unsigned: object
+): void {
+  if (
+    Object.prototype.hasOwnProperty.call(unsigned, 'max_fee')
+  ) {
+    throw new Error(
+      '[1Money SDK]: Batch Payment no longer accepts max_fee; call estimateBatchPaymentFee() for an unsigned quote'
+    );
+  }
+}
+
 export function prepareTransactionV2<
   K extends OperationName
 >(
@@ -97,6 +109,16 @@ export function prepareTransactionV2<
     throw new Error(
       `[1Money SDK]: ${operation} unsigned payload must not include a memo property -- pass it as the { memo } option instead.`
     );
+  }
+
+  // The canonical snapshot intentionally contains only enumerable
+  // own data, so it cannot be the first object inspected for this
+  // migration guard: a caller could otherwise hide max_fee behind a
+  // non-enumerable own property. Validate the original object before
+  // cloning, while retaining the private immutable snapshot used for
+  // every signing and wire operation below.
+  if (operation === 'batchPayment') {
+    assertNoBatchPaymentMaxFee(unsigned as object);
   }
 
   // Keep the value used for hashing private from both the caller's

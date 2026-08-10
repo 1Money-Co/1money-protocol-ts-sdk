@@ -4,6 +4,7 @@ import { hexToBytes, keccak256 } from 'viem';
 
 import {
   batchVectors,
+  parseBatchVectors,
   vector
 } from './helpers/vectors';
 import { readRawRlpItem } from './helpers/rawRlp';
@@ -27,6 +28,21 @@ const REQUIRED_OPERATION_CASES = [
 ] as const;
 
 describe('Batch Payment fixture contract', function () {
+  it('rejects malformed focused vector entries', function () {
+    const [entry] = batchVectors();
+    const malformed = {
+      ...entry,
+      payload: {
+        ...entry.payload,
+        created_at: 'not-a-number'
+      }
+    };
+
+    expect(() =>
+      parseBatchVectors({ vectors: [malformed] })
+    ).to.throw(/payload.created_at/);
+  });
+
   it('contains the complete focused Batch Payment oracle set', function () {
     const vectors = batchVectors();
     const names = new Set(vectors.map(entry => entry.name));
@@ -41,6 +57,45 @@ describe('Batch Payment fixture contract', function () {
     vectors.forEach(entry => {
       expect(entry.operation).to.equal('BatchPayment');
       expect(entry.operation_type).to.equal(14);
+      expect(Object.keys(entry.payload).sort()).to.deep.equal(
+        [
+          'batch_id',
+          'chain_id',
+          'created_at',
+          'nonce',
+          'operations',
+          'operations_hash',
+          'token'
+        ]
+      );
+      expect(entry.payload.chain_id).to.be.a('number');
+      expect(entry.payload.nonce).to.be.a('number');
+      expect(entry.payload.token).to.be.a('string');
+      expect(entry.payload.created_at).to.be.a('number');
+      expect(entry.payload.operations).to.be.an('array');
+      entry.payload.operations.forEach(operation => {
+        expect(Object.keys(operation).sort()).to.deep.equal(
+          ['amount', 'recipient']
+        );
+        expect(operation.recipient).to.be.a('string');
+        expect(operation.amount).to.be.a('string');
+      });
+      expect(entry.payload.operations_hash === null || typeof entry.payload.operations_hash === 'string').to.equal(true);
+      expect(entry.payload.batch_id === null || typeof entry.payload.batch_id === 'string').to.equal(true);
+      expect(Object.keys(entry.options)).to.satisfy(keys =>
+        keys.length === 0 ||
+        (keys.length === 1 && keys[0] === 'memo')
+      );
+      if (entry.options.memo) {
+        expect(entry.options.memo).to.deep.have.all.keys(
+          'type',
+          'format',
+          'data'
+        );
+        expect(entry.options.memo.type).to.be.a('string');
+        expect(entry.options.memo.format).to.be.a('string');
+        expect(entry.options.memo.data).to.be.a('string');
+      }
       expect(entry.expected.signing_hash).to.match(
         /^0x[0-9a-f]{64}$/i
       );
@@ -50,11 +105,7 @@ describe('Batch Payment fixture contract', function () {
       expect(entry.expected.operations_hash).to.match(
         /^0x[0-9a-f]{64}$/i
       );
-      expect(entry.payload).to.be.an('object');
-      expect(entry.options).to.be.an('object');
-      expect(entry.authorization).to.deep.include({
-        v: entry.authorization.v
-      });
+      expect(entry.authorization.v).to.be.oneOf([0, 1]);
       expect(entry.authorization.r).to.match(
         /^0x[0-9a-f]{64}$/i
       );
