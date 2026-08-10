@@ -80,11 +80,96 @@ export async function observeForWindow<T>(
 export function isConfirmedReadNotFound(
   error: unknown
 ): boolean {
+  if (
+    typeof error !== 'object' ||
+    error === null
+  ) {
+    return false;
+  }
+  const candidate = error as {
+    status?: unknown;
+    data?: unknown;
+  };
+  if (
+    typeof candidate.data !== 'object' ||
+    candidate.data === null
+  ) {
+    return false;
+  }
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { status?: unknown }).status === 404
+    candidate.status === 404 &&
+    (candidate.data as { error_code?: unknown })
+      .error_code ===
+      'resource_transaction_not_found'
   );
+}
+
+function receiptSuccess(
+  value: unknown,
+  label: string
+): boolean {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    typeof (value as { success?: unknown }).success !==
+      'boolean'
+  ) {
+    throw new Error(
+      `[1Money SDK integration]: ${label} lookup resolved with a malformed receipt`
+    );
+  }
+  return (value as { success: boolean }).success;
+}
+
+export function classifyFailedBatchObservation(
+  observation:
+    | { state: 'found'; value: unknown }
+    | { state: 'not_found'; error: unknown },
+  label: string
+): 'not_found' | 'failure_receipt' {
+  if (observation.state === 'not_found') {
+    return 'not_found';
+  }
+  if (receiptSuccess(observation.value, label)) {
+    throw new Error(
+      `[1Money SDK integration]: the deliberately invalid Batch Payment unexpectedly succeeded in the ${label}`
+    );
+  }
+  return 'failure_receipt';
+}
+
+export function requireSuccessfulReceipt(
+  value: unknown,
+  label: string
+): void {
+  if (!receiptSuccess(value, label)) {
+    throw new Error(
+      `[1Money SDK integration]: ${label} did not succeed`
+    );
+  }
+}
+
+export function classifyNextValidSubmissionError(
+  error: unknown,
+  nonce: number,
+  localHash: string
+): {
+  nextValidTransaction: 'blocked';
+  raw: Record<string, unknown>;
+} {
+  if (!(error instanceof TransactionSubmissionError)) {
+    throw error;
+  }
+  return {
+    nextValidTransaction: 'blocked',
+    raw: {
+      nonce,
+      status: error.status,
+      body: error.data,
+      local_hash: localHash,
+      message: error.message
+    }
+  };
 }
 
 export function classifyBatchFailureSubmission(

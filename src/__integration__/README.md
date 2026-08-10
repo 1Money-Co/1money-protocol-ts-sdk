@@ -102,9 +102,11 @@ is no single recipient. Read the ordered `PaymentExecuted` entries in
 
 The Batch Payment failure probe observes receipt and finalized lookups for
 exactly 30 attempts at 250 ms intervals. Only a confirmed HTTP 404 is treated
-as “not found” and retried through that window. A 500, timeout, network error,
-or unexpected exception aborts calibration immediately so an unhealthy read
-API cannot be recorded as normal receipt absence.
+as “not found”: its parsed response must also carry
+`error_code: "resource_transaction_not_found"`. A route/proxy 404, another
+resource code, a 500, timeout, network error, malformed receipt, or unexpected
+exception aborts calibration immediately so an unhealthy read API cannot be
+recorded as normal receipt absence.
 
 ## Adding a transaction scenario
 

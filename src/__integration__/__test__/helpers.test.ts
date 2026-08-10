@@ -7,8 +7,11 @@ import {
 
 import {
   classifyBatchFailureSubmission,
+  classifyFailedBatchObservation,
+  classifyNextValidSubmissionError,
   isConfirmedReadNotFound,
   observeForWindow,
+  requireSuccessfulReceipt,
   waitForResult
 } from '../helpers';
 
@@ -17,14 +20,20 @@ import type { ParsedError } from '@/client/core';
 function readError(
   status: number,
   message: string,
-  name: string = 'AxiosError'
+  name: string = 'AxiosError',
+  errorCode?: string
 ): ParsedError {
   return {
     name,
     message,
     stack: '',
     status,
-    data: { message }
+    data: {
+      message,
+      ...(errorCode
+        ? { error_code: errorCode }
+        : {})
+    }
   };
 }
 
@@ -95,7 +104,12 @@ describe('integration polling helper', function () {
       async () => {
         attempts += 1;
         if (attempts < 3) {
-          throw readError(404, 'not found');
+          throw readError(
+            404,
+            'not found',
+            'AxiosError',
+            'resource_transaction_not_found'
+          );
         }
         return 3;
       },
@@ -116,7 +130,9 @@ describe('integration polling helper', function () {
   it('returns not_found only after all 30 confirmed 404 responses', async function () {
     const finalError = readError(
       404,
-      'still missing'
+      'still missing',
+      'AxiosError',
+      'resource_transaction_not_found'
     );
     let attempts = 0;
     const observation = await observeForWindow(
@@ -167,6 +183,150 @@ describe('integration polling helper', function () {
 
       expect(caught).to.equal(failure);
       expect(attempts).to.equal(1);
+    }
+  });
+
+  it('does not treat route-level or wrong-code 404s as transaction absence', async function () {
+    const failures = [
+      readError(404, 'route not found'),
+      readError(
+        404,
+        'wrong resource',
+        'AxiosError',
+        'resource_account_not_found'
+      )
+    ];
+
+    for (const failure of failures) {
+      let caught: unknown;
+      try {
+        await observeForWindow(
+          async () => {
+            throw failure;
+          },
+          {
+            attempts: 30,
+            intervalMs: 0,
+            isNotFound: isConfirmedReadNotFound
+          }
+        );
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).to.equal(failure);
+    }
+  });
+
+  it('classifies only well-formed failed receipt observations', function () {
+    expect(
+      classifyFailedBatchObservation(
+        {
+          state: 'not_found',
+          error: readError(
+            404,
+            'not found',
+            'AxiosError',
+            'resource_transaction_not_found'
+          )
+        },
+        'receipt'
+      )
+    ).to.equal('not_found');
+    expect(
+      classifyFailedBatchObservation(
+        {
+          state: 'found',
+          value: { success: false }
+        },
+        'receipt'
+      )
+    ).to.equal('failure_receipt');
+
+    for (const value of [
+      null,
+      {},
+      { success: 'false' },
+      'malformed'
+    ]) {
+      expect(() =>
+        classifyFailedBatchObservation(
+          { state: 'found', value },
+          'receipt'
+        )
+      ).to.throw(/malformed receipt/);
+    }
+    expect(() =>
+      classifyFailedBatchObservation(
+        {
+          state: 'found',
+          value: { success: true }
+        },
+        'finalized receipt'
+      )
+    ).to.throw(/unexpectedly succeeded/);
+  });
+
+  it('requires a well-formed successful continuation receipt', function () {
+    expect(() =>
+      requireSuccessfulReceipt(
+        { success: true },
+        'continuation receipt'
+      )
+    ).not.to.throw();
+    expect(() =>
+      requireSuccessfulReceipt(
+        { success: false },
+        'continuation receipt'
+      )
+    ).to.throw(/did not succeed/);
+    expect(() =>
+      requireSuccessfulReceipt(
+        { success: 'true' },
+        'continuation receipt'
+      )
+    ).to.throw(/malformed receipt/);
+  });
+
+  it('maps only an explicit continuation refusal to blocked', function () {
+    expect(
+      classifyNextValidSubmissionError(
+        new TransactionSubmissionError(
+          422,
+          { message: 'refused' },
+          'refused'
+        ),
+        9,
+        '0xlocal'
+      )
+    ).to.deep.equal({
+      nextValidTransaction: 'blocked',
+      raw: {
+        nonce: 9,
+        status: 422,
+        body: { message: 'refused' },
+        local_hash: '0xlocal',
+        message:
+          '[1Money SDK]: Transaction submission refused (HTTP 422): refused. The transaction was NOT submitted -- it is safe to retry once the cause is addressed.'
+      }
+    });
+
+    const failures: unknown[] = [
+      new TransactionOutcomeUnknownError('0xlocal'),
+      new TransactionHashMismatchError(
+        '0xlocal',
+        '0xserver'
+      ),
+      readError(500, 'infrastructure failure'),
+      new Error('programming failure')
+    ];
+    for (const failure of failures) {
+      expect(() =>
+        classifyNextValidSubmissionError(
+          failure,
+          9,
+          '0xlocal'
+        )
+      ).to.throw();
     }
   });
 

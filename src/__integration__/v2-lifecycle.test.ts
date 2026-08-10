@@ -17,14 +17,16 @@ import {
   ManageListAction,
   PauseAction
 } from '@/api/tokens/types';
-import { TransactionSubmissionError } from '@/api/errors';
 
 import { getIntegrationContext } from './context';
 import {
   classifyBatchFailureSubmission,
+  classifyFailedBatchObservation,
+  classifyNextValidSubmissionError,
   generateRandomSymbol,
   isConfirmedReadNotFound,
   observeForWindow,
+  requireSuccessfulReceipt,
   waitForResult
 } from './helpers';
 import { authorizeAndSubmitV2 } from './v2';
@@ -1789,22 +1791,16 @@ describe('native v2 lifecycle integration', function () {
             }
           )
         ]);
-      const receiptUnexpectedlySucceeded =
-        receiptResult.state === 'found' &&
-        receiptResult.value.success;
-      const finalizedUnexpectedlySucceeded =
-        finalizedResult.state === 'found' &&
-        finalizedResult.value.success;
       const receipt: BatchFailureObservation['receipt'] =
-        receiptResult.state === 'found' &&
-        receiptResult.value.success === false
-          ? 'failure_receipt'
-          : 'not_found';
+        classifyFailedBatchObservation(
+          receiptResult,
+          'receipt'
+        );
       const finalized: BatchFailureObservation['finalized'] =
-        finalizedResult.state === 'found' &&
-        finalizedResult.value.success === false
-          ? 'failure_receipt'
-          : 'not_found';
+        classifyFailedBatchObservation(
+          finalizedResult,
+          'finalized receipt'
+        );
 
       const [
         senderAfter,
@@ -1854,57 +1850,69 @@ describe('native v2 lifecycle integration', function () {
         );
       }
 
-      let nextValidTransaction:
-        BatchFailureObservation['next_valid_transaction'] =
-        'blocked';
-      let rawNextValidTransaction: Record<string, unknown>;
-      try {
-        const nextPrepared = TransactionBuilder.payment({
-          chain_id: chainId,
-          nonce: nodeNonce,
-          recipient: context.accounts.user1.address,
-          value: BATCH_FAILURE_OPERATION_AMOUNT,
-          token: fixture.tokenAddress
-        });
-        const { response } = await authorizeAndSubmitV2(
-          nextPrepared,
-          batchFailureSigner,
-          nextAuthorized =>
-            context.client.transactions.payment(
-              nextAuthorized
-            )
+      const nextPrepared = TransactionBuilder.payment({
+        chain_id: chainId,
+        nonce: nodeNonce,
+        recipient: context.accounts.user1.address,
+        value: BATCH_FAILURE_OPERATION_AMOUNT,
+        token: fixture.tokenAddress
+      });
+      const nextSignature =
+        await batchFailureSigner.signDigest(
+          nextPrepared.signingHash
         );
+      const nextAuthorized =
+        nextPrepared.authorize(nextSignature);
+      let nextResponse: { hash: string } | undefined;
+      let blocked:
+        | ReturnType<
+            typeof classifyNextValidSubmissionError
+          >
+        | undefined;
+      try {
+        nextResponse =
+          await context.client.transactions.payment(
+            nextAuthorized
+          );
+      } catch (error) {
+        blocked = classifyNextValidSubmissionError(
+          error,
+          nodeNonce,
+          nextAuthorized.transactionHash
+        );
+      }
+
+      let nextValidTransaction:
+        BatchFailureObservation['next_valid_transaction'];
+      let rawNextValidTransaction: Record<string, unknown>;
+      if (blocked) {
+        nextValidTransaction =
+          blocked.nextValidTransaction;
+        rawNextValidTransaction = blocked.raw;
+      } else {
+        if (!nextResponse) {
+          throw new Error(
+            '[1Money SDK integration]: continuation submission returned no response and no error'
+          );
+        }
         const nextReceipt = await waitForResult(
           () =>
             context.client.transactions.getReceiptByHash(
-              response.hash
+              nextResponse.hash
             ),
           { intervalMs: 250 }
         );
-        expect(nextReceipt.success).to.equal(true);
+        requireSuccessfulReceipt(
+          nextReceipt,
+          'continuation receipt'
+        );
         nextValidTransaction =
           nonceDelta === 0
             ? 'same_nonce_accepted'
             : 'next_nonce_accepted';
         rawNextValidTransaction = {
-          hash: response.hash,
+          hash: nextResponse.hash,
           nonce: nodeNonce
-        };
-      } catch (error) {
-        rawNextValidTransaction = {
-          nonce: nodeNonce,
-          status:
-            error instanceof TransactionSubmissionError
-              ? error.status
-              : undefined,
-          body:
-            error instanceof TransactionSubmissionError
-              ? error.data
-              : undefined,
-          message:
-            error instanceof Error
-              ? error.message
-              : String(error)
         };
       }
 
@@ -1933,15 +1941,6 @@ describe('native v2 lifecycle integration', function () {
       console.log('BATCH_FAILURE_OBSERVATION_BEGIN');
       console.log(JSON.stringify(observation, null, 2));
       console.log('BATCH_FAILURE_OBSERVATION_END');
-
-      if (
-        receiptUnexpectedlySucceeded ||
-        finalizedUnexpectedlySucceeded
-      ) {
-        throw new Error(
-          '[1Money SDK integration]: the deliberately invalid Batch Payment unexpectedly succeeded'
-        );
-      }
     } finally {
       await cleanupBatchFailureBlacklist(
         fixture.tokenAddress
