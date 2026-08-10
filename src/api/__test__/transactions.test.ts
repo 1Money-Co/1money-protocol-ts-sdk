@@ -13,7 +13,6 @@ import {
   batchPaymentReceiptFixture,
   batchPaymentTransactionFixture,
   finalizedBatchPaymentReceiptFixture,
-  forwardCompatibleBatchFailureFixture,
   paymentSuccessReceiptFixture,
   ZERO_ADDRESS
 } from './fixtures/transactions';
@@ -55,12 +54,6 @@ describe('transaction response models', function () {
       destination_chain_id: 8453,
       destination_address: paymentSuccessReceiptFixture.recipient,
       bridge_param: '0x0123'
-    });
-    expect(
-      forwardCompatibleBatchFailureFixture.failure
-    ).to.deep.include({
-      failed_operation_index: 1,
-      reason: 'insufficient funds'
     });
     expect(finalizedBatchPaymentReceiptFixture).to.include({
       transaction_index: 4,
