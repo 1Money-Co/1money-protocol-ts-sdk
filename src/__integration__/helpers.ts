@@ -3,6 +3,18 @@ import {
   TransactionSubmissionError
 } from '@/api/errors';
 
+export function totalMintAllocation(
+  allocations: readonly { amount: string }[]
+): string {
+  return allocations
+    .reduce(
+      (total, allocation) =>
+        total + BigInt(allocation.amount),
+      BigInt(0)
+    )
+    .toString();
+}
+
 export function wait(
   ms: number
 ): Promise<void> {

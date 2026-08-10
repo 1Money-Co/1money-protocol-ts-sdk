@@ -27,6 +27,7 @@ import {
   isConfirmedReadNotFound,
   observeForWindow,
   requireSuccessfulReceipt,
+  totalMintAllocation,
   waitForResult
 } from './helpers';
 import { authorizeAndSubmitV2 } from './v2';
@@ -189,6 +190,26 @@ describe('native v2 lifecycle integration', function () {
           );
         const fixtureTokenAddress =
           issueResponse.token;
+        const mintAllocations = [
+          {
+            recipient: context.accounts.user2.address,
+            amount: BATCH_PAYMENT_FIXTURE_BALANCE
+          },
+          {
+            recipient: context.accounts.user1.address,
+            amount: BATCH_PAYMENT_RECIPIENT_BALANCE
+          },
+          {
+            recipient: context.accounts.user3.address,
+            amount: BATCH_PAYMENT_RECIPIENT_BALANCE
+          },
+          {
+            recipient: context.accounts.operator.address,
+            amount: BATCH_PAYMENT_RECIPIENT_BALANCE
+          }
+        ];
+        const mintAllowance =
+          totalMintAllocation(mintAllocations);
 
         const issueReceipt = await waitForResult(
           () =>
@@ -222,7 +243,7 @@ describe('native v2 lifecycle integration', function () {
             authority_address:
               context.accounts.user1.address,
             token: fixtureTokenAddress,
-            value: BATCH_PAYMENT_FIXTURE_BALANCE
+            value: mintAllowance
           });
         const { response: authorityResponse } =
           await authorizeAndSubmitV2(
@@ -300,22 +321,12 @@ describe('native v2 lifecycle integration', function () {
           expect(receipt.success).to.equal(true);
         };
 
-        await mintTo(
-          context.accounts.user2.address,
-          BATCH_PAYMENT_FIXTURE_BALANCE
-        );
-        await mintTo(
-          context.accounts.user1.address,
-          BATCH_PAYMENT_RECIPIENT_BALANCE
-        );
-        await mintTo(
-          context.accounts.user3.address,
-          BATCH_PAYMENT_RECIPIENT_BALANCE
-        );
-        await mintTo(
-          context.accounts.operator.address,
-          BATCH_PAYMENT_RECIPIENT_BALANCE
-        );
+        for (const allocation of mintAllocations) {
+          await mintTo(
+            allocation.recipient,
+            allocation.amount
+          );
+        }
 
         const [sender, firstRecipient, secondRecipient, operator] =
           await waitForResult(

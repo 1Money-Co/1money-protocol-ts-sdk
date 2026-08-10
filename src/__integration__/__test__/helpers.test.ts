@@ -12,6 +12,7 @@ import {
   isConfirmedReadNotFound,
   observeForWindow,
   requireSuccessfulReceipt,
+  totalMintAllocation,
   waitForResult
 } from '../helpers';
 
@@ -38,6 +39,22 @@ function readError(
 }
 
 describe('integration polling helper', function () {
+  it('totals every Batch Payment fixture mint allocation', function () {
+    const allocations = [
+      { recipient: 'sender', amount: '1000000' },
+      { recipient: 'first recipient', amount: '1' },
+      { recipient: 'second recipient', amount: '1' },
+      { recipient: 'operator', amount: '1' }
+    ];
+
+    const allowance = totalMintAllocation(allocations);
+
+    expect(allowance).to.equal('1000003');
+    expect(BigInt('1000000') < BigInt(allowance)).to.equal(
+      true
+    );
+  });
+
   it('returns an immediately available result', async function () {
     const result = await waitForResult(
       async () => 'ready',
