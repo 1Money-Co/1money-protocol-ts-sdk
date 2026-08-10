@@ -5,6 +5,7 @@ import { get, post } from '@/client';
 import type { Hash } from '@/api/types';
 import type { AuthorizedTxV2 } from '@/signing/v2';
 import type {
+  BatchFeeEstimateRequest,
   EstimateFee,
   FinalizedTransactionReceipt,
   PaymentPayload,
@@ -57,6 +58,18 @@ export const transactionsApi = {
     const url = `${API_PREFIX}/estimate_fee?from=${from}&value=${value}&to=${to}&token=${token}`;
     return get<'custom', EstimateFee>(url, { withCredentials: false });
   },
+
+  /**
+   * Estimate the fee for an unsigned Batch Payment.
+   */
+  estimateBatchPaymentFee: (
+    request: BatchFeeEstimateRequest
+  ) =>
+    post<'custom', EstimateFee>(
+      `${API_PREFIX}/batch_payment/estimate_fee`,
+      request,
+      { withCredentials: false }
+    ),
 
   /**
    * Submit a domain-separated v2 payment.

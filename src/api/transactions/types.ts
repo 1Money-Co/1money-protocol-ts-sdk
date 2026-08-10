@@ -28,6 +28,13 @@ export interface FinalizedTransactionReceipt extends TransactionReceipt {
 // Estimate fee response
 export interface EstimateFee {
   fee: string;
+  plan?: string;
+}
+
+export interface BatchFeeEstimateRequest {
+  from: AddressSchema;
+  token: AddressSchema;
+  operations: PaymentOperation[];
 }
 
 // Payment transaction payload

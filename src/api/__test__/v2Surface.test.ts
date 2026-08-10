@@ -16,6 +16,9 @@ describe('v2 write surface', function () {
     expect(
       client.transactions.batchPayment
     ).to.be.a('function');
+    expect(
+      client.transactions.estimateBatchPaymentFee
+    ).to.be.a('function');
   });
 
   it('exposes all eleven v2 token writes', function () {

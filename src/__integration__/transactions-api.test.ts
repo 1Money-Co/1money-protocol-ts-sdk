@@ -32,6 +32,9 @@ describe('transactions API integration', function () {
     expect(transactions.estimateFee).to.be.a(
       'function'
     );
+    expect(
+      transactions.estimateBatchPaymentFee
+    ).to.be.a('function');
   });
 
   it('exposes v2 payment methods', function () {
