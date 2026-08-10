@@ -361,7 +361,7 @@ const { nonce } = await apiClient.accounts.getNonce(mintAuthority);
 const prepared = TransactionBuilder.tokenMint({
   chain_id,
   nonce,
-  recipient: '0xa128999Be299373D7881f4aDD11510030ad13512',
+  recipient: '0xa128999be299373d7881f4add11510030ad13512',
   value: '1000000000000000000',
   token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
 });
@@ -429,7 +429,7 @@ const prepared = TransactionBuilder.tokenWhitelist({
   chain_id,
   nonce,
   action: ManageListAction.Add,
-  address: '0xa128999Be299373D7881f4aDD11510030ad13512',
+  address: '0xa128999be299373d7881f4add11510030ad13512',
   token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
 });
 
@@ -493,7 +493,7 @@ const prepared = TransactionBuilder.tokenClawback({
   chain_id,
   nonce,
   token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
-  from: '0xa128999Be299373D7881f4aDD11510030ad13512',
+  from: '0xa128999be299373d7881f4add11510030ad13512',
   recipient: clawbackAuthority,
   value: '1000000000000000000'
 });
@@ -765,7 +765,7 @@ const { nonce } = await apiClient.accounts.getNonce(senderAddress);
 const prepared = TransactionBuilder.payment({
   chain_id,
   nonce,
-  recipient: '0xa128999Be299373D7881f4aDD11510030ad13512',
+  recipient: '0xa128999be299373d7881f4add11510030ad13512',
   value: '1000000000',
   token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
 });
@@ -802,7 +802,7 @@ const senderAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
 const token = '0x2cd8999Be299373D7881f4aDD11510030ad1412F';
 const operations = [
-  { recipient: '0xa128999Be299373D7881f4aDD11510030ad13512', amount: '1000000000' },
+  { recipient: '0xa128999be299373d7881f4add11510030ad13512', amount: '1000000000' },
   { recipient: '0x6324dAc598f9B637824978eD6b268C896E0c40E0', amount: '2000000000' }
 ];
 
@@ -845,7 +845,11 @@ const authorized = prepared.authorize(signature);
 // v2 write: returns a plain Promise -- await it in a try/catch.
 try {
   const response = await apiClient.transactions.batchPayment(authorized);
-  if (response.hash !== authorized.transactionHash) {
+  // The SDK already checks this case-insensitively before resolving.
+  if (
+    response.hash.toLowerCase() !==
+    authorized.transactionHash.toLowerCase()
+  ) {
     throw new Error('SDK already rejects a server/local hash mismatch');
   }
   console.log('Batch payment transaction hash:', response.hash);
@@ -897,6 +901,15 @@ compatibility but is `null` in current production-shaped responses and is not a
 terminal-failure signal. If any operation fails, the node rolls back every
 recipient credit, the sender debit, and operator-fee movement together; do not
 infer a non-null failure object from that rule.
+
+To verify an intentional rollback scenario, do not rely on a receipt or an
+error body as a terminal signal: failure can be receipt-less or ambiguous, and
+`batch_info.failure` remains `null` in current behavior. Before submission,
+snapshot balances for the sender, every planned recipient, and the operator fee
+recipient. Submit once, make only a bounded observation of the submission and
+ordinary/finalized receipt paths, then verify every snapshot is unchanged. Use
+an isolated sender so any uncertain nonce or mempool state cannot affect other
+transactions.
 
 
 ## Utility Functions

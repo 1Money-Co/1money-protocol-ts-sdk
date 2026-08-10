@@ -77,7 +77,7 @@ import {
 const client = api({ network: 'testnet' });
 const token = '0x2cd8999Be299373D7881f4aDD11510030ad1412F';
 const operations = [
-  { recipient: '0xa128999Be299373D7881f4aDD11510030ad13512', amount: '1000' },
+  { recipient: '0xa128999be299373d7881f4add11510030ad13512', amount: '1000' },
   { recipient: '0x6324dAc598f9B637824978eD6b268C896E0c40E0', amount: '2000' },
 ];
 
@@ -114,8 +114,10 @@ const signature = await createPrivateKeySigner(privateKey).signDigest(
 const authorized = prepared.authorize(signature);
 const { hash } = await client.transactions.batchPayment(authorized);
 
-// The v2 submit path verifies this equality before it returns.
-console.log(hash === authorized.transactionHash);
+// The v2 submit path verifies this equality case-insensitively before it returns.
+console.log(
+  hash.toLowerCase() === authorized.transactionHash.toLowerCase()
+);
 ```
 
 `operations_hash` is optional, but if supplied it must equal
@@ -138,6 +140,13 @@ recipient. Obtain actual recipients and amounts from `PaymentExecuted` entries
 in `execution_events`. `batch_info.failure` is currently `null` in production
 responses; it is reserved for forward compatibility and not a terminal-failure
 signal.
+
+For an intentional rollback check, do not wait indefinitely for a failure
+receipt or infer an outcome from `batch_info.failure`. Record balances for the
+sender, every intended recipient, and the operator fee recipient before one
+submission. After bounded observation of submission and ordinary/finalized
+receipt paths, require every recorded balance to be unchanged. Use an isolated
+sender so ambiguous nonce or mempool state does not affect other work.
 
 ## Response compatibility
 

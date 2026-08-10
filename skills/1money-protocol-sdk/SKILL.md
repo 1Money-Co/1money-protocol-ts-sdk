@@ -168,7 +168,7 @@ const prepared = TransactionBuilder.payment(
   {
     chain_id,
     nonce,
-    recipient: '0xa128999Be299373D7881f4aDD11510030ad13512',
+    recipient: '0xa128999be299373d7881f4add11510030ad13512',
     value: '1000000000',           // ALWAYS a string in the token's base units
     token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
   },
@@ -266,7 +266,7 @@ const signature = await createPrivateKeySigner(privateKey).signDigest(
 );
 const authorized = prepared.authorize(signature);
 const { hash } = await client.transactions.batchPayment(authorized);
-// submit verifies hash === authorized.transactionHash before resolving.
+// submit compares normalized local/server hashes before resolving.
 ```
 
 | Purpose | SDK call | Node route | Return |
@@ -293,6 +293,13 @@ amounts from `execution_events` entries whose `event_type` is
 `'PaymentExecuted'`. `batch_info.failure` is a forward-compatible field but is
 currently `null` in production responses, so it is not a terminal-failure
 signal. See `references/transactions.md` for the full response discussion.
+
+When testing an intentional rollback, do not expect a failure receipt or use
+`batch_info.failure` as a terminal signal. Take before/after balance snapshots
+for the sender, every intended recipient, and the operator fee recipient; after
+one submission and bounded observation of submission plus receipt paths, every
+balance must be unchanged. Keep this on an isolated sender because the failed
+submission can be receipt-less or otherwise ambiguous.
 
 ### Receipt and estimate compatibility
 

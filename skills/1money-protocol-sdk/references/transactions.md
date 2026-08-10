@@ -197,8 +197,8 @@ const signature = await createPrivateKeySigner(privateKey).signDigest(
 const authorized = prepared.authorize(signature);
 const { hash } = await client.transactions.batchPayment(authorized);
 
-// submitAuthorized verifies this before it resolves.
-if (hash !== authorized.transactionHash) {
+// submitAuthorized verifies this case-insensitively before it resolves.
+if (hash.toLowerCase() !== authorized.transactionHash.toLowerCase()) {
   throw new Error('unreachable: v2 submission checks the returned hash');
 }
 ```
@@ -256,6 +256,14 @@ sentinel for Batch Payment, not a recipient. The actual ordered recipients and
 amounts are `execution_events` with `event_type: 'PaymentExecuted'`.
 `batch_info.failure` is a forward-compatible field but current production
 behavior returns `null`; it is not a terminal-failure signal.
+
+For a rollback verification scenario, failure can be receipt-less or ambiguous:
+do not poll indefinitely, and do not treat either an error body or
+`batch_info.failure` as a terminal signal. Before a single submission, snapshot
+the sender, every intended recipient, and the operator fee recipient balances.
+After bounded observation of submission plus ordinary and finalized receipt
+paths, require every recorded balance to be unchanged. Use an isolated sender
+to avoid uncertain nonce or mempool state contaminating other transactions.
 
 ### tokenIssue → tokens.issueToken
 ```typescript
