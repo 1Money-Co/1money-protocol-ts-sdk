@@ -91,7 +91,9 @@ original input object or `prepared.unsigned` later cannot change the request
 produced by `authorize`; the transmitted business fields therefore remain
 identical to the fields used for `signingHash`. Treat `prepared.unsigned` as
 diagnostic data rather than a way to edit a prepared transaction—prepare a
-new transaction when any field changes.
+new transaction when any field changes. Each `authorize` call also returns an
+independent request snapshot. Mutating a prior `authorized.request`, including
+its `memo`, cannot alter a later authorization or its hashes.
 
 `createPrivateKeySigner(privateKey: \`0x${string}\`)` produces a
 `SignerAdapter` (`{ signDigest(digest) => Promise<Signature> }`) that signs

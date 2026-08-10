@@ -1022,7 +1022,9 @@ change for any code calling `TransactionBuilder` directly.
 - **Write methods now take an `AuthorizedTxV2`**, the output of
   `prepared.authorize(signature)`, instead of a request object assembled from
   `signed.toRequest()`. `AuthorizedTxV2` is plain JSON and can cross a process
-  boundary (sign in one place, submit from another).
+  boundary (sign in one place, submit from another). Each call to `authorize`
+  returns an independent request snapshot; mutating an earlier request,
+  including its memo, cannot affect a later authorization or its hashes.
 - **Write methods now return a native `Promise`, not the chainable wrapper.**
   This is the easy one to miss, because **reads are unchanged** — the same
   client now has two call styles:

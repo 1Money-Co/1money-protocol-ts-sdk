@@ -173,7 +173,7 @@ export function prepareTransactionV2<
           ? spec.wireFields(canonicalUnsigned)
           : { ...canonicalUnsigned })
       };
-      body.memo = memo;
+      body.memo = { ...memo };
       body.authorization =
         singleSecp256k1(signature);
 

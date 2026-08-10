@@ -88,6 +88,47 @@ describe('native v2 prepare', function () {
     });
   });
 
+  it('returns an independent canonical memo from every authorization', function () {
+    const memo = {
+      type: 'purpose/SALA',
+      format: 'text/plain',
+      data: 'invoice-0001'
+    };
+    const signature = {
+      r: `0x${'aa'.repeat(32)}` as `0x${string}`,
+      s: `0x${'11'.repeat(32)}` as `0x${string}`,
+      v: 1
+    } as const;
+    const prepared = prepareTransactionV2(
+      'payment',
+      PAYMENT,
+      { memo }
+    );
+    const first = prepared.authorize(signature);
+
+    (first.request.memo as typeof memo).data =
+      'poisoned';
+
+    const second = prepared.authorize(signature);
+    const fresh = prepareTransactionV2(
+      'payment',
+      PAYMENT,
+      { memo }
+    );
+    const expected = fresh.authorize(signature);
+
+    expect(second.request.memo).to.deep.equal(memo);
+    expect(second.request).to.deep.equal(
+      expected.request
+    );
+    expect(prepared.signingHash).to.equal(
+      fresh.signingHash
+    );
+    expect(second.transactionHash).to.equal(
+      expected.transactionHash
+    );
+  });
+
   it('emits a tagged authorization and no legacy signature', function () {
     const authorized = TransactionBuilderV2.payment(
       PAYMENT
