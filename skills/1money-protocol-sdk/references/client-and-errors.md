@@ -12,6 +12,21 @@ Always `await` a v2 write in a `try/catch`; see
 [`TransactionHashMismatchError`](#transactionhashmismatcherror) below for why
 that `catch` matters.
 
+### Batch Payment estimate versus submission
+
+`client.transactions.estimateBatchPaymentFee({ from, token, operations })` is
+an unsigned `POST /v1` estimate but deliberately uses this normal
+promise-wrapper behavior. Handle its validation, transport, and timeout errors
+with `.error()`/`.timeout()` or a normal `try/catch`, exactly as for a read. Its
+`{ fee: string; plan?: string }` response is non-binding and does not mean a
+transaction entered admission.
+
+`client.transactions.batchPayment(authorized)` is different: it is a native-v2
+submission and returns a plain promise. Its failures use the retry-safety
+semantics in [the three outcomes of a v2 write](#the-three-outcomes-of-a-v2-write).
+Do not treat an estimate error as a submission outcome, and do not retry an
+ambiguous submit just because a previous estimate succeeded.
+
 ### Await style
 
 ```typescript

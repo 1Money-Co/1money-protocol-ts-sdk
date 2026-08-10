@@ -105,12 +105,31 @@ interface MintInfo {
 client.transactions.getByHash(hash: string)          // → Transaction
 client.transactions.getReceiptByHash(hash: string)   // → TransactionReceipt
 client.transactions.getFinalizedByHash(hash: string) // → FinalizedTransactionReceipt
-client.transactions.estimateFee(from, to, value, token) // → { fee: string }
+client.transactions.estimateFee(from, to, value, token) // → { fee: string; plan?: string }
+client.transactions.estimateBatchPaymentFee({
+  from, token, operations,
+}) // → { fee: string; plan?: string }
 ```
 
 `estimateFee(from: string, to: string, value: string, token: string)` — note the
 argument order is **from, to, value, token** (value before to in the URL, but the
 function signature is from/to/value/token).
+
+`estimateBatchPaymentFee(request)` is an unsigned promise-wrapper request to
+`POST /v1/transactions/batch_payment/estimate_fee` with exactly:
+
+```typescript
+interface BatchFeeEstimateRequest {
+  from: string;
+  token: string;
+  operations: Array<{ recipient: string; amount: string }>;
+}
+```
+
+It returns the shared `EstimateFee` shape `{ fee: string; plan?: string }`.
+`plan` is optional for both this method and the existing `estimateFee()` method;
+it is not a Batch Payment-only response type. Both estimators are point-in-time
+quotes, not signed fee caps or admission guarantees.
 
 `TransactionReceipt`:
 
@@ -118,16 +137,62 @@ function signature is from/to/value/token).
 interface TransactionReceipt {
   success: boolean;            // did the tx succeed on-chain
   transaction_hash: string;
-  fee_used: number;
+  transaction_index?: number;
+  fee_used: string;            // decimal string; preserves full precision
   from: string;
   checkpoint_hash?: string;
   checkpoint_number?: number;
-  to?: string;
-  token_address?: string;
+  recipient?: string | null;   // replaces the former `to` field
+  token_address?: string | null;
+  success_info?: {
+    sender: string;
+    receiver: string;
+    is_private: boolean;
+    message: string;
+    bridge_info: {
+      bbnonce: number;
+      destination_chain_id: number;
+      destination_address: string;
+      bridge_param: string;
+    } | null;
+  };
+  batch_info?: {
+    batch_id: string | null;
+    operations_hash: string | null;
+    operations_count: number;
+    total_amount: string;
+    failure: {
+      failed_operation_index: number;
+      reason: string;
+    } | null;
+  };
+  execution_events?: Array<
+    | {
+        event_type: 'BatchStarted' | 'BatchCompleted';
+        batch_id: string | null;
+        operations_count: number;
+        total_amount: string;
+        operations_hash: string | null;
+      }
+    | {
+        event_type: 'PaymentExecuted';
+        operation_index: number;
+        recipient: string;
+        amount: string;
+      }
+  >;
 }
 // FinalizedTransactionReceipt extends it with:
 //   epoch: number; counter_signatures: { r; s; v }[]
 ```
+
+`FinalizedTransactionReceipt` inherits every common receipt field above, so
+callers of finalized reads must migrate `fee_used` from number to string and
+`to` to `recipient` too. On a Batch Payment receipt,
+`success_info.receiver` is the zero-address sentinel because there is no
+singular recipient. Use `PaymentExecuted` entries in `execution_events` for
+actual recipient addresses and amounts. `batch_info.failure` is currently
+`null` in production-shaped responses and is not a terminal-failure signal.
 
 `Transaction` is a **discriminated union** keyed by `transaction_type`
 (`'TokenCreate' | 'TokenTransfer' | 'TokenMint' | 'TokenGrantAuthority' |
@@ -139,6 +204,14 @@ interface TransactionReceipt {
 plus optional `checkpoint_*`/`transaction_index` and an optional `memo` (present
 only for V2/memo-bearing txs); each carries a `data` object specific to its type.
 Narrow on `transaction_type` before reading `data`.
+
+For `transaction_type: 'BatchPayment'`, `data` has the independently modeled
+read shape `{ token, operations, operations_hash, batch_id, created_at }`; its
+`operations` response entries are deliberately independent from write-side
+`PaymentOperation` even though both currently serialize as recipient/amount.
+It intentionally does not contain the removed `max_fee` field. The SDK exposes
+only canonical v2 Batch Payment submission; use the estimator above followed by
+the `TransactionBuilder.batchPayment` lifecycle in `transactions.md`.
 
 ## checkpoints
 

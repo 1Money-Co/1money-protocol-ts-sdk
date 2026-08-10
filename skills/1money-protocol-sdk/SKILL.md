@@ -103,7 +103,7 @@ const slow = api({ network: 'testnet', timeout: 5000 }); // ms, default 10000
 ## The promise-wrapper pattern (read this before any call)
 
 **Reads return the chainable wrapper; native v2 writes return a plain
-`Promise`.** Every read method (all `get*`/`estimateFee` calls) and every
+`Promise`.** Every read method (all `get*`/`estimate*` calls) and every
 `legacyV1.*` write returns a thenable with handler methods — chain handlers or
 `await` directly, your choice. The native v2 write methods (`payment`,
 `batchPayment`, `issueToken`, `mintToken`, `burnToken`, `clawbackToken`,
@@ -214,6 +214,93 @@ fourteen native v2 operations):
 and `createMultisig` are v2-only: there is no legacy form of either, and
 `accounts` has no `legacyV1` namespace at all.
 
+## Batch Payment: the complete lifecycle
+
+Batch Payment is canonical native v2 only: use the unsigned estimate, then
+prepare → sign → authorize → submit → read. Do not look for or construct a
+legacy Batch Payment request even if a node retains a deprecated v1 route.
+
+```typescript
+import {
+  api,
+  TransactionBuilder,
+  calculateBatchPaymentOperationsHash,
+  createPrivateKeySigner,
+} from '@1money/protocol-ts-sdk';
+
+const client = api({ network: 'testnet' });
+const operations = [
+  { recipient: firstRecipient, amount: '1000' },
+  { recipient: secondRecipient, amount: '2000' },
+];
+
+// Promise-wrapper estimate: unsigned and non-binding; never use it as a cap.
+const quote = await client.transactions.estimateBatchPaymentFee({
+  from: sender,
+  token,
+  operations,
+}); // { fee: string, plan?: string }
+
+const { chain_id } = await client.chain.getChainId();
+const { nonce } = await client.accounts.getNonce(sender);
+const prepared = TransactionBuilder.batchPayment(
+  {
+    chain_id,
+    nonce,
+    token,
+    operations,
+    created_at: Math.floor(Date.now() / 1000),
+    operations_hash: calculateBatchPaymentOperationsHash(operations),
+    batch_id: 'payroll-2026-08',
+  },
+  {
+    memo: {
+      type: 'purpose/SALA',
+      format: 'text/plain',
+      data: 'payroll-2026-08',
+    },
+  }
+);
+const signature = await createPrivateKeySigner(privateKey).signDigest(
+  prepared.signingHash
+);
+const authorized = prepared.authorize(signature);
+const { hash } = await client.transactions.batchPayment(authorized);
+// submit verifies hash === authorized.transactionHash before resolving.
+```
+
+| Purpose | SDK call | Node route | Return |
+| --- | --- | --- | --- |
+| Unsigned fee quote | `transactions.estimateBatchPaymentFee({ from, token, operations })` | `POST /v1/transactions/batch_payment/estimate_fee` | `{ fee: string; plan?: string }` |
+| Canonical submit | `transactions.batchPayment(authorized)` | `POST /v2/transactions/batch_payment` | `{ hash }` |
+
+`operations_hash` is optional, but a supplied value is recomputed with
+`calculateBatchPaymentOperationsHash(operations)` and a mismatch throws before
+signing. The helper does not add it for you. `batch_id` is correlation metadata,
+not a unique idempotency, deduplication, or replay key; the transaction nonce
+is the replay mechanism. The removed `max_fee` field must not be supplied.
+
+Batch Payment always signs and sends a memo: omitting it yields
+`{ type: '', format: '', data: '' }`. Actual sender debit is the operations'
+total plus actual receipt `fee_used`, not the quote. Enablement, maximum
+operation count, encoded size, and fee asset remain node-governance rules, so
+the quote is non-binding. Any failed operation rolls back every recipient
+credit, sender debit, and operator-fee movement atomically.
+
+For a successful Batch Payment receipt, `success_info.receiver` is the
+zero-address sentinel, not a recipient; obtain actual recipient addresses and
+amounts from `execution_events` entries whose `event_type` is
+`'PaymentExecuted'`. `batch_info.failure` is a forward-compatible field but is
+currently `null` in production responses, so it is not a terminal-failure
+signal. See `references/transactions.md` for the full response discussion.
+
+### Receipt and estimate compatibility
+
+`TransactionReceipt.fee_used` is a string and `to` is now `recipient`; those
+same common fields are inherited by `FinalizedTransactionReceipt`. The shared
+`EstimateFee` response includes optional `plan?: string` for both
+`estimateBatchPaymentFee()` and the existing `estimateFee()` method.
+
 Exact parameter fields for each builder, the enum values they need, the memo
 rule in full, `deriveMultisigAddress` for computing a multisig account address
 before submission, a custom-signer pattern (wallets/HSM), the alternate
@@ -235,6 +322,8 @@ import {
 
 const client = api({ network: 'testnet' });
 client.transactions.payment(authorizedTxV2);          // v2 write
+client.transactions.estimateBatchPaymentFee({ from, token, operations }); // unsigned /v1 quote
+client.transactions.batchPayment(authorizedTxV2);     // canonical v2-only write
 client.transactions.legacyV1.payment(legacyPayload);   // legacy v1 write
 client.tokens.manageBlacklist(authorizedTxV2);         // v2 write
 client.tokens.legacyV1.manageBlacklist(legacyPayload);  // legacy v1 write

@@ -784,12 +784,15 @@ try {
 ```
 
 #### Submit Batch Payment
-Pay many recipients of one token in a single transaction. `batchPayment` is
-**v2-only** — there is no `transactions.legacyV1.batchPayment`.
+Pay many recipients of one token in one canonical native-v2 transaction.
+`batchPayment` is **v2-only**: the SDK deliberately exposes no legacy Batch
+Payment builder or `transactions.legacyV1.batchPayment`, even if a node still
+retains a deprecated v1 route.
 
 ```typescript
 import {
   TransactionBuilder,
+  calculateBatchPaymentOperationsHash,
   createPrivateKeySigner
 } from '@1money/protocol-ts-sdk';
 
@@ -797,21 +800,43 @@ import {
 const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`;
 const senderAddress = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 
-// Get chain id and current nonce
+const token = '0x2cd8999Be299373D7881f4aDD11510030ad1412F';
+const operations = [
+  { recipient: '0xa128999Be299373D7881f4aDD11510030ad13512', amount: '1000000000' },
+  { recipient: '0x6324dAc598f9B637824978eD6b268C896E0c40E0', amount: '2000000000' }
+];
+
+// An unsigned, non-binding point-in-time quote. It is not a fee cap and is
+// not copied into the payload, signing hash, authorization, or submission.
+const quote = await apiClient.transactions.estimateBatchPaymentFee({
+  from: senderAddress,
+  token,
+  operations
+});
+console.log('Estimated fee:', quote.fee, 'plan:', quote.plan);
+
+// Get chain id and a fresh current nonce.
 const { chain_id } = await apiClient.chain.getChainId();
 const { nonce } = await apiClient.accounts.getNonce(senderAddress);
+
+// This optional field is a caller choice. If supplied, the builder recomputes
+// it and rejects a mismatch locally before any signer is invoked.
+const operationsHash = calculateBatchPaymentOperationsHash(operations);
 
 const prepared = TransactionBuilder.batchPayment({
   chain_id,
   nonce,
-  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
-  operations: [
-    { recipient: '0xa128999Be299373D7881f4aDD11510030ad13512', amount: '1000000000' },
-    { recipient: '0x6324dAc598f9B637824978eD6b268C896E0c40E0', amount: '2000000000' }
-  ],
-  created_at: Math.floor(Date.now() / 1000) // unix seconds
+  token,
+  operations,
+  created_at: Math.floor(Date.now() / 1000), // unix seconds
+  operations_hash: operationsHash,
+  batch_id: 'payroll-2026-08'
 }, {
-  memo: { data: 'invoice-0001' }
+  memo: {
+    type: 'purpose/SALA',
+    format: 'text/plain',
+    data: 'payroll-2026-08'
+  }
 });
 
 const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
@@ -820,19 +845,58 @@ const authorized = prepared.authorize(signature);
 // v2 write: returns a plain Promise -- await it in a try/catch.
 try {
   const response = await apiClient.transactions.batchPayment(authorized);
+  if (response.hash !== authorized.transactionHash) {
+    throw new Error('SDK already rejects a server/local hash mismatch');
+  }
   console.log('Batch payment transaction hash:', response.hash);
 } catch (err) {
   console.error('Error:', err);
 }
 ```
-`operations` must not be empty, recipients and amounts must be nonzero, and
-the aggregate cannot exceed U256::MAX. `batchPayment` always carries a memo;
-omitting the option sends the all-empty memo. It no longer accepts `max_fee`.
-Use `calculateBatchPaymentOperationsHash(operations)` when supplying the
-optional trailing `operations_hash` (a `0x…` 32-byte hash); it must match the
-canonical operations hash. `batch_id` is positional in the signed payload:
-supplying it alone reserves the `operations_hash` slot, and `null` is treated
-as absent in both the digest and wire body.
+
+`operations` must not be empty; each recipient and amount must be nonzero, and
+the aggregate cannot exceed U256::MAX. `operations_hash` is optional, but a
+provided value must be the canonical
+`calculateBatchPaymentOperationsHash(operations)` result or preparation fails
+locally. `batch_id` is signed correlation metadata only: it has no uniqueness,
+deduplication, idempotency, or replay guarantee. The transaction nonce remains
+the transaction-level replay mechanism.
+
+Batch Payment always signs and transmits a complete memo. Omitting `memo` is
+valid and sends `{ type: '', format: '', data: '' }`; those three empty strings
+are still part of the signed payload. The obsolete client-side `max_fee` field
+is not accepted. The actual sender debit is the sum of all operation amounts
+plus the receipt's actual string `fee_used`, not the estimate. Batch enablement,
+operation-count and encoded-size limits, and the fee asset are dynamic node
+governance rules, so a successful estimate is not an admission guarantee.
+
+After the returned hash is indexed, read its receipt (or finalized receipt) and
+use `execution_events` to inspect the recipients:
+
+```typescript
+const receipt = await apiClient.transactions.getReceiptByHash(
+  authorized.transactionHash
+);
+
+// Batch Payment has no single recipient. This zero address is a sentinel.
+console.log(receipt.success_info?.receiver);
+
+for (const event of receipt.execution_events ?? []) {
+  if (event.event_type === 'PaymentExecuted') {
+    console.log(event.recipient, event.amount);
+  }
+}
+
+console.log('actual fee:', receipt.fee_used);
+```
+
+For a Batch Payment, `success_info.receiver` is the zero-address sentinel, not
+a transfer destination; real recipients and amounts are the ordered
+`PaymentExecuted` events. `batch_info.failure` is reserved for forward
+compatibility but is `null` in current production-shaped responses and is not a
+terminal-failure signal. If any operation fails, the node rolls back every
+recipient credit, the sender debit, and operator-fee movement together; do not
+infer a non-null failure object from that rule.
 
 
 ## Utility Functions
@@ -973,6 +1037,15 @@ change for any code calling `TransactionBuilder` directly.
   `{ type: '', format: '', data: '' }` rather than leaving the field off
   entirely. This differs from the pre-3.0 behavior, where an absent memo took
   a different code path from a present one.
+- **Batch Payment uses the canonical v2 payload.** The removed `max_fee` field
+  is neither signed nor accepted; request an unsigned
+  `transactions.estimateBatchPaymentFee({ from, token, operations })` quote
+  instead. The shared `EstimateFee` response now has `fee: string` and optional
+  `plan?: string`, so this also applies to the existing `estimateFee()` call.
+- **Receipt fields are corrected for all callers.** `TransactionReceipt.fee_used`
+  is a decimal string (not a number), and `to` is renamed to `recipient`.
+  `FinalizedTransactionReceipt` extends this corrected common receipt shape,
+  so finalized-read callers must make the same updates.
 - **Signature `v` must be `0` or `1`** on the v2 surface; a legacy `27`/`28` is
   rejected by `authorize`, not converted.
 
