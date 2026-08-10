@@ -7,16 +7,77 @@ import type {
 } from '../types';
 import type { Memo } from '@/utils';
 
+export interface BatchPaymentOperation {
+  recipient: AddressSchema;
+  amount: string;
+}
+
+export interface BridgeInfo {
+  bbnonce: number;
+  destination_chain_id: number;
+  destination_address: string;
+  bridge_param: BytesSchema;
+}
+
+export interface SuccessInfo {
+  sender: AddressSchema;
+  /** Batch receipts use the zero address; read PaymentExecuted events. */
+  receiver: AddressSchema;
+  is_private: boolean;
+  message: string;
+  bridge_info: BridgeInfo | null;
+}
+
+export interface BatchFailureInfo {
+  failed_operation_index: number;
+  reason: string;
+}
+
+export interface BatchReceiptInfo {
+  batch_id: string | null;
+  operations_hash: B256Schema | null;
+  operations_count: number;
+  total_amount: string;
+  /** Reserved; current production failure path does not populate it. */
+  failure: BatchFailureInfo | null;
+}
+
+export type BatchExecutionEvent =
+  | {
+      event_type: 'BatchStarted';
+      batch_id: string | null;
+      operations_count: number;
+      total_amount: string;
+      operations_hash: B256Schema | null;
+    }
+  | {
+      event_type: 'PaymentExecuted';
+      operation_index: number;
+      recipient: AddressSchema;
+      amount: string;
+    }
+  | {
+      event_type: 'BatchCompleted';
+      batch_id: string | null;
+      operations_count: number;
+      total_amount: string;
+      operations_hash: B256Schema | null;
+    };
+
 // Transaction receipt response
 export interface TransactionReceipt {
   success: boolean;
   transaction_hash: B256Schema;
-  fee_used: number;
+  transaction_index?: number;
+  fee_used: string;
   from: AddressSchema;
   checkpoint_hash?: B256Schema;
   checkpoint_number?: number;
-  to?: AddressSchema;
-  token_address?: AddressSchema;
+  recipient?: AddressSchema | null;
+  token_address?: AddressSchema | null;
+  success_info?: SuccessInfo;
+  batch_info?: BatchReceiptInfo;
+  execution_events?: BatchExecutionEvent[];
 }
 
 // Finalized transaction receipt response
@@ -181,7 +242,7 @@ export interface BatchPaymentPayload {
 
 export interface BatchPaymentData {
   token: AddressSchema | null;
-  operations: PaymentOperation[];
+  operations: BatchPaymentOperation[];
   operations_hash: B256Schema | null;
   batch_id: string | null;
   created_at: number;

@@ -37,7 +37,8 @@
   },
   "unpkg": "umd/1money-protocol-ts-sdk.min.js",
   "scripts": {
-    "test": "nyc mocha --config .mocharc.js",
+    "test": "npm run test:transaction-response-models && nyc mocha --config .mocharc.js",
+    "test:transaction-response-models": "tsc --project tsconfig.transaction-response-models.json",
     "test:integration": "cross-env RUN_INTEGRATION_TESTS=true mocha --config .mocharc.integration.js \"src/__integration__/**/*.test.ts\"",
     "test:integration:local": "cross-env RUN_INTEGRATION_TESTS=true INTEGRATION_TEST_NETWORK=local mocha --config .mocharc.integration.js \"src/__integration__/**/*.test.ts\"",
     "test:integration:testnet": "cross-env RUN_INTEGRATION_TESTS=true INTEGRATION_TEST_NETWORK=testnet mocha --config .mocharc.integration.js \"src/__integration__/**/*.test.ts\"",

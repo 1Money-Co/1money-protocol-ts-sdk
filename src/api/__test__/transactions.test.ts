@@ -8,6 +8,68 @@ import {
   TransactionSubmissionError
 } from '../errors';
 import transactionsApi from '../transactions';
+import type { BatchExecutionEvent } from '../transactions/types';
+import {
+  batchPaymentReceiptFixture,
+  batchPaymentTransactionFixture,
+  finalizedBatchPaymentReceiptFixture,
+  forwardCompatibleBatchFailureFixture,
+  paymentSuccessReceiptFixture,
+  ZERO_ADDRESS
+} from './fixtures/transactions';
+
+function summarizeEvent(event: BatchExecutionEvent): string {
+  switch (event.event_type) {
+    case 'BatchStarted':
+      return `start:${event.operations_count}`;
+    case 'PaymentExecuted':
+      return `payment:${event.operation_index}`;
+    case 'BatchCompleted':
+      return `complete:${event.operations_count}`;
+  }
+  const exhaustive: never = event;
+  return exhaustive;
+}
+
+describe('transaction response models', function () {
+  it('models Batch Payment receipts and transactions', function () {
+    expect(batchPaymentReceiptFixture).to.not.have.property(
+      'max_fee'
+    );
+    expect(batchPaymentTransactionFixture.data).to.not.have.property(
+      'max_fee'
+    );
+    expect(batchPaymentReceiptFixture.fee_used).to.equal('15');
+    expect(batchPaymentReceiptFixture.success_info?.receiver).to.equal(
+      ZERO_ADDRESS
+    );
+    expect(batchPaymentReceiptFixture.batch_info?.failure).to.equal(null);
+    expect(
+      batchPaymentReceiptFixture.execution_events?.map(summarizeEvent)
+    ).to.deep.equal(['start:2', 'payment:0', 'complete:2']);
+  });
+
+  it('models bridge success and finalized receipt metadata', function () {
+    expect(paymentSuccessReceiptFixture.success_info?.bridge_info).to.deep.equal({
+      bbnonce: 7,
+      destination_chain_id: 8453,
+      destination_address: paymentSuccessReceiptFixture.recipient,
+      bridge_param: '0x0123'
+    });
+    expect(
+      forwardCompatibleBatchFailureFixture.failure
+    ).to.deep.include({
+      failed_operation_index: 1,
+      reason: 'insufficient funds'
+    });
+    expect(finalizedBatchPaymentReceiptFixture).to.include({
+      transaction_index: 4,
+      fee_used: '15',
+      checkpoint_number: 9,
+      epoch: 12
+    });
+  });
+});
 
 const FROM = `0x${'11'.repeat(20)}`;
 const TOKEN = `0x${'22'.repeat(20)}`;

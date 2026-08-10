@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "files": [
+    "src/api/__test__/fixtures/transactions.ts",
+    "src/api/__test__/transactions.test.ts"
+  ]
+}
