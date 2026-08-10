@@ -7,6 +7,38 @@ export type VectorSignature = {
   v: number;
 };
 
+export interface BatchVector {
+  name: string;
+  class: string;
+  operation: 'BatchPayment';
+  operation_type: 14;
+  payload: {
+    chain_id: number;
+    nonce: number;
+    token: string;
+    operations: Array<{
+      recipient: string;
+      amount: string;
+    }>;
+    created_at: number;
+    operations_hash: string | null;
+    batch_id: string | null;
+  };
+  options: {
+    memo?: {
+      type: string;
+      format: string;
+      data: string;
+    };
+  };
+  authorization: VectorSignature;
+  expected: {
+    signing_hash: string;
+    transaction_hash: string;
+    operations_hash: string;
+  };
+}
+
 export type Vector = {
   name: string;
   operation_type: number;
@@ -61,4 +93,41 @@ export function vectorHash(
   name: string
 ): string {
   return vector(name).signing_hash;
+}
+
+export function batchVectors(): BatchVector[] {
+  const raw = readFileSync(
+    join(
+      __dirname,
+      '..',
+      'fixtures',
+      'batch-payment-vectors.json'
+    ),
+    'utf8'
+  );
+  const parsed: unknown = JSON.parse(raw);
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !Array.isArray(
+      (parsed as { vectors?: unknown }).vectors
+    )
+  ) {
+    throw new Error(
+      '[test]: Batch Payment fixture must contain a vectors array'
+    );
+  }
+  return (parsed as { vectors: BatchVector[] }).vectors;
+}
+
+export function batchVector(name: string): BatchVector {
+  const found = batchVectors().find(
+    entry => entry.name === name
+  );
+  if (!found) {
+    throw new Error(
+      `[test]: no Batch Payment vector named ${name}`
+    );
+  }
+  return found;
 }

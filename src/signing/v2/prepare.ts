@@ -108,18 +108,8 @@ export function prepareTransactionV2<
 
   spec.validate(canonicalUnsigned);
 
-  if (!spec.memoCapable && options?.memo) {
-    throw new Error(
-      `[1Money SDK]: ${operation} does not carry a memo`
-    );
-  }
-
-  const memo = spec.memoCapable
-    ? toRequiredMemo(options?.memo)
-    : null;
-  if (memo) {
-    validateMemo(memo);
-  }
+  const memo = toRequiredMemo(options?.memo);
+  validateMemo(memo);
 
   const payloadRlp = encodePayloadRlp({
     chainId: canonicalUnsigned.chain_id,
@@ -161,9 +151,7 @@ export function prepareTransactionV2<
           ? spec.wireFields(canonicalUnsigned)
           : { ...canonicalUnsigned })
       };
-      if (memo) {
-        body.memo = memo;
-      }
+      body.memo = memo;
       body.authorization =
         singleSecp256k1(signature);
 

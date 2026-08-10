@@ -166,11 +166,10 @@ export interface BatchPaymentPayload {
   nonce: number;
   token: AddressSchema;
   operations: PaymentOperation[];
-  max_fee: string;
   created_at: number;
   operations_hash?: B256Schema;
+  /** Signed correlation metadata only; not an idempotency or replay key. */
   batch_id?: string;
-  signature: RestSignature;
 }
 
 export interface BatchPaymentData {

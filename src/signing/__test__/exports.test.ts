@@ -3,6 +3,7 @@ import 'mocha';
 
 import TransactionBuilder, {
   LegacyV1TransactionBuilder,
+  calculateBatchPaymentOperationsHash,
   deriveMultisigAddress,
   prepareTransactionV2
 } from '../';
@@ -81,6 +82,12 @@ describe('signing exports', function () {
 
   it('exports the multisig address helper', function () {
     expect(deriveMultisigAddress).to.be.a(
+      'function'
+    );
+  });
+
+  it('exports the Batch Payment operations hash helper', function () {
+    expect(calculateBatchPaymentOperationsHash).to.be.a(
       'function'
     );
   });

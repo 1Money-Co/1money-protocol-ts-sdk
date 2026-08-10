@@ -155,7 +155,6 @@ describe('native v2 prepare', function () {
           amount: '1000'
         }
       ],
-      max_fee: '5000',
       created_at: 1747785600
     };
     const prepared =
@@ -219,14 +218,7 @@ describe('native v2 prepare', function () {
     );
   });
 
-  // Regression coverage for the round-2 finding: the
-  // TransactionBuilderV2.batchPayment wrapper declared only `(u)` and
-  // forwarded no options, so a caller writing
-  // `TransactionBuilder.batchPayment(unsigned, { memo })` had the memo
-  // silently discarded instead of rejected -- while
-  // `prepareTransactionV2('batchPayment', u, { memo })` correctly threw
-  // "does not carry a memo". Both entry points must reject identically.
-  it('rejects a memo passed through the TransactionBuilderV2.batchPayment wrapper', function () {
+  it('snapshots Batch Payment memo passed through its builder wrapper', function () {
     const unsigned = {
       chain_id: 1212101,
       nonce: 1,
@@ -237,14 +229,24 @@ describe('native v2 prepare', function () {
           amount: '1000'
         }
       ],
-      max_fee: '5000',
       created_at: 1747785600
-    } as never;
+    };
+    const memo = { data: 'invoice-1' };
 
-    expect(() =>
-      TransactionBuilderV2.batchPayment(unsigned, {
-        memo: { data: 'nope' }
-      })
-    ).to.throw(/does not carry a memo/);
+    const prepared = TransactionBuilderV2.batchPayment(
+      unsigned,
+      { memo }
+    );
+    memo.data = 'mutated';
+    const authorized = prepared.authorize({
+      r: `0x${'aa'.repeat(32)}` as `0x${string}`,
+      s: `0x${'11'.repeat(32)}` as `0x${string}`,
+      v: 1
+    });
+    expect(authorized.request.memo).to.deep.equal({
+      type: '',
+      format: '',
+      data: 'invoice-1'
+    });
   });
 });

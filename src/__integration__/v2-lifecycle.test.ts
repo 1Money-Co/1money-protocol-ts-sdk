@@ -1017,7 +1017,6 @@ describe('native v2 lifecycle integration', function () {
             amount: '5'
           }
         ],
-        max_fee: '1000000',
         created_at: Math.floor(Date.now() / 1000),
         batch_id: `v2-${tokenSymbol}`
       });

@@ -1,0 +1,1422 @@
+{
+  "vectors": [
+    {
+      "name": "BatchPayment_canonical",
+      "class": "canonical",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          },
+          {
+            "amount": "2000",
+            "recipient": "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0xe20bddb344c47b8328abc50ceb0e14c86e31684406e37b549646d155e06e0d94",
+        "s": "0x77e7f5612c5d62eb50a9c04fa3b5d575531ad8459b171054ce14236339620ca2",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0xbdd97785d3d9e286f0ae6d4154b02d072c546bcbd1330d353c89ddaca3d212b0",
+        "transaction_hash": "0x67fa6f7290e0dd78f2e43584a8fcf4930f3be4cf0ade9339bc9bcdb05ef12110",
+        "operations_hash": "0x5e2223ed47383af13d07e685fa659cb3409d0ce949ff34a3cd74b572c9d28656"
+      }
+    },
+    {
+      "name": "batch_option_neither",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0xa8210fffc9eed4aff6ddef777346a4e791853f3f31391b06c5e69b3d2ae7bf8d",
+        "s": "0x6fb545c032ad53158f4064557e172d1b33ef3ab8d93d195d016f6130c6f1514d",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x6bf2a5eb60f266e0e8d9ef4033208aeb69ee977af7fd99b4668e56708dbfe9e0",
+        "transaction_hash": "0xd9695b116133400b0520c740b178efa0fc070ce632d48be84acb2102d0a20960",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_option_neither_memo",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {
+        "memo": {
+          "data": "invoice-0001",
+          "format": "text/plain",
+          "type": "purpose/SALA"
+        }
+      },
+      "authorization": {
+        "r": "0xa7859a300574f9c7d721905345072dfcc982f95f4feceaf100a96261746a6bb4",
+        "s": "0x5ee1c63da92b543b16400ef822c31549057a42618893e7e375ea50be865549a9",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x04c60ea20b82b0a3b27e444a631b0f31e47c4db4c7c0e2b35fb1d5c47492c42d",
+        "transaction_hash": "0x5b9444ec7b30ab704fa25e4c7485ab32481080e98b976081c8a5050b4ecaf107",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_option_hash_only",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x4b7296f379fca910108fdc7f5af3f0e232e5bd0577a9d886c01a3015623908ab",
+        "s": "0x504a3cfadc29f26fd7e0f042b4d4503ea8f8c30ad2a96c42dbd77d5a69e0956d",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0xba6acf78b0e9cb0d878adf6f5c28251cddecc488f121041dde723ca80026be7f",
+        "transaction_hash": "0x9afdfdf5c60372e7dbce5602a1ed5bdc3693035c4767681d004f91d634bb1a39",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_option_hash_only_memo",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {
+        "memo": {
+          "data": "invoice-0001",
+          "format": "text/plain",
+          "type": "purpose/SALA"
+        }
+      },
+      "authorization": {
+        "r": "0xfe66ffac9a53483e72a58a534be685d14bcba741e635da37e121382dc8a69fa7",
+        "s": "0x5c434a188bbaf41f4cdf8f384d498997c9f5fee420246621ed9f73de001fffef",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0xe639f875b08cd5e7d9e602b5fa807352d30701d554605a5b2e786d31bccc3fbe",
+        "transaction_hash": "0x0d9c14c3a5295630944c033bd4f150f5297cf1665855a7d98a11a84539855f2f",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_option_id_only",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "batch-1",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0xda61b3acda9f4163fed1d94e4729a19350ddea96d1a6475569fbc24cc5024119",
+        "s": "0x2ed3ad5dd17ba963670a527f4907d41dee7f130a452ac2e222f353c7b755f4f3",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x44cb3233ae13d5e708029753fbb6c88236626246cbd5bbc36bc9557e70db64c3",
+        "transaction_hash": "0x5780492489d86b23686b81bf3cd25c1a2e0ee685dd084bc596a067c16c72e762",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_option_id_only_memo",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "batch-1",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {
+        "memo": {
+          "data": "invoice-0001",
+          "format": "text/plain",
+          "type": "purpose/SALA"
+        }
+      },
+      "authorization": {
+        "r": "0xa4bbf83bda3d7cab3834e18b83b8e93d5c6dff8be60605634eb670a1a4236d1f",
+        "s": "0x510972a50a8bdbca3e0b1b605252fd19ec3c63592781f5328c4ea15e21316c8b",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x9c4bbf38b83dd959fab9b11d0bd5107b12a1b209eac76712de5d10d9276bf401",
+        "transaction_hash": "0x85dd3284485e7affa3f9f20876dc92367ade64effda8d58fd99733d6d342ecd1",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_option_both",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "batch-1",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x793a1ffe8facb47bb4720360c9b8800941b4d2d70265830fd8d93658c68eab7c",
+        "s": "0x688082c1f56a1e8b4156cee1c2384c3ebf1371f28467e027646115adc13f4e67",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0xd8f75652f9529fc1b89e1e47a8a62828bb8ec4e7119a4c49c81a47d52487f0ec",
+        "transaction_hash": "0x5c9b8ef32879e38354d3b05699fac29b5ce7769a54fd34b271bd30de29bf4092",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_option_both_memo",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "batch-1",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {
+        "memo": {
+          "data": "invoice-0001",
+          "format": "text/plain",
+          "type": "purpose/SALA"
+        }
+      },
+      "authorization": {
+        "r": "0x2c51c05f4ba654baec65c24041e59914cae2180d76ca995f5547eef4555c2015",
+        "s": "0x3061a5effba66851055ea83c1c987d9f58111db563b945d3860a3bfbcc9a1008",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x8af45c9b8d78e25fde12cc568efbff845e4256719a15c75d2f040faa7c67bdec",
+        "transaction_hash": "0x06300326b62e3afbbc890ecca9c33a3121ad321095bc272a660c713ad18f0305",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_option_empty_id",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x44c3bc12701fc80312ad980f2690153eff0142ddc5dc70783c1c0326260c1283",
+        "s": "0x4795e9dccfb637485d1f39a52a20d2ffd16ce05f63260b7dabdb88079a2b62c1",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x503ce1ce51ab246d71e2a1eea7fcda3777ce565901ebfb252b38630f363b21c7",
+        "transaction_hash": "0x78a94082bdea700c5045ccf72e5b52f637935a737bbc56e54c3b4b0b9cbefdf8",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_option_empty_id_memo",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {
+        "memo": {
+          "data": "invoice-0001",
+          "format": "text/plain",
+          "type": "purpose/SALA"
+        }
+      },
+      "authorization": {
+        "r": "0x2d5ecea37573f563c74f652aad7965c2572c15575081c42487a1696c93f23aba",
+        "s": "0x43c9404aa26d0efed46fdeb4c7df40fe5902c4305a5e34e9eeb010bad0690115",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x184b1daaf31d52419db4f6dae3e3ff7a947603c5d02e75022c5f3f8847aaea4e",
+        "transaction_hash": "0x4ed0f0f72f9faf2bd71759409bc85229d35a173491618d82474534bc70d7185c",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_option_zero_hash",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x054ea519b1218c740a476a7f43ada65c8dcf783871f3a577c60a26fe26e65f4b",
+        "s": "0x67782bf21ea25382a3ae0678f8fb701a9a8140a5437ef3c6b01b71da37963201",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x4bc1959d7779d840748958949ff8032315dbbd1351987db6c346eeb2db93ef2b",
+        "transaction_hash": "0x12fbd67afa1fcccea04a03b858f03cb9c5bf542e0c00500c97803bdfd887a7b3",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_option_zero_hash_memo",
+      "class": "batch_option",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {
+        "memo": {
+          "data": "invoice-0001",
+          "format": "text/plain",
+          "type": "purpose/SALA"
+        }
+      },
+      "authorization": {
+        "r": "0xef8d2e0765cceb877fa692cbba63eb880ab8f44b03e5f66a47d4570bd6756737",
+        "s": "0x0c64b8d294f153fad8857686c8133e5d279dd7c538ebd3c49ceaa9072c5e3d19",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x0f03977faced21852014b45aafe1c2a6a924c2d203dca7fc57bf62089aa960d6",
+        "transaction_hash": "0xebd5dde5fdca75709d14806d1f31cfe3875e3dbdd16b8c0e3170cf0abf3f2285",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_operations_empty",
+      "class": "batch_vec",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x4e3a9c69bd22bf3f66fd4aff0dc22ea9aaa1e39bec5115a27200c2dffc7abf90",
+        "s": "0x38c753b9e5c878bc82c1155d5b3992790e37f5e371b6d7d429ff48101f714541",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x456e68b0da9c7abba3fbd3b3ff49d410a3fa0b5cd7f0e1154779dcde2f4bb411",
+        "transaction_hash": "0xd9da3e3ce9c98ce4d195d983558e6c6b825ce110d9a934b9bd6439a563e10383",
+        "operations_hash": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
+      }
+    },
+    {
+      "name": "batch_operations_single",
+      "class": "batch_vec",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0xa8210fffc9eed4aff6ddef777346a4e791853f3f31391b06c5e69b3d2ae7bf8d",
+        "s": "0x6fb545c032ad53158f4064557e172d1b33ef3ab8d93d195d016f6130c6f1514d",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x6bf2a5eb60f266e0e8d9ef4033208aeb69ee977af7fd99b4668e56708dbfe9e0",
+        "transaction_hash": "0xd9695b116133400b0520c740b178efa0fc070ce632d48be84acb2102d0a20960",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_operations_order_forward",
+      "class": "batch_vec",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          },
+          {
+            "amount": "2000",
+            "recipient": "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0xe20bddb344c47b8328abc50ceb0e14c86e31684406e37b549646d155e06e0d94",
+        "s": "0x77e7f5612c5d62eb50a9c04fa3b5d575531ad8459b171054ce14236339620ca2",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0xbdd97785d3d9e286f0ae6d4154b02d072c546bcbd1330d353c89ddaca3d212b0",
+        "transaction_hash": "0x67fa6f7290e0dd78f2e43584a8fcf4930f3be4cf0ade9339bc9bcdb05ef12110",
+        "operations_hash": "0x5e2223ed47383af13d07e685fa659cb3409d0ce949ff34a3cd74b572c9d28656"
+      }
+    },
+    {
+      "name": "batch_operations_order_reverse",
+      "class": "batch_vec",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "2000",
+            "recipient": "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          },
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x33dd7a14ec60a448d2fe6f3b1a6aa21f188f0b113bc77c135defcfd771ed2859",
+        "s": "0x7c67b1f4b1abf848c2fb529e6c59f73e7433fcff9e6614f900656938c20f3f98",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0xa8694121e79fe95eaa3929c90f1359362ced9c539bf22db3d7abd24d7e0553bd",
+        "transaction_hash": "0x1b8a3c9b95b32d1a53bd486c7b558ef0b32095608a5933151b86ff6c8f9c9985",
+        "operations_hash": "0xc106bcdff0e8063efbb3512fee41cadc8cbdc5f041c2a1018b1c50acd7546b59"
+      }
+    },
+    {
+      "name": "batch_operation_amount_zero",
+      "class": "batch_vec",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "0",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0xef7cad02c0283f05f8be16775b65dc1a8b00445cf8479b7842ff95910f5365dd",
+        "s": "0x30e1f71724903c15fb5b173b7b65937810c3366faa8680d21222e3e20e108ef0",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x1d86eead9389a9084c88eb3069253496c3fae4fefad77803f88ea7edfa5add43",
+        "transaction_hash": "0x3b9df642aab5b8e9546beaa84bc906a19d634aca270b873b3dc176802247ceb8",
+        "operations_hash": "0xaf6754343a06a4beb49736951674bb2ecd83aa628b9207f7aeefb9ff5ac4cb4c"
+      }
+    },
+    {
+      "name": "batch_operation_amount_max",
+      "class": "batch_vec",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x6b2531f948cc062c6350a0525dc088d7c564ce72741de09029c5eae002373e69",
+        "s": "0x7fe61c6ac039f6264fbc5a0e7f984b40de906815e981ca4069bb7cccefa2aa2b",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x5997d22fb086867722d276fc5d3ffed442dfcd720b215a2213ed66c6da3b5c12",
+        "transaction_hash": "0xe7c78d2c2a730a9138d3e0fa704ece83268ce007783264c806f2a56510eac8fa",
+        "operations_hash": "0x43fd7434895a4820a5bf85fea8e2b45f2ba27103a90d4a1dc1b368e02aaaf4e6"
+      }
+    },
+    {
+      "name": "numeric_batch_created_at_zero",
+      "class": "numeric_boundary",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 0,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x0d8b0680509ad4ee1937a018067b513f12e8089d4261d776d588a97904b5e129",
+        "s": "0x584992bf1cee9c5ae227f0ee560d09cdf37a2b577d4a5e835c4333e5c8b4127b",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0xcc8f1fd621702c56bc2f85ac174f3e27be18be33aa15f17c44f39670e41e263e",
+        "transaction_hash": "0x92e0d8617c3d1c52619bb284dde6e68ef8dccfd5f90fd66ca62113126c3d3e00",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "numeric_batch_created_at_max",
+      "class": "numeric_boundary",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 18446744073709551615,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x4de7a28c0c37aade525e0b9fb6bf342ce7fd7f3d5a53ca4fcd563fa9d6db2d59",
+        "s": "0x5455678cff540b561eb663d9269cdec5c3ca0fc90743a8c199a2c78330d1259f",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x2df6bc9f06231b7d2a58847e3ac5d7be9b549530a347dc4056ea941e6a1512fd",
+        "transaction_hash": "0xba17277f8f71e84563b2001a23790a2c89dbb23c1e7ab5140119474bee74b642",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "string_batch_id_0",
+      "class": "string_boundary",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x44c3bc12701fc80312ad980f2690153eff0142ddc5dc70783c1c0326260c1283",
+        "s": "0x4795e9dccfb637485d1f39a52a20d2ffd16ce05f63260b7dabdb88079a2b62c1",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x503ce1ce51ab246d71e2a1eea7fcda3777ce565901ebfb252b38630f363b21c7",
+        "transaction_hash": "0x78a94082bdea700c5045ccf72e5b52f637935a737bbc56e54c3b4b0b9cbefdf8",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "string_batch_id_1",
+      "class": "string_boundary",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "a",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0xce41cb5533c5ad893cc435cbd9ce53ba15d175fe882e585b189fdc5e9c9414bc",
+        "s": "0x5ff0c09475f0d0f8c20af3636f261060bbbb827e0855971ab5e5137ff84667bf",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x97e245ee56e11606e9c15d4c254ec054f831a456a83abe8b04203941c4f5b71b",
+        "transaction_hash": "0xf3c8c3784267b311cf5171ddae58d3ab6275f254166cea9bdd4661a445e65256",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "string_batch_id_55",
+      "class": "string_boundary",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x379a6a1b988ba14bcfd7d3cd04692c24b80e81e48593185753aab580b9fa5a99",
+        "s": "0x65ca908ee9d3125c7a75fd7db102cf6db1f4878963dd4c498723eecf90cd43f0",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x8c2bc7a50e07a99ddae49b3930cf4850ae89074d83255feaa187de99cc622d55",
+        "transaction_hash": "0xbe71a74368ec0690d782a72b7d1d702f9259f21b067d530d971fd930fb14f851",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "string_batch_id_56",
+      "class": "string_boundary",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "\u754caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x0ba770d611154afb563ecd3acf394f26074a76a8b2f50af0fdb9747e3815876c",
+        "s": "0x199233429813d936dacf55b2cf556cc93d464ab7dec0c6894cc8ef951b50e944",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x3ce1fc7fa5a2043ac9c461c949e05eac2a27f48283611deda4c3c7fae57eaa92",
+        "transaction_hash": "0xc292ccf906413da7e735f27897760841b10e09ed08bd978f3b900fd3f392c235",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "string_batch_id_255",
+      "class": "string_boundary",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0xdbf47df4f03c3ee1b2efdff261d62e72fc317260c3eea55c2bfc66d64d7188d0",
+        "s": "0x15e82a21716755cc9b7f350d6a0a8571e95b56f5049dfeb28423e724b68e18aa",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0xf93577b9c0bb56fbcd8619c465e29d999200984d1c8ad75d09ada3a8d54ce9d6",
+        "transaction_hash": "0xb9fbc69357e1fb76d640fc4bd376a3e7a0d8f75aaec087f82cf0bf5e0343224c",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "string_batch_id_256",
+      "class": "string_boundary",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x8b0478d0a6306983fe55356e09d7e6c697932c7f0c2f2122afb9615e1fc7e1db",
+        "s": "0x7dde3c0bbdb1dc32b72d6b3fe080c4cc64abd7687e0a6684a90b41cd25c452f6",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x47da7350f58788d4797f224a61f0d17ff70f69171e99674c3925da24ba01dff3",
+        "transaction_hash": "0xb48d000ff1d3afb97f0522388313407cd8105ab6a7b74641d778c216bc99c6ea",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_pairwise_00_neither_single_ordinary_empty",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0xa8210fffc9eed4aff6ddef777346a4e791853f3f31391b06c5e69b3d2ae7bf8d",
+        "s": "0x6fb545c032ad53158f4064557e172d1b33ef3ab8d93d195d016f6130c6f1514d",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x6bf2a5eb60f266e0e8d9ef4033208aeb69ee977af7fd99b4668e56708dbfe9e0",
+        "transaction_hash": "0xd9695b116133400b0520c740b178efa0fc070ce632d48be84acb2102d0a20960",
+        "operations_hash": "0x9a992f2d5f9c6ce0fb68c9823000855eda240ed8412f53bd3d5291a1aefb61c0"
+      }
+    },
+    {
+      "name": "batch_pairwise_01_neither_forward_zero_populated",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "0",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          },
+          {
+            "amount": "2000",
+            "recipient": "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {
+        "memo": {
+          "data": "invoice-0001",
+          "format": "text/plain",
+          "type": "purpose/SALA"
+        }
+      },
+      "authorization": {
+        "r": "0xf920ebe1d1a4a8646082437dca5cbbd956dace9dc345e8cc00397f83e2a509ad",
+        "s": "0x71263d95dad8f10b913e6684864e5d1aac187de049d141f23b811dcc398869e4",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0xb48f1d4952820a20bf97c649a7cb414e275f0e26b0f66a65994357184ed13d2c",
+        "transaction_hash": "0x8c9e33de8936efe1f6f0ce4e794ff0182c29168749e2732adce072a5b9f951bf",
+        "operations_hash": "0xa7653eeb0d5d585b3c412578025648f6c02df483454161e5b8ac6304489007f9"
+      }
+    },
+    {
+      "name": "batch_pairwise_02_hash_only_single_max_populated",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {
+        "memo": {
+          "data": "invoice-0001",
+          "format": "text/plain",
+          "type": "purpose/SALA"
+        }
+      },
+      "authorization": {
+        "r": "0x2ff5fc114a5f7ff4f04475f8679c77d5ebbce58fcfd78e033bc08fa369f81a2e",
+        "s": "0x01c5e4ea357a4941ed67dc0a40ad08c65db0b5cebd98e8310449d3f3acad64fa",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x57b6d7b442854dee67113bfd4ff139754535532e809fa3320935991dd383a706",
+        "transaction_hash": "0xb938621dc74ec7df7025269e5a4b00ccccc0a43f9cfa281f49e2d5742122f880",
+        "operations_hash": "0x43fd7434895a4820a5bf85fea8e2b45f2ba27103a90d4a1dc1b368e02aaaf4e6"
+      }
+    },
+    {
+      "name": "batch_pairwise_03_hash_only_reverse_zero_empty",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "0",
+            "recipient": "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          },
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x6fc937666e0089e21853d68d67c5d58999fbd2699126c067f1365ace7455c2a7",
+        "s": "0x114b130e9de7079e3065ad8414ba2e0f7034b1f04bd9f25479fd2a296d50abc5",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0xc94f5f669479f25a63ef636deadcb8498e9e5388a88378a6e7f70a8d768246e5",
+        "transaction_hash": "0x93c254cece1c20dbf5a90a9deadeaffbd6172897f19ba08ed0dca8314e38e0e4",
+        "operations_hash": "0x9fd8d09fa9f54bfa605ee14a139034342fea324d55ccf740d27fb1f4ffeb6d11"
+      }
+    },
+    {
+      "name": "batch_pairwise_04_id_only_forward_max_empty",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "pairwise-id",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          },
+          {
+            "amount": "2000",
+            "recipient": "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x04447e88e0393defa842510e71a165c5e5e66029ad6801ccba89f697d69fa3d1",
+        "s": "0x231aa5d2603672f6779458accbf2f7ded65829e0c0807de9556f754dc65357de",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x754dd8dc08b9e291ba179606c286b2d96f05fca328ce1256fd8255f7f04159ee",
+        "transaction_hash": "0x9c36ece47e91b74ad5a9b4578f9dfbaf11cc0992a642858c217f0fbe8e8172b7",
+        "operations_hash": "0xd3d4905f802dac18593ab4f6d4e504b2389f0d667d40ec996af17a5bf517025c"
+      }
+    },
+    {
+      "name": "batch_pairwise_05_id_only_reverse_ordinary_populated",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "pairwise-id",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          },
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {
+        "memo": {
+          "data": "invoice-0001",
+          "format": "text/plain",
+          "type": "purpose/SALA"
+        }
+      },
+      "authorization": {
+        "r": "0x35270bfa2c308ada77c1aa7eff6a9fb9374a5b5ce78a6a062ed7e6247ac88bf7",
+        "s": "0x2dde9e52e8cafa91661692d8d63c06c41a6902a03c4876d0383c13c2146cf5e4",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x011904c0a30fbe6cd6b26a0ee256c8d504a30a1a86e1cf300fc675b0bfc4b51d",
+        "transaction_hash": "0x0f5906975599efd541e440e8c804a678880fcbd6a56ebff9b2c185f0c2d1011f",
+        "operations_hash": "0x0c511e73232fd4c01923a442327398e028cb3e67e214b3346716cf1945a314a6"
+      }
+    },
+    {
+      "name": "batch_pairwise_06_both_single_zero_empty",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "pairwise-id",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "0",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x74322f2b4524b4ccdce86b20479e8da10232dca2ce5783da6043c2efbada2a23",
+        "s": "0x786d9c0f66e2b8eb0fde77d2b40370e044f7650c283a4beab35a33f1bc3fcd51",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0xcd0d9cb48ba72776b9e9fbb787b440e1c538dc096b82b42a3ca7e2ab7c3a2250",
+        "transaction_hash": "0x632e9d74991a00ecbcf4a31e7d70f42ed701f8ce61594ff79ddb2715bf7a1411",
+        "operations_hash": "0xaf6754343a06a4beb49736951674bb2ecd83aa628b9207f7aeefb9ff5ac4cb4c"
+      }
+    },
+    {
+      "name": "batch_pairwise_07_both_forward_ordinary_populated",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "pairwise-id",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          },
+          {
+            "amount": "2000",
+            "recipient": "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        ],
+        "operations_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {
+        "memo": {
+          "data": "invoice-0001",
+          "format": "text/plain",
+          "type": "purpose/SALA"
+        }
+      },
+      "authorization": {
+        "r": "0xaa26c3d095aa1d0f8fc877b1c310174b23c757eec3e8eaa36caeb4fc91f73781",
+        "s": "0x78351b830e28e86f6380dd00d7ab5a7a157730457568bdfb14053d66375e014d",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0xa5b970017b3aa8e20829ffb44fa5564461babd44a7cdae516634fd110e2897d6",
+        "transaction_hash": "0x7383dea146de64a7ef9539a161d937048fe502924eea4322796b22c9fbf6f3fa",
+        "operations_hash": "0x5e2223ed47383af13d07e685fa659cb3409d0ce949ff34a3cd74b572c9d28656"
+      }
+    },
+    {
+      "name": "batch_pairwise_08_neither_reverse_max_empty",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+            "recipient": "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          },
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x951320d6051de5f3f280610c20f68d7890e4589b844b92481e63e8249f444a77",
+        "s": "0x258f0024be34e5f215298ac3d53040b513c2718d2a16977fbec49ec88e355ec5",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x59ae4b91a8f0544bd258ae78b5b3be821953062affe5dc52054eb688c74011e0",
+        "transaction_hash": "0xa1c02c15295ff95765d6f2ce3ca354f14cfa5021d0e4e700b50fe59a131819c3",
+        "operations_hash": "0x31c7b696e703218b182534a82f9a73740b0d73226c2061006d494b82dcb18834"
+      }
+    },
+    {
+      "name": "batch_pairwise_09_neither_empty_none_empty",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x4e3a9c69bd22bf3f66fd4aff0dc22ea9aaa1e39bec5115a27200c2dffc7abf90",
+        "s": "0x38c753b9e5c878bc82c1155d5b3992790e37f5e371b6d7d429ff48101f714541",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x456e68b0da9c7abba3fbd3b3ff49d410a3fa0b5cd7f0e1154779dcde2f4bb411",
+        "transaction_hash": "0xd9da3e3ce9c98ce4d195d983558e6c6b825ce110d9a934b9bd6439a563e10383",
+        "operations_hash": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
+      }
+    },
+    {
+      "name": "batch_pairwise_10_hash_only_empty_none_populated",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [],
+        "operations_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {
+        "memo": {
+          "data": "invoice-0001",
+          "format": "text/plain",
+          "type": "purpose/SALA"
+        }
+      },
+      "authorization": {
+        "r": "0x9f62479697c1f25e91f3bc62795fa1da57dc44a91a0798b1ed001d4b169c178d",
+        "s": "0x3cbd57670b89eb986a9759d4dc81f851b50016991014dacaacffa39f1a1b3f20",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x0e6f8c39fece4c5711ce49b98c5e0b25787dbe1996b8a2636a34f52ea6a582fc",
+        "transaction_hash": "0x31c3981d64f77f25db403a206caec879c758cc3324b81deb1eebacadcc9b1de4",
+        "operations_hash": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
+      }
+    },
+    {
+      "name": "batch_pairwise_11_hash_only_forward_ordinary_empty",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": null,
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          },
+          {
+            "amount": "2000",
+            "recipient": "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          }
+        ],
+        "operations_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x1d91ec82ddfb05e4fde4d1bb74c9fe1b6d803517ebedce5b0edc5ad92a6973e4",
+        "s": "0x02dd3a50a64be66d49071926fc639211d2c8236b9bb687ea5c7f0b40b4cc5a0a",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x5728394309b89ef3230b19cecf740bd4f70e9c3e202087bb6219aee04637c1de",
+        "transaction_hash": "0xe8d715b547dcd7eee43da8e0e673928741522008d9dc0a3c0f19cf9655c21f46",
+        "operations_hash": "0x5e2223ed47383af13d07e685fa659cb3409d0ce949ff34a3cd74b572c9d28656"
+      }
+    },
+    {
+      "name": "batch_pairwise_12_id_only_single_zero_empty",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "pairwise-id",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "0",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0xf92423b33f0c680759c9e4f8b7ea48fb39544fa36f1303a0641f18437f783cdb",
+        "s": "0x1f3f99254a885711429672bf0e946adce97b2e022a115d2fbd1b1b1975038447",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0xdc47d1964c5477ca6ca444297b39aa6b46d3d229ac78b87d7abbdab6cdb56e42",
+        "transaction_hash": "0x277c7b8254513b32079a4f238376ef94eb60b3bcccf3bbb744cbec4dae3cb313",
+        "operations_hash": "0xaf6754343a06a4beb49736951674bb2ecd83aa628b9207f7aeefb9ff5ac4cb4c"
+      }
+    },
+    {
+      "name": "batch_pairwise_13_both_reverse_max_empty",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "pairwise-id",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [
+          {
+            "amount": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+            "recipient": "0x0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+          },
+          {
+            "amount": "1000",
+            "recipient": "0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+          }
+        ],
+        "operations_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x9989d9960f8467193e21ea90305dbfec643c1abc1a52e6d5da4e238b3b645dfc",
+        "s": "0x4399bed19f159163f18dfb4835651267ccefc9853817526109d8947886658da3",
+        "v": 1
+      },
+      "expected": {
+        "signing_hash": "0x72637b179cc4245c5be1140487e09c9101a35b6da66861a39034cbf91a498621",
+        "transaction_hash": "0x5f805a05db90e6281865ed11897a9f9e39858cad12b58a75ee7bce684e50fd12",
+        "operations_hash": "0x31c7b696e703218b182534a82f9a73740b0d73226c2061006d494b82dcb18834"
+      }
+    },
+    {
+      "name": "batch_pairwise_14_id_only_empty_none_empty",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "pairwise-id",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [],
+        "operations_hash": null,
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x359938ad92cb345ab61ff418336aa79693e3495bd2e2f30647f0a28e629f224b",
+        "s": "0x13a2e172fc76c6ce92ec99ef9ed6f222044c761b9608681d8f401ba6035c6160",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x58911eb2261e0ee09a59703ab6c11c8e220d00f131138cf74f2a1b8018e636a1",
+        "transaction_hash": "0x7d2c0fb3f17edb7dc0cc5d300ba4bf9eb1e21194d68a6b33af0021a16bf50d38",
+        "operations_hash": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
+      }
+    },
+    {
+      "name": "batch_pairwise_15_both_empty_none_empty",
+      "class": "batch_pairwise",
+      "operation": "BatchPayment",
+      "operation_type": 14,
+      "payload": {
+        "batch_id": "pairwise-id",
+        "chain_id": 1212101,
+        "created_at": 1747785600,
+        "nonce": 14,
+        "operations": [],
+        "operations_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+        "token": "0x0101010101010101010101010101010101010101"
+      },
+      "options": {},
+      "authorization": {
+        "r": "0x6962e3738253c47146361e3f976d8f1c965fa9d3b441cd64622a074db0767e90",
+        "s": "0x42ee6e5d4fe72b049de098c23264e757f449509d0d24e32fd84baf80edfd25df",
+        "v": 0
+      },
+      "expected": {
+        "signing_hash": "0x199ffc9fcf0617f36161b3bba2e3212405c8b7284af2d31e9c446f2bac7123e0",
+        "transaction_hash": "0xeb0ec0632f56ea226ea4528043422346dcefb99c2288b1fb01bbbd2c480c3010",
+        "operations_hash": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
+      }
+    }
+  ]
+}

@@ -60,7 +60,8 @@ ranges in the package's `peerDependencies` (axios ≥1.15 <2, viem ≥2 <3,
 
 The package root re-exports: the `api` function, the **signing** layer
 (`TransactionBuilder`, `LegacyV1TransactionBuilder`, `createPrivateKeySigner`,
-`deriveMultisigAddress`, the EIP-712 typed-data helpers, signer/types), the
+`deriveMultisigAddress`, `calculateBatchPaymentOperationsHash`, the EIP-712
+typed-data helpers, signer/types), the
 **utils** (`deriveTokenAddress`, `calcTxHash`, `toHex`, `validateMemo`, …), and
 `client`.
 
@@ -71,7 +72,7 @@ Enums are runtime *values* (not erasable types), so a root import resolves to
 import enums from `/api`:
 
 ```typescript
-import { api, TransactionBuilder, createPrivateKeySigner } from '@1money/protocol-ts-sdk';
+import { api, TransactionBuilder, calculateBatchPaymentOperationsHash, createPrivateKeySigner } from '@1money/protocol-ts-sdk';
 import { AuthorityType, ManageListAction } from '@1money/protocol-ts-sdk/api';
 ```
 
@@ -229,6 +230,7 @@ import {
   LegacyV1TransactionBuilder,  // pre-3.0 scheme, explicit opt-in
   createPrivateKeySigner,      // shared by both: signs a digest
   deriveMultisigAddress,       // pure, offline multisig address derivation
+  calculateBatchPaymentOperationsHash, // BatchPayment operations oracle
 } from '@1money/protocol-ts-sdk';
 
 const client = api({ network: 'testnet' });
@@ -256,11 +258,10 @@ violating them throws or silently produces a bad transaction.
 - **Never hardcode or commit a private key.** Load from env/secret store. Prefer
   `createPrivateKeySigner`, or a custom signer when the key lives in a
   wallet/HSM.
-- **`memo` is always sent on the v2 surface** (every operation except
-  `batchPayment`, which does not carry one at all). Passing no `memo` option
-  still sends `{ type: '', format: '', data: '' }` on the wire — that is a
-  specific encoded value, not an omitted field, and it has its own signing
-  hash. Details in `references/transactions.md`.
+- **`memo` is always sent on the v2 surface.** Passing no `memo` option still
+  sends `{ type: '', format: '', data: '' }` on the wire — that is a specific
+  encoded value, not an omitted field, and it has its own signing hash.
+  Details in `references/transactions.md`.
 - **Signature `v` must be `0` or `1`** on the v2 surface. A legacy `27`/`28` is
   **rejected**, not converted — you signed the wrong digest if you see this.
 - **`AuthorizedTxV2` is plain JSON.** Safe to `JSON.stringify`/parse across a

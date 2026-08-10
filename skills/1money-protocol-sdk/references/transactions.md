@@ -135,7 +135,7 @@ manage-list is gone).
 All builders take `chain_id: number` and `nonce: number`. Fields below are the
 *additional* ones. `value`/amount fields are **decimal strings in base units**.
 Addresses are EIP-55 `0x…` strings. Every operation below accepts the `memo`
-option except `batchPayment` (see [Memo](#memo-always-sent-on-v2) below).
+option (see [Memo](#memo-always-sent-on-v2) below).
 
 ### payment → transactions.payment
 ```typescript
@@ -148,19 +148,15 @@ TransactionBuilder.batchPayment({
   chain_id, nonce,
   token: string,
   operations: { recipient: string; amount: string }[], // must not be empty
-  max_fee: string,
   created_at: number,        // unix seconds
   operations_hash?: string,  // 0x… 32-byte hash — trailing optional field
   batch_id?: string,         // trailing optional field
-});
+}, { memo });
 ```
-`batchPayment` is the one operation with no memo at all — but the public
-wrapper still accepts the same `{ memo }` options argument every other
-operation does, and **throws** `does not carry a memo` if you pass one, just
-like calling `prepareTransactionV2('batchPayment', unsigned, { memo })`
-directly. Both entry points reject a memo identically; a plain-JavaScript
-caller passing `{ memo }` gets the same thrown error a TypeScript caller
-would, not a silently dropped memo.
+`batchPayment` is memo-capable and always sends a complete memo object. Omit
+the option to sign and send `{ type: '', format: '', data: '' }`. It no longer
+accepts `max_fee`; obtain an unsigned fee quote with
+`estimateBatchPaymentFee()` instead.
 `operations_hash` and `batch_id` are positionally trailing in the signed
 payload: supplying `batch_id` without `operations_hash` still reserves the
 `operations_hash` slot (encoded as an empty placeholder) so decoding stays
@@ -171,7 +167,9 @@ outright — since a `null` (e.g. after a JSON or SQL round-trip) taking the
 "present" branch in one but not the other would desync the signed digest
 from the transmitted body. When genuinely present, `batch_id` must be a
 string and `operations_hash` must be a `0x…` 32-byte hash; both are
-validated at `prepare` time.
+validated at `prepare` time. When supplied, `operations_hash` must equal
+`calculateBatchPaymentOperationsHash(operations)` (comparison is
+case-insensitive); the helper is available from the package root.
 
 ### tokenIssue → tokens.issueToken
 ```typescript
@@ -303,8 +301,8 @@ handing back an address for an unusable key would be a fund-losing bug.
 ## Memo (always sent on v2)
 
 Unlike the pre-3.0 scheme, where an absent memo took a different code path
-from a present one, on the v2 surface **every memo-capable operation always
-sends a `memo` object on the wire** — there is no "no memo" request shape.
+from a present one, on the v2 surface **every operation always sends a
+`memo` object on the wire** — there is no "no memo" request shape.
 Omitting the `{ memo }` option is shorthand for the all-empty memo:
 
 ```typescript
@@ -328,15 +326,6 @@ plain-JS caller) can still pass one in, so `prepare` throws
 `[1Money SDK]: <op> unsigned payload must not include a memo property` if it
 finds one, rather than silently dropping it and signing/sending the all-empty
 memo instead.
-
-`batchPayment` is the one exception: it is not memo-capable at all. Its
-builder wrapper still accepts the same `{ memo }` options argument every
-other operation does — passing `{ memo }` is not a compile error, for
-TypeScript or JavaScript callers — but it **throws**
-`[1Money SDK]: batchPayment does not carry a memo` at prepare time rather
-than silently dropping the field. TypeScript and JavaScript callers get the
-identical thrown error; there is no silent drop in either case. See
-[`batchPayment`](#batchpayment--transactionsbatchpayment) above.
 
 Validation runs at `prepare` time (mirrors the server's Rust rules) and throws
 `MemoValidationError` (carries a `.code`) on violation:

@@ -26,24 +26,19 @@ export interface MultiSigProofEntry {
   signature: Signature;
 }
 
-// payload_rlp — the canonical payload's own complete RLP encoding.
-// Memo-capable operations wrap the payload in WithMemo<T>;
-// BatchPayment passes memo: null and encodes the bare list.
+// payload_rlp is always WithMemo<Payload> for every registered native-v2
+// operation. Empty business memo is the three-empty-string memo list.
 export function encodePayloadRlp(params: {
   chainId: number;
   nonce: number;
   payloadFields: PlpPayload[];
-  memo: RequiredMemo | null;
+  memo: RequiredMemo;
 }): Uint8Array {
   const innerList = rlpValue.list([
     rlpValue.uint(params.chainId),
     rlpValue.uint(params.nonce),
     ...params.payloadFields
   ]);
-
-  if (params.memo === null) {
-    return encodeRlpPayload(innerList);
-  }
 
   return encodeRlpPayload(
     rlpValue.list([

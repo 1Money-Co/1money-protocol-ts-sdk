@@ -36,7 +36,7 @@ node-derived `multisig_address`.
 
 ### Memo field
 
-On the v2 surface (`payment`), the request always carries a `memo` object —
+On the v2 surface (`payment` and `batchPayment`), the request always carries a `memo` object —
 omitting the `memo` option when building sends the all-empty
 `{ type: '', format: '', data: '' }`, which is itself a specific signed value,
 not an omitted field:

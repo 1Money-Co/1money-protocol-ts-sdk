@@ -100,7 +100,7 @@ export type OperationName =
 
 export interface OperationSpec<TUnsigned> {
   operationType: number;
-  // false only for batchPayment
+  // Every registered native-v2 operation uses the memo wrapper.
   memoCapable: boolean;
   // Declared metadata recording the legacy correspondence; null
   // only for createMultisig, which has no legacy form. The
@@ -244,7 +244,7 @@ export const OPERATION_REGISTRY: {
   batchPayment: {
     operationType:
       NativeOperationType.BatchPayment,
-    memoCapable: false,
+    memoCapable: true,
     pathV1: '/v1/transactions/batch_payment',
     pathV2: '/v2/transactions/batch_payment',
     payloadFields: batchPaymentPayloadFields,

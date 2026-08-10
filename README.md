@@ -809,8 +809,9 @@ const prepared = TransactionBuilder.batchPayment({
     { recipient: '0xa128999Be299373D7881f4aDD11510030ad13512', amount: '1000000000' },
     { recipient: '0x6324dAc598f9B637824978eD6b268C896E0c40E0', amount: '2000000000' }
   ],
-  max_fee: '1000000000000000',
   created_at: Math.floor(Date.now() / 1000) // unix seconds
+}, {
+  memo: { data: 'invoice-0001' }
 });
 
 const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
@@ -824,12 +825,14 @@ try {
   console.error('Error:', err);
 }
 ```
-`operations` must not be empty. `batchPayment` is the **one operation that
-carries no memo** — passing a `{ memo }` option throws at prepare time rather
-than dropping it silently. The optional trailing `operations_hash` (a `0x…`
-32-byte hash) and `batch_id` are positional in the signed payload: supplying
-`batch_id` alone still reserves the `operations_hash` slot, and `null` is
-treated exactly like an absent field in both the digest and the wire body.
+`operations` must not be empty, recipients and amounts must be nonzero, and
+the aggregate cannot exceed U256::MAX. `batchPayment` always carries a memo;
+omitting the option sends the all-empty memo. It no longer accepts `max_fee`.
+Use `calculateBatchPaymentOperationsHash(operations)` when supplying the
+optional trailing `operations_hash` (a `0x…` 32-byte hash); it must match the
+canonical operations hash. `batch_id` is positional in the signed payload:
+supplying it alone reserves the `operations_hash` slot, and `null` is treated
+as absent in both the digest and wire body.
 
 
 ## Utility Functions
@@ -965,11 +968,11 @@ change for any code calling `TransactionBuilder` directly.
   `tokenWhitelist` — distinct operations with distinct signing hashes, paired
   with `tokens.manageBlacklist` / `tokens.manageWhitelist` respectively. You
   can no longer build one payload and submit it to either endpoint.
-- **`memo` is now always sent** on the v2 surface. Every operation except
-  `batchPayment` always carries a memo on the wire; omitting the `memo` option
-  sends the all-empty `{ type: '', format: '', data: '' }` rather than leaving
-  the field off entirely. This differs from the pre-3.0 behavior, where an
-  absent memo took a different code path from a present one.
+- **`memo` is now always sent** on the v2 surface. Every operation carries a
+  memo on the wire; omitting the `memo` option sends the all-empty
+  `{ type: '', format: '', data: '' }` rather than leaving the field off
+  entirely. This differs from the pre-3.0 behavior, where an absent memo took
+  a different code path from a present one.
 - **Signature `v` must be `0` or `1`** on the v2 surface; a legacy `27`/`28` is
   rejected by `authorize`, not converted.
 

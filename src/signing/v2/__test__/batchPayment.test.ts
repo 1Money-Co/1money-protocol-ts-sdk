@@ -1,199 +1,364 @@
 import { expect } from 'chai';
 import 'mocha';
+import { hexToBytes } from 'viem';
 
-import { vectorHash } from './helpers/vectors';
-import { batchPaymentPayloadFields } from '../../builders/batchPayment';
+import {
+  calculateBatchPaymentOperationsHash,
+  type BatchPaymentUnsigned
+} from '@/signing';
 import {
   encodeRlpPayload,
   rlpValue as ev
-} from '../../../utils';
+} from '@/utils';
+import {
+  batchPaymentPayloadFields,
+  type BatchPaymentUnsigned as BuilderBatchPaymentUnsigned
+} from '../../builders/batchPayment';
+import {
+  encodePayloadRlp,
+  multisigDescriptor,
+  multisigProof,
+  signingHashV2,
+  singleDescriptor,
+  singleProof,
+  transactionHashV2
+} from '../encoding';
 import { prepareTransactionV2 } from '../prepare';
+import { toRequiredMemo } from '../wire';
+import {
+  batchVector,
+  vector
+} from './helpers/vectors';
 
-const CHAIN_ID = 1212101;
-const TOKEN = `0x${'01'.repeat(20)}`;
-
-const BASE = {
-  chain_id: CHAIN_ID,
-  nonce: 14,
-  token: TOKEN,
-  operations: [
-    {
-      recipient: `0x${'0c'.repeat(20)}`,
-      amount: '1000'
-    },
-    {
-      recipient: `0x${'0d'.repeat(20)}`,
-      amount: '2000'
-    }
-  ],
-  max_fee: '5000',
-  created_at: 1747785600
+const U256_MAX =
+  (BigInt(1) << BigInt(256)) - BigInt(1);
+const ZERO_ADDRESS = `0x${'00'.repeat(20)}`;
+const LOW_S_SIGNATURE = {
+  r: `0x${'aa'.repeat(32)}` as `0x${string}`,
+  s: `0x${'11'.repeat(32)}` as `0x${string}`,
+  v: 1
 };
+const REQUIRED_OPERATION_CASES = [
+  'batch_operations_empty',
+  'batch_operations_single',
+  'batch_operations_order_forward',
+  'batch_operations_order_reverse',
+  'batch_operation_amount_zero',
+  'batch_operation_amount_max'
+] as const;
+const REQUIRED_TAIL_CASES = [
+  'batch_option_neither',
+  'batch_option_hash_only',
+  'batch_option_id_only',
+  'batch_option_both',
+  'batch_option_empty_id',
+  'batch_option_zero_hash'
+] as const;
+
+const BASE = batchVector(
+  'BatchPayment_canonical'
+).payload as unknown as BatchPaymentUnsigned;
+
+function payloadFor(name: string): BatchPaymentUnsigned {
+  return batchVector(name).payload as unknown as BatchPaymentUnsigned;
+}
+
+function lowLevelHashes(name: string) {
+  const entry = batchVector(name);
+  const payloadRlp = encodePayloadRlp({
+    chainId: entry.payload.chain_id,
+    nonce: entry.payload.nonce,
+    payloadFields: batchPaymentPayloadFields(
+      entry.payload as unknown as BuilderBatchPaymentUnsigned
+    ),
+    memo: toRequiredMemo(entry.options.memo)
+  });
+  const descriptor = singleDescriptor();
+  return {
+    signingHash: signingHashV2(
+      14,
+      descriptor,
+      payloadRlp
+    ),
+    transactionHash: transactionHashV2(
+      14,
+      descriptor,
+      payloadRlp,
+      singleProof(entry.authorization)
+    )
+  };
+}
 
 describe('batch payment v2', function () {
-  it('reproduces the BatchPayment_single signing hash', function () {
+  it('reproduces the base single signing and transaction hashes', function () {
+    const entry = batchVector('BatchPayment_canonical');
+    const prepared = prepareTransactionV2(
+      'batchPayment',
+      BASE
+    );
+    expect(prepared.signingHash).to.equal(
+      entry.expected.signing_hash
+    );
     expect(
-      prepareTransactionV2('batchPayment', BASE)
-        .signingHash
-    ).to.equal(
-      vectorHash('BatchPayment_single')
-    );
+      prepared.authorize(entry.authorization).transactionHash
+    ).to.equal(entry.expected.transaction_hash);
   });
 
-  it('omits both trailing optionals entirely', function () {
-    const fields =
-      batchPaymentPayloadFields(BASE);
-    // token, operations, max_fee, created_at — chain_id and
-    // nonce are prepended by the encoder.
-    expect(fields).to.have.length(4);
+  it('reproduces the base multisig signing and transaction hashes', function () {
+    const multi = vector('BatchPayment_multi');
+    if (multi.multisig_account === null) {
+      throw new Error(
+        '[test]: BatchPayment_multi is missing multisig_account'
+      );
+    }
+    const multiPayloadRlp = hexToBytes(
+      multi.payload_rlp as `0x${string}`
+    );
+    const multiDescriptor = multisigDescriptor(
+      multi.multisig_account as `0x${string}`
+    );
+    const multiEntries = multi.authorization_proof.signatures!.map(
+      entry => ({
+        signerPubkey: entry.signer_pubkey as `0x${string}`,
+        signature: entry.signature
+      })
+    );
+    expect(
+      signingHashV2(
+        multi.operation_type,
+        multiDescriptor,
+        multiPayloadRlp
+      )
+    ).to.equal(multi.signing_hash);
+    expect(
+      transactionHashV2(
+        multi.operation_type,
+        multiDescriptor,
+        multiPayloadRlp,
+        multisigProof(multiEntries)
+      )
+    ).to.equal(multi.transaction_hash);
   });
 
-  it('encodes an absent operations_hash as a placeholder when batch_id is present', function () {
-    const fields = batchPaymentPayloadFields({
-      ...BASE,
-      batch_id: 'batch-7'
-    });
-    expect(fields).to.have.length(6);
-    const encoded = Array.from(
-      encodeRlpPayload(fields[4])
-    );
-    expect(encoded).to.deep.equal([0x80]);
-    expect(fields[5]).to.deep.equal(
-      ev.string('batch-7')
-    );
-  });
-
-  it('encodes a present operations_hash normally', function () {
-    const hash = `0x${'ab'.repeat(32)}`;
-    const fields = batchPaymentPayloadFields({
-      ...BASE,
-      operations_hash: hash
-    });
-    expect(fields).to.have.length(5);
-    expect(fields[4]).to.deep.equal(
-      ev.hex(hash as `0x${string}`)
-    );
-  });
-
-  it('omits absent optionals from the JSON body', function () {
+  it('always includes an empty memo and no max_fee on the request', function () {
     const authorized = prepareTransactionV2(
       'batchPayment',
       BASE
-    ).authorize({
-      r: `0x${'aa'.repeat(32)}` as `0x${string}`,
-      s: `0x${'11'.repeat(32)}` as `0x${string}`,
-      v: 1
+    ).authorize(LOW_S_SIGNATURE);
+    expect(authorized.request.memo).to.deep.equal({
+      type: '',
+      format: '',
+      data: ''
     });
-    expect(
-      'operations_hash' in authorized.request
-    ).to.equal(false);
-    expect(
-      'batch_id' in authorized.request
-    ).to.equal(false);
-    expect('memo' in authorized.request).to.equal(
-      false
-    );
+    expect('max_fee' in authorized.request).to.equal(false);
   });
 
-  it('rejects a memo', function () {
+  it('uses the focused populated-memo hashes', function () {
+    const entry = batchVector('batch_option_neither_memo');
+    const prepared = prepareTransactionV2(
+      'batchPayment',
+      payloadFor(entry.name),
+      { memo: entry.options.memo }
+    );
+    expect(prepared.signingHash).to.equal(
+      entry.expected.signing_hash
+    );
+    expect(
+      prepared.authorize(entry.authorization).transactionHash
+    ).to.equal(entry.expected.transaction_hash);
+  });
+
+  it('has five inner fields when tails are absent', function () {
+    const fields = batchPaymentPayloadFields(BASE);
+    expect(fields).to.have.length(3);
+    expect(
+      encodeRlpPayload(
+        ev.list([
+          ev.uint(BASE.chain_id),
+          ev.uint(BASE.nonce),
+          ...fields
+        ])
+      )
+    ).to.be.instanceOf(Uint8Array);
+  });
+
+  it('uses an empty hash slot for batch_id-only tails', function () {
+    const fields = batchPaymentPayloadFields(
+      payloadFor('batch_option_id_only')
+    );
+    expect(fields).to.have.length(5);
+    expect(encodeRlpPayload(fields[3])).to.deep.equal(
+      Uint8Array.from([0x80])
+    );
+    expect(fields[4]).to.deep.equal(ev.string('batch-1'));
+  });
+
+  REQUIRED_TAIL_CASES.forEach(name => {
+    it(`reproduces focused tail hashes for ${name}`, function () {
+      const entry = batchVector(name);
+      expect(lowLevelHashes(name).signingHash).to.equal(
+        entry.expected.signing_hash
+      );
+      expect(lowLevelHashes(name).transactionHash).to.equal(
+        entry.expected.transaction_hash
+      );
+    });
+  });
+
+  it('treats runtime null optionals like absent tails', function () {
+    const absent = prepareTransactionV2(
+      'batchPayment',
+      BASE
+    ).signingHash;
+    const withNull = prepareTransactionV2('batchPayment', {
+      ...BASE,
+      operations_hash: null as unknown as `0x${string}`,
+      batch_id: null as unknown as string
+    }).signingHash;
+    expect(withNull).to.equal(absent);
+  });
+
+  it('snapshots caller operations and memo before authorization', function () {
+    const operations = BASE.operations.map(operation => ({
+      ...operation
+    }));
+    const memo = { data: 'invoice-1' };
+    const prepared = prepareTransactionV2(
+      'batchPayment',
+      { ...BASE, operations },
+      { memo }
+    );
+    operations[0].amount = '9999';
+    memo.data = 'mutated';
+    const authorized = prepared.authorize(LOW_S_SIGNATURE);
+    expect(authorized.request.operations).to.deep.equal(
+      BASE.operations
+    );
+    expect(authorized.request.memo).to.deep.equal({
+      type: '',
+      format: '',
+      data: 'invoice-1'
+    });
+  });
+});
+
+describe('Batch Payment operations hash', function () {
+  REQUIRED_OPERATION_CASES.forEach(name => {
+    it(`matches the oracle for ${name}`, function () {
+      const entry = batchVector(name);
+      expect(
+        calculateBatchPaymentOperationsHash(
+          entry.payload.operations
+        )
+      ).to.equal(entry.expected.operations_hash);
+    });
+  });
+
+  it('accepts empty operations and zero amounts in the pure helper', function () {
+    expect(() =>
+      calculateBatchPaymentOperationsHash([])
+    ).to.not.throw();
+    expect(() =>
+      calculateBatchPaymentOperationsHash([
+        { recipient: ZERO_ADDRESS, amount: '0' }
+      ])
+    ).to.not.throw();
+  });
+});
+
+describe('Batch Payment static validation', function () {
+  it('rejects empty operations', function () {
+    expect(() =>
+      prepareTransactionV2('batchPayment', {
+        ...BASE,
+        operations: []
+      })
+    ).to.throw(/operations: must not be empty/);
+  });
+
+  it('rejects a zero recipient', function () {
+    expect(() =>
+      prepareTransactionV2('batchPayment', {
+        ...BASE,
+        operations: [{ recipient: ZERO_ADDRESS, amount: '1' }]
+      })
+    ).to.throw(/recipient: zero address/);
+  });
+
+  it('rejects a zero amount', function () {
+    expect(() =>
+      prepareTransactionV2('batchPayment', {
+        ...BASE,
+        operations: [{
+          recipient: BASE.operations[0].recipient,
+          amount: '0'
+        }]
+      })
+    ).to.throw(/amount: must be greater than zero/);
+  });
+
+  it('rejects an amount above U256::MAX', function () {
+    expect(() =>
+      prepareTransactionV2('batchPayment', {
+        ...BASE,
+        operations: [{
+          recipient: BASE.operations[0].recipient,
+          amount: (U256_MAX + BigInt(1)).toString()
+        }]
+      })
+    ).to.throw(/amount: exceeds U256::MAX/);
+  });
+
+  it('rejects an aggregate above U256::MAX', function () {
+    expect(() =>
+      prepareTransactionV2('batchPayment', {
+        ...BASE,
+        operations: [
+          {
+            recipient: BASE.operations[0].recipient,
+            amount: U256_MAX.toString()
+          },
+          {
+            recipient: BASE.operations[1].recipient,
+            amount: '1'
+          }
+        ]
+      })
+    ).to.throw(/operations: total exceeds U256::MAX/);
+  });
+
+  it('accepts a matching supplied operations hash', function () {
+    const operations_hash =
+      calculateBatchPaymentOperationsHash(BASE.operations);
+    expect(() =>
+      prepareTransactionV2('batchPayment', {
+        ...BASE,
+        operations_hash
+      })
+    ).to.not.throw();
+  });
+
+  it('reports supplied and canonical values for a mismatch', function () {
+    const supplied = `0x${'11'.repeat(32)}`;
+    const canonical = calculateBatchPaymentOperationsHash(
+      BASE.operations
+    );
+    expect(() =>
+      prepareTransactionV2('batchPayment', {
+        ...BASE,
+        operations_hash: supplied
+      })
+    ).to.throw(`supplied ${supplied}, canonical ${canonical}`);
+  });
+
+  it('rejects legacy max_fee from untyped callers', function () {
     expect(() =>
       prepareTransactionV2(
         'batchPayment',
-        BASE,
-        { memo: { data: 'nope' } }
+        { ...BASE, max_fee: '1' } as unknown as BatchPaymentUnsigned
       )
-    ).to.throw(/does not carry a memo/);
-  });
-
-  // Regression coverage for the round-2 finding: `rlpValue.string(null)`
-  // encodes to the 4-byte string "null" (TextEncoder coerces `null` via
-  // `String(null)`), so a `null` batch_id/operations_hash -- the normal
-  // shape after a JSON or SQL round-trip -- silently corrupted the signed
-  // digest instead of being treated as absent, like `undefined` already
-  // is.
-  describe('null batch_id / operations_hash (must behave exactly like absent)', function () {
-    it('omits both trailing optionals from the payload fields when batch_id is null', function () {
-      const fields = batchPaymentPayloadFields({
-        ...BASE,
-        batch_id: null as unknown as string
-      });
-      expect(fields).to.have.length(4);
-    });
-
-    it('omits both trailing optionals from the payload fields when operations_hash is null', function () {
-      const fields = batchPaymentPayloadFields({
-        ...BASE,
-        operations_hash:
-          null as unknown as string
-      });
-      expect(fields).to.have.length(4);
-    });
-
-    it('produces the same signing hash for null and absent batch_id', function () {
-      const withNull = prepareTransactionV2(
-        'batchPayment',
-        {
-          ...BASE,
-          batch_id: null as unknown as string
-        }
-      ).signingHash;
-      const absent = prepareTransactionV2(
-        'batchPayment',
-        BASE
-      ).signingHash;
-      expect(withNull).to.equal(absent);
-    });
-
-    it('omits batch_id and operations_hash from the wire body when null', function () {
-      const authorized = prepareTransactionV2(
-        'batchPayment',
-        {
-          ...BASE,
-          batch_id: null as unknown as string,
-          operations_hash:
-            null as unknown as string
-        }
-      ).authorize({
-        r: `0x${'aa'.repeat(32)}` as `0x${string}`,
-        s: `0x${'11'.repeat(32)}` as `0x${string}`,
-        v: 1
-      });
-      expect(
-        'batch_id' in authorized.request
-      ).to.equal(false);
-      expect(
-        'operations_hash' in authorized.request
-      ).to.equal(false);
-    });
-  });
-
-  describe('validateBatchPayment on genuinely present optionals', function () {
-    it('accepts a present, well-formed batch_id and operations_hash', function () {
-      expect(() =>
-        prepareTransactionV2('batchPayment', {
-          ...BASE,
-          batch_id: 'batch-7',
-          operations_hash: `0x${'ab'.repeat(32)}`
-        })
-      ).to.not.throw();
-    });
-
-    it('rejects a non-string batch_id', function () {
-      expect(() =>
-        prepareTransactionV2('batchPayment', {
-          ...BASE,
-          batch_id: 7 as unknown as string
-        })
-      ).to.throw(/Invalid batch_id/);
-    });
-
-    it('rejects a malformed operations_hash', function () {
-      expect(() =>
-        prepareTransactionV2('batchPayment', {
-          ...BASE,
-          operations_hash: '0xabcd'
-        })
-      ).to.throw(/Invalid operations_hash/);
-    });
+    ).to.throw(
+      'Batch Payment no longer accepts max_fee; call estimateBatchPaymentFee() for an unsigned quote'
+    );
   });
 });
