@@ -23,6 +23,7 @@ import { getIntegrationContext } from './context';
 import {
   classifyBatchFailureSubmission,
   generateRandomSymbol,
+  isConfirmedReadNotFound,
   observeForWindow,
   waitForResult
 } from './helpers';
@@ -1768,7 +1769,9 @@ describe('native v2 lifecycle integration', function () {
               attempts:
                 BATCH_FAILURE_OBSERVATION_ATTEMPTS,
               intervalMs:
-                BATCH_FAILURE_OBSERVATION_INTERVAL_MS
+                BATCH_FAILURE_OBSERVATION_INTERVAL_MS,
+              isNotFound:
+                isConfirmedReadNotFound
             }
           ),
           observeForWindow(
@@ -1780,7 +1783,9 @@ describe('native v2 lifecycle integration', function () {
               attempts:
                 BATCH_FAILURE_OBSERVATION_ATTEMPTS,
               intervalMs:
-                BATCH_FAILURE_OBSERVATION_INTERVAL_MS
+                BATCH_FAILURE_OBSERVATION_INTERVAL_MS,
+              isNotFound:
+                isConfirmedReadNotFound
             }
           )
         ]);

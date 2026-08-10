@@ -159,11 +159,11 @@ export class TransactionOutcomeUnknownError extends
   readonly submitted = 'unknown' as const;
   readonly transactionHash: string;
   /** Raw transport metadata, when the client received it. */
-  readonly status?: number;
+  public readonly status?: number;
   /** Raw transport response body, when the client received it. */
-  readonly data?: unknown;
+  public readonly data?: unknown;
   /** Original parsed transport result, when available. */
-  readonly cause?: unknown;
+  public readonly cause?: unknown;
 
   constructor(
     transactionHash: string,

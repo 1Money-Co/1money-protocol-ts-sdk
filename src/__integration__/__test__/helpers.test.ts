@@ -7,9 +7,26 @@ import {
 
 import {
   classifyBatchFailureSubmission,
+  isConfirmedReadNotFound,
   observeForWindow,
   waitForResult
 } from '../helpers';
+
+import type { ParsedError } from '@/client/core';
+
+function readError(
+  status: number,
+  message: string,
+  name: string = 'AxiosError'
+): ParsedError {
+  return {
+    name,
+    message,
+    stack: '',
+    status,
+    data: { message }
+  };
+}
 
 describe('integration polling helper', function () {
   it('returns an immediately available result', async function () {
@@ -59,7 +76,11 @@ describe('integration polling helper', function () {
   it('observes an immediately available result', async function () {
     const observation = await observeForWindow(
       async () => 'ready',
-      { attempts: 1, intervalMs: 0 }
+      {
+        attempts: 1,
+        intervalMs: 0,
+        isNotFound: isConfirmedReadNotFound
+      }
     );
 
     expect(observation).to.deep.equal({
@@ -68,17 +89,21 @@ describe('integration polling helper', function () {
     });
   });
 
-  it('observes a result after transient lookup failures', async function () {
+  it('observes a result after transient confirmed 404 responses', async function () {
     let attempts = 0;
     const observation = await observeForWindow(
       async () => {
         attempts += 1;
         if (attempts < 3) {
-          throw new Error('not ready');
+          throw readError(404, 'not found');
         }
         return 3;
       },
-      { attempts: 3, intervalMs: 0 }
+      {
+        attempts: 3,
+        intervalMs: 0,
+        isNotFound: isConfirmedReadNotFound
+      }
     );
 
     expect(observation).to.deep.equal({
@@ -88,24 +113,61 @@ describe('integration polling helper', function () {
     expect(attempts).to.equal(3);
   });
 
-  it('returns the final lookup error after the window expires', async function () {
-    const finalError = new Error('still missing');
+  it('returns not_found only after all 30 confirmed 404 responses', async function () {
+    const finalError = readError(
+      404,
+      'still missing'
+    );
     let attempts = 0;
     const observation = await observeForWindow(
       async () => {
         attempts += 1;
-        throw attempts === 2
-          ? finalError
-          : new Error('not ready');
+        throw finalError;
       },
-      { attempts: 2, intervalMs: 0 }
+      {
+        attempts: 30,
+        intervalMs: 0,
+        isNotFound: isConfirmedReadNotFound
+      }
     );
 
     expect(observation.state).to.equal('not_found');
     if (observation.state === 'not_found') {
       expect(observation.error).to.equal(finalError);
     }
-    expect(attempts).to.equal(2);
+    expect(attempts).to.equal(30);
+  });
+
+  it('rethrows unhealthy and unexpected read failures immediately', async function () {
+    const failures: unknown[] = [
+      readError(500, 'internal server error'),
+      readError(500, 'timeout', 'timeout'),
+      readError(500, 'Network Error'),
+      new Error('programming error')
+    ];
+
+    for (const failure of failures) {
+      let attempts = 0;
+      let caught: unknown;
+      try {
+        await observeForWindow(
+          async () => {
+            attempts += 1;
+            throw failure;
+          },
+          {
+            attempts: 30,
+            intervalMs: 0,
+            isNotFound: isConfirmedReadNotFound
+          }
+        );
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).to.equal(failure);
+      expect(attempts).to.equal(1);
+    }
   });
 
   it('classifies only explicit refused and unknown submission outcomes', function () {

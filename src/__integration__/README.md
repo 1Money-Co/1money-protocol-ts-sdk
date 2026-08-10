@@ -100,6 +100,12 @@ Batch receipts use the zero address as `success_info.receiver` because there
 is no single recipient. Read the ordered `PaymentExecuted` entries in
 `execution_events` for the actual recipients and amounts.
 
+The Batch Payment failure probe observes receipt and finalized lookups for
+exactly 30 attempts at 250 ms intervals. Only a confirmed HTTP 404 is treated
+as “not found” and retried through that window. A 500, timeout, network error,
+or unexpected exception aborts calibration immediately so an unhealthy read
+API cannot be recorded as normal receipt absence.
+
 ## Adding a transaction scenario
 
 Use the shared context and v2 submission helper:

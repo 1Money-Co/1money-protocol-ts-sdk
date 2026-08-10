@@ -50,6 +50,7 @@ export async function observeForWindow<T>(
   options: {
     attempts: number;
     intervalMs: number;
+    isNotFound: (error: unknown) => boolean;
   }
 ): Promise<
   | { state: 'found'; value: T }
@@ -64,6 +65,9 @@ export async function observeForWindow<T>(
     try {
       return { state: 'found', value: await lookup() };
     } catch (error) {
+      if (!options.isNotFound(error)) {
+        throw error;
+      }
       lastError = error;
       if (attempt + 1 < options.attempts) {
         await wait(options.intervalMs);
@@ -71,6 +75,16 @@ export async function observeForWindow<T>(
     }
   }
   return { state: 'not_found', error: lastError };
+}
+
+export function isConfirmedReadNotFound(
+  error: unknown
+): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { status?: unknown }).status === 404
+  );
 }
 
 export function classifyBatchFailureSubmission(
