@@ -33,6 +33,13 @@ type PrivateKeySigner = ReturnType<
 >;
 
 const ZERO_ADDRESS = `0x${'00'.repeat(20)}`;
+const BATCH_PAYMENT_FIXTURE_BALANCE = '1000000';
+const BATCH_PAYMENT_RECIPIENT_BALANCE = '1';
+
+interface BatchPaymentFixture {
+  tokenAddress: string;
+  tokenSymbol: string;
+}
 
 function isBatchPaymentUnavailable(
   error: unknown
@@ -73,6 +80,9 @@ describe('native v2 lifecycle integration', function () {
   let privateTokenAddress: string;
   let issueHash: string;
   let tokenSymbol: string;
+  let batchPaymentFixture:
+    | Promise<BatchPaymentFixture>
+    | undefined;
 
   before(async function () {
     context = getIntegrationContext();
@@ -113,6 +123,232 @@ describe('native v2 lifecycle integration', function () {
       context.accounts.user3.privateKey
     );
   });
+
+  async function ensureBatchPaymentFixture(): Promise<BatchPaymentFixture> {
+    if (!batchPaymentFixture) {
+      batchPaymentFixture = (async () => {
+        const issueNonce = (
+          await context.client.accounts.getNonce(
+            context.accounts.operator.address
+          )
+        ).nonce;
+        const fixtureTokenSymbol =
+          generateRandomSymbol('BPF');
+        const issuePrepared =
+          TransactionBuilder.tokenIssue({
+            chain_id: chainId,
+            nonce: issueNonce,
+            symbol: fixtureTokenSymbol,
+            name: 'Batch Payment Fixture Token',
+            decimals: 18,
+            master_authority:
+              context.accounts.master.address,
+            is_private: false,
+            clawback_enabled: true
+          });
+        const { response: issueResponse } =
+          await authorizeAndSubmitV2(
+            issuePrepared,
+            operatorSigner,
+            authorized =>
+              context.client.tokens.issueToken(
+                authorized
+              )
+          );
+        const fixtureTokenAddress =
+          issueResponse.token;
+
+        const issueReceipt = await waitForResult(
+          () =>
+            context.client.transactions.getReceiptByHash(
+              issueResponse.hash
+            ),
+          { intervalMs: 250 }
+        );
+        expect(issueReceipt.success).to.equal(true);
+
+        await waitForResult(
+          () =>
+            context.client.tokens.getTokenMetadata(
+              fixtureTokenAddress
+            ),
+          { intervalMs: 250 }
+        );
+
+        const authorityNonce = (
+          await context.client.accounts.getNonce(
+            context.accounts.master.address
+          )
+        ).nonce;
+        const authorityPrepared =
+          TransactionBuilder.tokenAuthority({
+            chain_id: chainId,
+            nonce: authorityNonce,
+            action: AuthorityAction.Grant,
+            authority_type:
+              AuthorityType.MintBurnTokens,
+            authority_address:
+              context.accounts.user1.address,
+            token: fixtureTokenAddress,
+            value: BATCH_PAYMENT_FIXTURE_BALANCE
+          });
+        const { response: authorityResponse } =
+          await authorizeAndSubmitV2(
+            authorityPrepared,
+            masterSigner,
+            authorized =>
+              context.client.tokens.grantAuthority(
+                authorized
+              )
+          );
+        const authorityReceipt = await waitForResult(
+          () =>
+            context.client.transactions.getReceiptByHash(
+              authorityResponse.hash
+            ),
+          { intervalMs: 250 }
+        );
+        expect(authorityReceipt.success).to.equal(true);
+
+        await waitForResult(
+          async () => {
+            const metadata =
+              await context.client.tokens.getTokenMetadata(
+                fixtureTokenAddress
+              );
+            if (
+              !metadata.mint_burn_authorities.some(
+                authority =>
+                  authority.minter.toLowerCase() ===
+                  context.accounts.user1.address.toLowerCase()
+              )
+            ) {
+              throw new Error(
+                'Batch Payment fixture mint authority is not visible yet'
+              );
+            }
+            return metadata;
+          },
+          { intervalMs: 250 }
+        );
+
+        const mintTo = async (
+          recipient: string,
+          value: string
+        ): Promise<void> => {
+          const nonce = (
+            await context.client.accounts.getNonce(
+              context.accounts.user1.address
+            )
+          ).nonce;
+          const prepared =
+            TransactionBuilder.tokenMint({
+              chain_id: chainId,
+              nonce,
+              recipient,
+              value,
+              token: fixtureTokenAddress
+            });
+          const { response } =
+            await authorizeAndSubmitV2(
+              prepared,
+              user1Signer,
+              authorized =>
+                context.client.tokens.mintToken(
+                  authorized
+                )
+            );
+          const receipt = await waitForResult(
+            () =>
+              context.client.transactions.getReceiptByHash(
+                response.hash
+              ),
+            { intervalMs: 250 }
+          );
+          expect(receipt.success).to.equal(true);
+        };
+
+        await mintTo(
+          context.accounts.user2.address,
+          BATCH_PAYMENT_FIXTURE_BALANCE
+        );
+        await mintTo(
+          context.accounts.user1.address,
+          BATCH_PAYMENT_RECIPIENT_BALANCE
+        );
+        await mintTo(
+          context.accounts.user3.address,
+          BATCH_PAYMENT_RECIPIENT_BALANCE
+        );
+        await mintTo(
+          context.accounts.operator.address,
+          BATCH_PAYMENT_RECIPIENT_BALANCE
+        );
+
+        const [sender, firstRecipient, secondRecipient, operator] =
+          await waitForResult(
+          async () => {
+            const accounts = await Promise.all([
+              context.client.accounts.getTokenAccount(
+                context.accounts.user2.address,
+                fixtureTokenAddress
+              ),
+              context.client.accounts.getTokenAccount(
+                context.accounts.user1.address,
+                fixtureTokenAddress
+              ),
+              context.client.accounts.getTokenAccount(
+                context.accounts.user3.address,
+                fixtureTokenAddress
+              ),
+              context.client.accounts.getTokenAccount(
+                context.accounts.operator.address,
+                fixtureTokenAddress
+              )
+            ]);
+            if (
+              BigInt(accounts[0].balance) <
+                BigInt(BATCH_PAYMENT_FIXTURE_BALANCE) ||
+              BigInt(accounts[1].balance) <
+                BigInt(BATCH_PAYMENT_RECIPIENT_BALANCE) ||
+              BigInt(accounts[2].balance) <
+                BigInt(BATCH_PAYMENT_RECIPIENT_BALANCE) ||
+              BigInt(accounts[3].balance) <
+                BigInt(BATCH_PAYMENT_RECIPIENT_BALANCE)
+            ) {
+              throw new Error(
+                'Batch Payment fixture accounts are not funded yet'
+              );
+            }
+            return accounts;
+          },
+          { intervalMs: 250 }
+        );
+        expect(
+          BigInt(sender.balance) >=
+            BigInt(BATCH_PAYMENT_FIXTURE_BALANCE)
+        ).to.equal(true);
+        expect(
+          BigInt(firstRecipient.balance) >=
+            BigInt(BATCH_PAYMENT_RECIPIENT_BALANCE)
+        ).to.equal(true);
+        expect(
+          BigInt(secondRecipient.balance) >=
+            BigInt(BATCH_PAYMENT_RECIPIENT_BALANCE)
+        ).to.equal(true);
+        expect(
+          BigInt(operator.balance) >=
+            BigInt(BATCH_PAYMENT_RECIPIENT_BALANCE)
+        ).to.equal(true);
+
+        return {
+          tokenAddress: fixtureTokenAddress,
+          tokenSymbol: fixtureTokenSymbol
+        };
+      })();
+    }
+    return batchPaymentFixture;
+  }
 
   it('issues a token through v2', async function () {
     const nonce = (
@@ -1024,6 +1260,11 @@ describe('native v2 lifecycle integration', function () {
   });
 
   it('submits a batch payment through v2', async function () {
+    const batchFixture =
+      await ensureBatchPaymentFixture();
+    const batchTokenAddress =
+      batchFixture.tokenAddress;
+
     const operations = [
       {
         recipient: context.accounts.user1.address,
@@ -1041,7 +1282,7 @@ describe('native v2 lifecycle integration', function () {
         await context.client.transactions
           .estimateBatchPaymentFee({
             from: context.accounts.user2.address,
-            token: tokenAddress,
+            token: batchTokenAddress,
             operations
           });
     } catch (error) {
@@ -1069,19 +1310,19 @@ describe('native v2 lifecycle integration', function () {
     ] = await Promise.all([
       context.client.accounts.getTokenAccount(
         context.accounts.user2.address,
-        tokenAddress
+        batchTokenAddress
       ),
       context.client.accounts.getTokenAccount(
         context.accounts.user1.address,
-        tokenAddress
+        batchTokenAddress
       ),
       context.client.accounts.getTokenAccount(
         context.accounts.user3.address,
-        tokenAddress
+        batchTokenAddress
       ),
       context.client.accounts.getTokenAccount(
         context.accounts.operator.address,
-        tokenAddress
+        batchTokenAddress
       )
     ]);
 
@@ -1094,10 +1335,10 @@ describe('native v2 lifecycle integration', function () {
       TransactionBuilder.batchPayment({
         chain_id: chainId,
         nonce,
-        token: tokenAddress,
+        token: batchTokenAddress,
         operations,
         created_at: Math.floor(Date.now() / 1000),
-        batch_id: `v2-${tokenSymbol}`
+        batch_id: `v2-${batchFixture.tokenSymbol}`
       }, {
         memo: {
           type: 'integration',
@@ -1180,19 +1421,19 @@ describe('native v2 lifecycle integration', function () {
         ] = await Promise.all([
           context.client.accounts.getTokenAccount(
             context.accounts.user2.address,
-            tokenAddress
+            batchTokenAddress
           ),
           context.client.accounts.getTokenAccount(
             context.accounts.user1.address,
-            tokenAddress
+            batchTokenAddress
           ),
           context.client.accounts.getTokenAccount(
             context.accounts.user3.address,
-            tokenAddress
+            batchTokenAddress
           ),
           context.client.accounts.getTokenAccount(
             context.accounts.operator.address,
-            tokenAddress
+            batchTokenAddress
           )
         ]);
         const total = operations.reduce(
