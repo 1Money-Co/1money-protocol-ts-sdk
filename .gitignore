@@ -15,6 +15,10 @@ docs
 
 *.log
 
+# Semgrep rule cache (fetched at pinned SHA by scripts/security-scan.sh)
+.semgrep-rules/
+semgrep.sarif
+
 package-lock.json
 
 .env.integration

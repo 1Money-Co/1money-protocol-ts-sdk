@@ -1,0 +1,71 @@
+name: Semgrep SAST
+
+# Gates pull requests into `main`. Scans the simulated merge commit
+# (refs/pull/N/merge) — the code as it would exist after merging, which is what
+# you want to gate on.
+#
+# This repo has a single long-lived branch (`main`) and every change lands
+# through a PR, so unlike network-ui — where the equivalent workflow is only a
+# release gate because most work merges into `dev` locally — this is a genuine
+# pre-merge check: no code reaches a published npm tag without passing it.
+#
+# `workflow_dispatch` is kept so the scan can be run on demand against any branch.
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  # Falls back to the ref for workflow_dispatch runs, where there is no PR
+  # number — otherwise every manual run would share one group and cancel the
+  # previous one regardless of which branch it was scanning.
+  group: semgrep-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: Semgrep CE
+    runs-on: ubuntu-latest
+    container:
+      # Pinned by digest, not the mutable `semgrep/semgrep` tag. An upstream
+      # release can change parsing, findings, or CLI behaviour with no change
+      # here — which would defeat the point of pinning the ruleset SHA and could
+      # silently alter historical pass/fail results. Digest resolved from
+      # semgrep/semgrep:1.172.0; bump deliberately and re-run the canary.
+      image: semgrep/semgrep@sha256:65dcd4408adda7c183a6b4550cb1e9b19f7f627a6fbb7e0559bd466bedc44d7b
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Fails the build if the ruleset stops detecting planted vulnerabilities.
+      # Without this a misconfigured ruleset reports 0 findings and is
+      # indistinguishable from clean code — which is exactly what the Semgrep
+      # registry rulesets did (0 of 4 planted vulns) before network-ui pinned
+      # its own. A gate that cannot fail is worse than no gate: it manufactures
+      # evidence.
+      - name: Verify ruleset still detects
+        run: ./scripts/security-scan.sh --canary
+
+      - name: Semgrep scan
+        run: ./scripts/security-scan.sh --sarif semgrep.sarif
+
+      # The audit record (ISO 27001, 1Money-Co/security#18). This repo is
+      # public, so github/codeql-action/upload-sarif would also work and would
+      # surface findings in the Security tab — deliberately not wired up yet:
+      # code scanning has never been initialised here, and a hard-failing upload
+      # step would block merges for a reason unrelated to the code under review.
+      # Enable it as a follow-up, don't bolt it on in the same change as the gate.
+      - name: Upload SARIF (audit evidence)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sarif-${{ github.run_id }}
+          path: semgrep.sarif
+          retention-days: 90
+          if-no-files-found: warn

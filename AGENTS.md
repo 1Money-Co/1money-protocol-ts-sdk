@@ -47,6 +47,21 @@ flow changed.
 - `npm run lint:prettier` - Check Prettier formatting
 - Individual fix commands: `lint:es_fix`, `lint:prettier_fix`
 
+### Security Scanning (Semgrep)
+- `npm run security:scan` - Semgrep CE scan of the whole repo, blocking on ERROR
+  findings (`scripts/security-scan.sh`)
+- `npm run security:canary` - Prove the ruleset still detects planted vulnerabilities
+- Requires the `semgrep` CLI locally: `python3 -m pip install --user semgrep`
+- Rules are fetched from `semgrep/semgrep-rules` at a **pinned SHA** into the
+  gitignored `.semgrep-rules/` cache — every `security/` directory under
+  `javascript/` and `typescript/`, not a hand-picked list. Bumping `RULES_SHA` in
+  the script is a deliberate, reviewable change; re-run the canary after bumping.
+- CI runs the same script on every PR into `main` (`.github/workflows/semgrep.yml`),
+  canary first, then the scan, and keeps the SARIF as a 90-day audit artifact.
+- Silencing a finding requires `// nosemgrep: <full-rule-id>` **with a justification
+  on the same line**. A bare `nosemgrep` is an unreviewable silent suppression.
+  Rule IDs embed the cache directory name, so `.semgrep-rules/` must not be renamed.
+
 ### Development Workflow
 - `npm run new` - Generate new components using omni CLI
 - `npm run release` - Release package using omni tool
