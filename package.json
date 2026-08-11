@@ -42,6 +42,8 @@
     "lint:prettier": "prettier --check src/",
     "lint:prettier_fix": "prettier --write src/",
     "lint:commit": "commitlint --edit",
+    "security:scan": "./scripts/security-scan.sh",
+    "security:canary": "./scripts/security-scan.sh --canary",
     "new": "omni new",
     "build": "omni build",
     "build:remote": "cross-env RUN_ENV=remote omni build",
