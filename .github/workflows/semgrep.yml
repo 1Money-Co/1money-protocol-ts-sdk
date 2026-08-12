@@ -39,7 +39,7 @@ jobs:
       image: semgrep/semgrep@sha256:65dcd4408adda7c183a6b4550cb1e9b19f7f627a6fbb7e0559bd466bedc44d7b
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -63,7 +63,7 @@ jobs:
       # Enable it as a follow-up, don't bolt it on in the same change as the gate.
       - name: Upload SARIF (audit evidence)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: semgrep-sarif-${{ github.run_id }}
           path: semgrep.sarif
