@@ -6,6 +6,7 @@ import checkpointsApi from './checkpoints';
 import tokensApi from './tokens';
 import transactionsApi from './transactions';
 import chainApi from './chain';
+import statusApi from './status';
 import { CHAIN_IDS, MAINNET_API_URL, TESTNET_API_URL, LOCAL_API_URL } from './constants';
 
 // Re-export types from each module
@@ -14,6 +15,7 @@ export * from './tokens/types';
 export * from './transactions/types';
 export * from './checkpoints/types';
 export * from './chain/types';
+export * from './status/types';
 
 /**
  * API client for 1money network
@@ -31,6 +33,7 @@ export function api(options?: {
   tokens: typeof tokensApi;
   transactions: typeof transactionsApi;
   chain: typeof chainApi;
+  status: typeof statusApi;
 } {
   const network = options?.network || 'mainnet';
   let baseURL = MAINNET_API_URL;
@@ -81,6 +84,11 @@ export function api(options?: {
      * Chain API methods
      */
     chain: chainApi,
+
+    /**
+     * Status API methods
+     */
+    status: statusApi,
   };
 }
 

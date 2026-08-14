@@ -33,7 +33,10 @@ flow changed.
 - `npm test` - Run unit tests (nyc + Mocha, config `.mocharc.js`)
 - `npm run test:integration` - Run integration tests against a live network
   (`.mocharc.integration.js`, requires `RUN_INTEGRATION_TESTS=true`)
-- `npm run test:integration:testnet` / `:local` - Pin the integration network
+- `npm run test:integration:local` - Pin the integration run to the local node
+  (`:local:verbose` adds target, account and full HTTP exchange logging).
+  There is no dedicated testnet script: set `INTEGRATION_TEST_NETWORK=testnet`
+  in `.env.integration` and run `npm run test:integration`
 - `npm run test:all` - Unit + integration
 - Unit tests live in `src/**/__test__/*.ts`; integration suite in `src/__integration__/`
   (see its `QUICKSTART.md`)
@@ -74,7 +77,9 @@ This is a TypeScript SDK for the 1Money Network Protocol with a modular architec
 - **src/index.ts** - Main entry point, exports api client and utilities
 - **src/api/** - API client modules for different endpoints (accounts, tokens, transactions, checkpoints, chain)
 - **src/client/** - Core HTTP client with promise wrapper system
-- **src/signing/** - Transaction signing: EIP-712 (`eip712/`), payload `builders/`, `signer.ts`, `core.ts`
+- **src/signing/** - Transaction signing: EIP-712 (`eip712/`), payload `builders/`, `signer.ts`, `core.ts`,
+  and the native v2 domain-separated scheme (`v2/` - `prepare.ts`, `encoding.ts`, `authorization.ts`,
+  `domain.ts`, `registry.ts`, `wire.ts`, `multisigAddress.ts`)
 - **src/utils/** - Helpers: address derivation, tx hashing, `encode.ts`, `memo/`
 
 ### Key Architecture Patterns

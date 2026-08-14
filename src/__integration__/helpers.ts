@@ -1,156 +1,294 @@
-/**
- * Integration test helper utilities
- */
+import {
+  TransactionOutcomeUnknownError,
+  TransactionSubmissionError
+} from '@/api/errors';
 
-import { api } from '@/api';
-import { getAddress } from 'viem';
-import { getConfig } from './config';
-
-/**
- * Create API client for integration tests
- */
-export function createTestClient() {
-  const config = getConfig();
-  return api({
-    network: config.network,
-    timeout: config.timeout
-  });
+export function totalMintAllocation(
+  allocations: readonly { amount: string }[]
+): string {
+  return allocations
+    .reduce(
+      (total, allocation) =>
+        total + BigInt(allocation.amount),
+      BigInt(0)
+    )
+    .toString();
 }
 
+export function wait(
+  ms: number
+): Promise<void> {
+  return new Promise(resolve =>
+    setTimeout(resolve, ms)
+  );
+}
 
-/**
- * Wait for a transaction to be finalized
- * @param txHash Transaction hash
- * @param maxRetries Maximum number of retries
- * @param retryDelay Delay between retries in milliseconds
- */
-export async function waitForFinalization(
-  txHash: string,
-  maxRetries: number = 30,
-  retryDelay: number = 2000
-): Promise<boolean> {
-  const client = createTestClient();
+export async function waitForResult<T>(
+  lookup: () => PromiseLike<T>,
+  options: {
+    attempts?: number;
+    intervalMs?: number;
+    /**
+     * Delay before the FIRST lookup, not just between retries.
+     *
+     * Defaults to 0, so existing callers are unchanged. Set it when the
+     * value provably cannot exist yet: a receipt read issued the instant
+     * a transaction is submitted is a guaranteed miss, and issuing it
+     * only produces a 404 that has to be retried anyway.
+     */
+    initialDelayMs?: number;
+  } = {}
+): Promise<T> {
+  const attempts = options.attempts ?? 30;
+  const intervalMs =
+    options.intervalMs ?? 1000;
+  const initialDelayMs =
+    options.initialDelayMs ?? 0;
+  let lastError: unknown;
 
-  for (let i = 0; i < maxRetries; i++) {
+  if (initialDelayMs > 0) {
+    await wait(initialDelayMs);
+  }
+
+  for (
+    let attempt = 0;
+    attempt < attempts;
+    attempt += 1
+  ) {
     try {
-      const result = await client.transactions.getFinalizedByHash(txHash);
-
-      if (result) {
-        return true;
-      }
+      return await lookup();
     } catch (error) {
-      // Transaction not finalized yet, continue waiting
+      lastError = error;
+      if (attempt + 1 < attempts) {
+        await wait(intervalMs);
+      }
+    }
+  }
+
+  const failure = new Error(
+    `[1Money SDK integration]: result did not become available after ${attempts} attempts`
+  ) as Error & { cause?: unknown };
+  failure.cause = lastError;
+  throw failure;
+}
+
+export async function cleanupBlacklistedAddress(
+  lookup: () => PromiseLike<unknown>,
+  remove: () => PromiseLike<unknown>,
+  address: string,
+  options: {
+    attempts: number;
+    intervalMs: number;
+  }
+): Promise<'removed' | 'absent'> {
+  for (
+    let attempt = 0;
+    attempt < options.attempts;
+    attempt += 1
+  ) {
+    const metadata = await lookup();
+    if (
+      typeof metadata !== 'object' ||
+      metadata === null ||
+      !Array.isArray(
+        (metadata as { black_list?: unknown })
+          .black_list
+      ) ||
+      !(metadata as { black_list: unknown[] }).black_list.every(
+        entry => typeof entry === 'string'
+      )
+    ) {
+      throw new Error(
+        '[1Money SDK integration]: blacklist cleanup lookup resolved with malformed token metadata'
+      );
     }
 
-    // Wait before next retry
-    await new Promise(resolve => setTimeout(resolve, retryDelay));
+    const blackList = (
+      metadata as { black_list: string[] }
+    ).black_list;
+    if (
+      blackList.some(
+        entry =>
+          entry.toLowerCase() ===
+          address.toLowerCase()
+      )
+    ) {
+      await remove();
+      return 'removed';
+    }
+    if (attempt + 1 < options.attempts) {
+      await wait(options.intervalMs);
+    }
   }
-
-  return false;
+  return 'absent';
 }
 
-/**
- * Wait for a specific amount of time
- */
-export function wait(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+export async function observeForWindow<T>(
+  lookup: () => PromiseLike<T>,
+  options: {
+    attempts: number;
+    intervalMs: number;
+    isNotFound: (error: unknown) => boolean;
+  }
+): Promise<
+  | { state: 'found'; value: T }
+  | { state: 'not_found'; error: unknown }
+> {
+  let lastError: unknown;
+  for (
+    let attempt = 0;
+    attempt < options.attempts;
+    attempt += 1
+  ) {
+    try {
+      return { state: 'found', value: await lookup() };
+    } catch (error) {
+      if (!options.isNotFound(error)) {
+        throw error;
+      }
+      lastError = error;
+      if (attempt + 1 < options.attempts) {
+        await wait(options.intervalMs);
+      }
+    }
+  }
+  return { state: 'not_found', error: lastError };
 }
 
-/**
- * Get current checkpoint number
- */
-export async function getCurrentCheckpoint(): Promise<number> {
-  const client = createTestClient();
-  const response = await client.checkpoints.getNumber();
-  return response.number;
+export function isConfirmedReadNotFound(
+  error: unknown
+): boolean {
+  if (
+    typeof error !== 'object' ||
+    error === null
+  ) {
+    return false;
+  }
+  const candidate = error as {
+    status?: unknown;
+    data?: unknown;
+  };
+  if (
+    typeof candidate.data !== 'object' ||
+    candidate.data === null
+  ) {
+    return false;
+  }
+  return (
+    candidate.status === 404 &&
+    (candidate.data as { error_code?: unknown })
+      .error_code ===
+      'resource_transaction_not_found'
+  );
 }
 
-/**
- * Get account nonce
- */
-export async function getAccountNonce(address: string): Promise<number> {
-  const client = createTestClient();
-  const response = await client.accounts.getNonce(address);
-  return response.nonce;
+function receiptSuccess(
+  value: unknown,
+  label: string
+): boolean {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    typeof (value as { success?: unknown }).success !==
+      'boolean'
+  ) {
+    throw new Error(
+      `[1Money SDK integration]: ${label} lookup resolved with a malformed receipt`
+    );
+  }
+  return (value as { success: boolean }).success;
 }
 
-/**
- * Get chain ID
- */
-export async function getChainId(): Promise<number> {
-  const client = createTestClient();
-  const response = await client.chain.getChainId();
-  return response.chain_id;
+export function classifyFailedBatchObservation(
+  observation:
+    | { state: 'found'; value: unknown }
+    | { state: 'not_found'; error: unknown },
+  label: string
+): 'not_found' | 'failure_receipt' {
+  if (observation.state === 'not_found') {
+    return 'not_found';
+  }
+  if (receiptSuccess(observation.value, label)) {
+    throw new Error(
+      `[1Money SDK integration]: the deliberately invalid Batch Payment unexpectedly succeeded in the ${label}`
+    );
+  }
+  return 'failure_receipt';
 }
 
-/**
- * Derive token address from owner and nonce
- */
-export function deriveTokenAddress(owner: string, nonce: number): string {
-  // This is a placeholder - you should import the actual deriveTokenAddress utility
-  // For now, we'll just return a placeholder
-  return `0x${owner.slice(2, 10)}${nonce.toString(16).padStart(32, '0')}`;
-}
-
-/**
- * Assert that a value is defined (throws if undefined/null)
- */
-export function assertDefined<T>(value: T | undefined | null, message?: string): asserts value is T {
-  if (value === undefined || value === null) {
-    throw new Error(message || 'Value is undefined or null');
+export function requireSuccessfulReceipt(
+  value: unknown,
+  label: string
+): void {
+  if (!receiptSuccess(value, label)) {
+    throw new Error(
+      `[1Money SDK integration]: ${label} did not succeed`
+    );
   }
 }
 
-/**
- * Format test section header
- */
-export function logSection(title: string): void {
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`  ${title}`);
-  console.log(`${'='.repeat(60)}\n`);
-}
-
-/**
- * Format test step log
- */
-export function logStep(step: string, detail?: string): void {
-  console.log(`\n→ ${step}`);
-  if (detail) {
-    console.log(`  ${detail}`);
+export function classifyNextValidSubmissionError(
+  error: unknown,
+  nonce: number,
+  localHash: string
+): {
+  nextValidTransaction: 'blocked';
+  raw: Record<string, unknown>;
+} {
+  if (!(error instanceof TransactionSubmissionError)) {
+    throw error;
   }
+  return {
+    nextValidTransaction: 'blocked',
+    raw: {
+      nonce,
+      status: error.status,
+      body: error.data,
+      local_hash: localHash,
+      message: error.message
+    }
+  };
 }
 
-/**
- * Generate a random token symbol for testing
- */
-export function generateRandomSymbol(prefix: string = 'TST'): string {
-  const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+export function classifyBatchFailureSubmission(
+  error: unknown,
+  localHash: string
+): {
+  submission: 'refused' | 'outcome_unknown';
+  raw: Record<string, unknown>;
+} {
+  if (error instanceof TransactionSubmissionError) {
+    return {
+      submission: 'refused',
+      raw: {
+        status: error.status,
+        body: error.data,
+        local_hash: localHash,
+        message: error.message
+      }
+    };
+  }
+  if (error instanceof TransactionOutcomeUnknownError) {
+    return {
+      submission: 'outcome_unknown',
+      raw: {
+        status: error.status,
+        body: error.data,
+        hash: error.transactionHash,
+        local_hash: localHash,
+        message: error.message
+      }
+    };
+  }
+  throw error;
+}
+
+export function generateRandomSymbol(
+  prefix: string = 'TST'
+): string {
+  const randomSuffix = Math.random()
+    .toString(36)
+    .substring(2, 6)
+    .toUpperCase();
   return `${prefix}${randomSuffix}`;
-}
-
-/**
- * Normalize an address to checksum format for comparison
- */
-export function normalizeAddress(address: string): string {
-  try {
-    return getAddress(address);
-  } catch {
-    // If getAddress fails, return lowercase for comparison
-    return address.toLowerCase();
-  }
-}
-
-/**
- * Check if two addresses are equal (case-insensitive)
- */
-export function addressEquals(addr1: string, addr2: string): boolean {
-  return normalizeAddress(addr1) === normalizeAddress(addr2);
-}
-
-/**
- * Check if an array of addresses includes a specific address (case-insensitive)
- */
-export function addressArrayIncludes(addresses: string[], targetAddress: string): boolean {
-  const normalizedTarget = normalizeAddress(targetAddress);
-  return addresses.some(addr => normalizeAddress(addr) === normalizedTarget);
 }

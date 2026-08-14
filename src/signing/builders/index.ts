@@ -1,3 +1,5 @@
+export * from './batchPayment';
+export * from './createMultisig';
 export * from './payment';
 export * from './tokenAuthority';
 export * from './tokenBridgeAndMint';

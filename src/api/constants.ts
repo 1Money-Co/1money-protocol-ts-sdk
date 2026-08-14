@@ -13,3 +13,7 @@ export const CHAIN_IDS = {
 
 // API version
 export const API_VERSION = 'v1';
+
+// Version of the domain-separated native v2 write
+// surface.
+export const API_VERSION_V2 = 'v2';

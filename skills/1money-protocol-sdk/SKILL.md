@@ -4,15 +4,19 @@ description: >-
   Use when writing or reviewing code that consumes the @1money/protocol-ts-sdk
   package to talk to the 1Money Network blockchain. Covers initializing the
   api() client, the .success()/.error()/.timeout()/.rest() promise-wrapper
-  pattern, and the build → sign → submit flow for transactions (payments, token
-  issue/mint/burn, authority grants, blacklist/whitelist, pause, metadata,
-  bridge, clawback) via TransactionBuilder + createPrivateKeySigner. Trigger
-  whenever the user mentions 1Money / 1money / "protocol-ts-sdk", or asks to
+  pattern, and the native v2 prepare → sign → authorize → submit flow for
+  transactions (payments, batch payments, token issue/mint/burn, authority
+  grants, blacklist/whitelist, pause, metadata, bridge, clawback, multisig
+  account creation) via TransactionBuilder + createPrivateKeySigner. Also
+  covers the legacy pre-3.0 signing scheme, now namespaced under
+  LegacyV1TransactionBuilder and api().<module>.legacyV1.*. Trigger whenever
+  the user mentions 1Money / 1money / "protocol-ts-sdk", or asks to
   issue/mint/burn/transfer a token, query a nonce/balance/checkpoint/chain id,
-  estimate a fee, sign or submit a 1Money transaction, or handle the SDK's
-  promise/error pattern — even if they don't name the package. Do NOT use for
-  generic EVM/ethers/viem work unrelated to 1Money, or for the 1Money UI
-  component / React hooks / Figma skills (different domains).
+  estimate a fee, sign or submit a 1Money transaction, check native write
+  status, or handle the SDK's promise/error pattern — even if they don't name
+  the package. Do NOT use for generic EVM/ethers/viem work unrelated to
+  1Money, or for the 1Money UI component / React hooks / Figma skills
+  (different domains).
 ---
 
 # Using the @1money/protocol-ts-sdk
@@ -22,11 +26,13 @@ This skill makes Claude correct and idiomatic when building apps on top of
 blockchain. The SDK does three things, and almost every task is one of them:
 
 1. **Read chain state** — query nonces, balances, token metadata, checkpoints,
-   chain id, transactions, fee estimates. (`api()` client, GET methods.)
-2. **Write transactions** — build an unsigned tx, sign it, submit it. This is a
-   strict three-step pipeline; getting the steps or their order wrong is the
-   most common failure.
-3. **Use helper utilities** — derive token-account addresses, hash, hex-encode.
+   chain id, transactions, fee estimates, native write status. (`api()`
+   client, GET methods.)
+2. **Write transactions** — build an unsigned tx, sign its digest, authorize
+   it into a request, submit it. This is a strict pipeline; getting the steps
+   or their order wrong is the most common failure.
+3. **Use helper utilities** — derive token-account / multisig addresses, hash,
+   hex-encode.
 
 When the user's task is non-trivial (multi-step flows, signing, error handling,
 choosing the right endpoint), **read the relevant reference file** rather than
@@ -36,8 +42,8 @@ wrong.
 | You need… | Read |
 | --- | --- |
 | Every read endpoint, its args, and response shape | `references/api-reference.md` |
-| Building + signing + submitting any transaction type | `references/transactions.md` |
-| Promise wrapper, error handling, config, networks, utils | `references/client-and-errors.md` |
+| Building + signing + submitting any transaction type (v2 and legacy v1) | `references/transactions.md` |
+| Promise wrapper, error handling, v2 error codes, config, networks, utils | `references/client-and-errors.md` |
 
 ## Install
 
@@ -52,19 +58,21 @@ ranges in the package's `peerDependencies` (axios ≥1.15 <2, viem ≥2 <3,
 
 ## Where to import from (this trips people up)
 
-The package root re-exports only: the `api` function, the **signing** layer
-(`TransactionBuilder`, `createPrivateKeySigner`, signer/types), the **utils**
-(`deriveTokenAddress`, `calcTxHash`, `toHex`, …), and `client`.
+The package root re-exports: the `api` function, the **signing** layer
+(`TransactionBuilder`, `LegacyV1TransactionBuilder`, `createPrivateKeySigner`,
+`deriveMultisigAddress`, `calculateBatchPaymentOperationsHash`, the EIP-712
+typed-data helpers, signer/types), the
+**utils** (`deriveTokenAddress`, `calcTxHash`, `toHex`, `validateMemo`, …), and
+`client`.
 
 Enums (`AuthorityType`, `AuthorityAction`, `ManageListAction`, `PauseAction`)
 and request/response **types** live under the `/api` subpath, **not** the root.
-The README imports some enums from the root — that's a bug: the root never
-re-exports them, and because enums are runtime *values* (not erasable types) a
-root import resolves to `undefined` (so `AuthorityType.MasterMint` throws) or
-fails to compile. Always import enums from `/api`:
+Enums are runtime *values* (not erasable types), so a root import resolves to
+`undefined` (`AuthorityType.MasterMint` throws) or fails to compile. Always
+import enums from `/api`:
 
 ```typescript
-import { api, TransactionBuilder, createPrivateKeySigner } from '@1money/protocol-ts-sdk';
+import { api, TransactionBuilder, calculateBatchPaymentOperationsHash, createPrivateKeySigner } from '@1money/protocol-ts-sdk';
 import { AuthorityType, ManageListAction } from '@1money/protocol-ts-sdk/api';
 ```
 
@@ -82,8 +90,9 @@ const testnet = api({ network: 'testnet' });           // 'mainnet' | 'testnet' 
 const slow = api({ network: 'testnet', timeout: 5000 }); // ms, default 10000
 ```
 
-`client` exposes five modules: `accounts`, `checkpoints`, `tokens`,
-`transactions`, `chain`.
+`client` exposes six modules: `accounts`, `checkpoints`, `tokens`,
+`transactions`, `chain`, `status`. `status` is new in 3.0 — see
+`getNativeWriteStatus` / `getHealth` in `references/api-reference.md`.
 
 > **Singleton gotcha:** `api()` configures one shared underlying HTTP client via
 > global config (base URL, timeout). It does **not** create isolated instances —
@@ -93,8 +102,17 @@ const slow = api({ network: 'testnet', timeout: 5000 }); // ms, default 10000
 
 ## The promise-wrapper pattern (read this before any call)
 
-Every API method returns a thenable with handler methods. **You can either chain
-handlers or `await` directly — but be deliberate about which.**
+**Reads return the chainable wrapper; native v2 writes return a plain
+`Promise`.** Every read method (all `get*`/`estimate*` calls) and every
+`legacyV1.*` write returns a thenable with handler methods — chain handlers or
+`await` directly, your choice. The native v2 write methods (`payment`,
+`batchPayment`, `issueToken`, `mintToken`, `burnToken`, `clawbackToken`,
+`grantAuthority`, `manageBlacklist`, `manageWhitelist`, `pauseToken`,
+`updateMetadata`, `bridgeAndMint`, `burnAndBridge`, `createMultisig` — anything
+taking an `AuthorizedTxV2`) are plain `async` functions under the hood
+(`submitAuthorized` in `src/api/submit.ts`), so they return a native `Promise`
+with no `.success()`/`.error()`/`.timeout()`/`.rest()` — `await` them in a
+`try/catch` (see the submit step in the next section).
 
 ```typescript
 // Chain style — handlers transform the result; errors are HANDLED, not thrown.
@@ -122,14 +140,14 @@ Key facts that prevent bugs:
   handler's return value instead of throwing. If you attach no error handler and
   `await`, errors **throw**. Pick one model per call site; don't half-mix them.
 
-Full semantics and the `.rest(cb, scope)` form are in
+Full semantics, the `.rest(cb, scope)` form, and the v2 error codes are in
 `references/client-and-errors.md`.
 
-## Writing a transaction: build → sign → submit
+## Writing a transaction: prepare → sign → authorize → submit
 
-Every state-changing operation follows the **same three steps**. Never hand-roll
-RLP encoding, hashing, or signatures — `TransactionBuilder` does it correctly
-(including low-S enforcement to avoid malleability).
+Every state-changing operation is a domain-separated **native v2** write by
+default. Never hand-roll RLP encoding, hashing, or signatures —
+`TransactionBuilder` does it correctly.
 
 ```typescript
 import { api, TransactionBuilder, createPrivateKeySigner } from '@1money/protocol-ts-sdk';
@@ -139,47 +157,186 @@ const sender = '0x9E1E9688A44D058fF181Ed64ddFAFbBE5CC74ff3';
 const privateKey = process.env.ONE_MONEY_PRIVATE_KEY as `0x${string}`; // never hardcode
 
 // 1. Fetch the two fields every tx needs: chain_id and the sender's nonce.
-//    Awaiting directly returns the response body (and throws on error).
 const { chain_id } = await client.chain.getChainId();
 const { nonce } = await client.accounts.getNonce(sender);
 
-// 2. BUILD the unsigned transaction (validates inputs, prepares the digest).
-const prepared = TransactionBuilder.payment({
-  chain_id,
-  nonce,
-  recipient: '0xa128999Be299373D7881f4aDD11510030ad13512',
-  value: '1000000000',           // ALWAYS a string in the token's base units
-  token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
-});
+// 2. PREPARE the unsigned operation (validates inputs, computes the digest
+//    to sign). memo is always accepted and always sent on the wire — pass
+//    {} or omit the option entirely for "no business memo" (three empty
+//    strings), which is a different encoded value from a memo being absent.
+const prepared = TransactionBuilder.payment(
+  {
+    chain_id,
+    nonce,
+    recipient: '0xa128999be299373d7881f4add11510030ad13512',
+    value: '1000000000',           // ALWAYS a string in the token's base units
+    token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F',
+  },
+  { memo: { type: 'invoice', format: 'text', data: 'order-12345' } }
+);
 
-// 3. SIGN, then build the request body, then SUBMIT to the matching endpoint.
-const signed = await prepared.sign(createPrivateKeySigner(privateKey));
-const { hash } = await client.transactions.payment(signed.toRequest()); // throws on error
+// 3. SIGN the digest, AUTHORIZE it into a plain-JSON request, then SUBMIT.
+const signature = await createPrivateKeySigner(privateKey).signDigest(
+  prepared.signingHash
+);
+const authorized = prepared.authorize(signature); // v must be 0 or 1
+const { hash } = await client.transactions.payment(authorized);
 
 console.log('tx hash:', hash);
 ```
 
-The builder you call and the endpoint you submit to must match. Quick map:
+`authorized` (an `AuthorizedTxV2`) is plain JSON — no methods, no `Uint8Array` —
+so it can cross a process boundary (sign on one machine, submit from another).
 
-| `TransactionBuilder.…` | Submit with `client.…` | Returns |
+The builder you call and the endpoint you submit to must match. Quick map (all
+fourteen native v2 operations):
+
+| `TransactionBuilder.…` | Submit with `client.…` | `pathV2` |
 | --- | --- | --- |
-| `payment` | `transactions.payment` | `{ hash }` |
-| `tokenIssue` | `tokens.issueToken` | `{ hash, token }` |
-| `tokenMint` | `tokens.mintToken` | `{ hash }` |
-| `tokenBurn` | `tokens.burnToken` | `{ hash }` |
-| `tokenAuthority` | `tokens.grantAuthority` | `{ hash }` |
-| `tokenManageList` | `tokens.manageBlacklist` / `tokens.manageWhitelist` | `{ hash }` |
-| `tokenPause` | `tokens.pauseToken` | `{ hash }` |
-| `tokenMetadata` | `tokens.updateMetadata` | `{ hash }` |
-| `tokenBridgeAndMint` | `tokens.bridgeAndMint` | `{ hash }` |
-| `tokenBurnAndBridge` | `tokens.burnAndBridge` | `{ hash }` |
-| `tokenClawback` | `tokens.clawbackToken` | `{ hash }` |
+| `payment` | `transactions.payment` | `/v2/transactions/payment` |
+| `batchPayment` | `transactions.batchPayment` | `/v2/transactions/batch_payment` |
+| `tokenIssue` | `tokens.issueToken` | `/v2/tokens/issue` |
+| `tokenMint` | `tokens.mintToken` | `/v2/tokens/mint` |
+| `tokenBurn` | `tokens.burnToken` | `/v2/tokens/burn` |
+| `tokenAuthority` | `tokens.grantAuthority` | `/v2/tokens/grant_authority` |
+| `tokenBlacklist` | `tokens.manageBlacklist` | `/v2/tokens/manage_blacklist` |
+| `tokenWhitelist` | `tokens.manageWhitelist` | `/v2/tokens/manage_whitelist` |
+| `tokenPause` | `tokens.pauseToken` | `/v2/tokens/pause` |
+| `tokenMetadata` | `tokens.updateMetadata` | `/v2/tokens/update_metadata` |
+| `tokenBridgeAndMint` | `tokens.bridgeAndMint` | `/v2/tokens/bridge_and_mint` |
+| `tokenBurnAndBridge` | `tokens.burnAndBridge` | `/v2/tokens/burn_and_bridge` |
+| `tokenClawback` | `tokens.clawbackToken` | `/v2/tokens/clawback` |
+| `createMultisig` | `accounts.createMultisig` | `/v2/accounts/multisig` |
 
-Exact parameter fields for each builder, the enum values they need, the optional
-`memo` field (and how it switches a tx to the V2 envelope), a custom-signer
-pattern (wallets/HSM, when you can't hold the raw key), the alternate **EIP-712
-typed-data payment** path (`preparePaymentTypedTx`, for `eth_signTypedData_v4`
-wallets), and verifying the result are in `references/transactions.md`.
+`tokenManageList` no longer exists — it split into `tokenBlacklist` and
+`tokenWhitelist`, which are distinct operations with distinct signing hashes
+(they are no longer "build once, submit to either endpoint"). `batchPayment`
+and `createMultisig` are v2-only: there is no legacy form of either, and
+`accounts` has no `legacyV1` namespace at all.
+
+## Batch Payment: the complete lifecycle
+
+Batch Payment is canonical native v2 only: use the unsigned estimate, then
+prepare → sign → authorize → submit → read. Do not look for or construct a
+legacy Batch Payment request even if a node retains a deprecated v1 route.
+
+```typescript
+import {
+  api,
+  TransactionBuilder,
+  calculateBatchPaymentOperationsHash,
+  createPrivateKeySigner,
+} from '@1money/protocol-ts-sdk';
+
+const client = api({ network: 'testnet' });
+const operations = [
+  { recipient: firstRecipient, amount: '1000' },
+  { recipient: secondRecipient, amount: '2000' },
+];
+
+// Promise-wrapper estimate: unsigned and non-binding; never use it as a cap.
+const quote = await client.transactions.estimateBatchPaymentFee({
+  from: sender,
+  token,
+  operations,
+}); // { fee: string, plan?: string }
+
+const { chain_id } = await client.chain.getChainId();
+const { nonce } = await client.accounts.getNonce(sender);
+const prepared = TransactionBuilder.batchPayment(
+  {
+    chain_id,
+    nonce,
+    token,
+    operations,
+    created_at: Math.floor(Date.now() / 1000),
+    operations_hash: calculateBatchPaymentOperationsHash(operations),
+    batch_id: 'payroll-2026-08',
+  },
+  {
+    memo: {
+      type: 'purpose/SALA',
+      format: 'text/plain',
+      data: 'payroll-2026-08',
+    },
+  }
+);
+const signature = await createPrivateKeySigner(privateKey).signDigest(
+  prepared.signingHash
+);
+const authorized = prepared.authorize(signature);
+const { hash } = await client.transactions.batchPayment(authorized);
+// submit compares normalized local/server hashes before resolving.
+```
+
+| Purpose | SDK call | Node route | Return |
+| --- | --- | --- | --- |
+| Unsigned fee quote | `transactions.estimateBatchPaymentFee({ from, token, operations })` | `POST /v1/transactions/batch_payment/estimate_fee` | `{ fee: string; plan?: string }` |
+| Canonical submit | `transactions.batchPayment(authorized)` | `POST /v2/transactions/batch_payment` | `{ hash }` |
+
+`operations_hash` is optional, but a supplied value is recomputed with
+`calculateBatchPaymentOperationsHash(operations)` and a mismatch throws before
+signing. The helper does not add it for you. `batch_id` is correlation metadata,
+not a unique idempotency, deduplication, or replay key; the transaction nonce
+is the replay mechanism. The removed `max_fee` field must not be supplied.
+
+Batch Payment always signs and sends a memo: omitting it yields
+`{ type: '', format: '', data: '' }`. Actual sender debit is the operations'
+total plus actual receipt `fee_used`, not the quote. Enablement, maximum
+operation count, encoded size, and fee asset remain node-governance rules, so
+the quote is non-binding. Any failed operation rolls back every recipient
+credit, sender debit, and operator-fee movement atomically.
+
+For a successful Batch Payment receipt, `success_info.receiver` is the
+zero-address sentinel, not a recipient; obtain actual recipient addresses and
+amounts from `execution_events` entries whose `event_type` is
+`'PaymentExecuted'`. `batch_info.failure` is a forward-compatible field but is
+currently `null` in production responses, so it is not a terminal-failure
+signal. See `references/transactions.md` for the full response discussion.
+
+When testing an intentional rollback, do not expect a failure receipt or use
+`batch_info.failure` as a terminal signal. Take before/after balance snapshots
+for the sender, every intended recipient, and the operator fee recipient; after
+one submission and bounded observation of submission plus receipt paths, every
+balance must be unchanged. Keep this on an isolated sender because the failed
+submission can be receipt-less or otherwise ambiguous.
+
+### Receipt and estimate compatibility
+
+`TransactionReceipt.fee_used` is a string and `to` is now `recipient`; those
+same common fields are inherited by `FinalizedTransactionReceipt`. The shared
+`EstimateFee` response includes optional `plan?: string` for both
+`estimateBatchPaymentFee()` and the existing `estimateFee()` method.
+
+Exact parameter fields for each builder, the enum values they need, the memo
+rule in full, `deriveMultisigAddress` for computing a multisig account address
+before submission, a custom-signer pattern (wallets/HSM), the alternate
+**EIP-712 typed-data payment** path, verifying the result, and the legacy v1
+scheme (`LegacyV1TransactionBuilder` + `api().<module>.legacyV1.*`) are in
+`references/transactions.md`.
+
+## Import map (v2 default + legacy v1)
+
+```typescript
+import {
+  api,
+  TransactionBuilder,          // = native v2 builder (default since 3.0)
+  LegacyV1TransactionBuilder,  // pre-3.0 scheme, explicit opt-in
+  createPrivateKeySigner,      // shared by both: signs a digest
+  deriveMultisigAddress,       // pure, offline multisig address derivation
+  calculateBatchPaymentOperationsHash, // BatchPayment operations oracle
+} from '@1money/protocol-ts-sdk';
+
+const client = api({ network: 'testnet' });
+client.transactions.payment(authorizedTxV2);          // v2 write
+client.transactions.estimateBatchPaymentFee({ from, token, operations }); // unsigned /v1 quote
+client.transactions.batchPayment(authorizedTxV2);     // canonical v2-only write
+client.transactions.legacyV1.payment(legacyPayload);   // legacy v1 write
+client.tokens.manageBlacklist(authorizedTxV2);         // v2 write
+client.tokens.legacyV1.manageBlacklist(legacyPayload);  // legacy v1 write
+client.accounts.createMultisig(authorizedTxV2);        // v2-only, no legacyV1
+client.status.getNativeWriteStatus();                  // GET /api/status
+```
 
 ## Non-negotiable conventions
 
@@ -195,11 +352,22 @@ violating them throws or silently produces a bad transaction.
   (`chain.getChainId`, `accounts.getNonce`). Reusing a stale nonce fails; for
   several txs from one sender, increment locally or re-fetch between them.
 - **Never hardcode or commit a private key.** Load from env/secret store. Prefer
-  `createPrivateKeySigner`, or a custom `SignerAdapter` when the key lives in a
+  `createPrivateKeySigner`, or a custom signer when the key lives in a
   wallet/HSM.
-- **Prefer `TransactionBuilder` over `signMessage`/`encodePayload`.** The latter
-  are `@deprecated` legacy helpers; the builder flow is the supported path.
-- **`memo` is optional but not cosmetic.** Every builder accepts `memo?: Memo`
-  (`{ type?, format?, data? }`). Passing *any* memo — even `{}` — switches the tx
-  to the V2 envelope and changes its signature/tx hash vs. the no-memo V1 form.
-  Omit it unless you actually want a memo. Details in `references/transactions.md`.
+- **`memo` is always sent on the v2 surface.** Passing no `memo` option still
+  sends `{ type: '', format: '', data: '' }` on the wire — that is a specific
+  encoded value, not an omitted field, and it has its own signing hash.
+  Details in `references/transactions.md`.
+- **Signature `v` must be `0` or `1`** on the v2 surface. A legacy `27`/`28` is
+  **rejected**, not converted — you signed the wrong digest if you see this.
+- **`AuthorizedTxV2` is plain JSON.** Safe to `JSON.stringify`/parse across a
+  process boundary for offline signing.
+- **Prefer `TransactionBuilder` over `LegacyV1TransactionBuilder`.** The legacy
+  builder targets the `/v1` write surface, which a node rejects with 410 once
+  its `NativeWriteMode` reaches `'v2_only'` (the runtime value is the
+  lowercase string, not `V2Only`). Use it only as an explicit, deliberate
+  opt-in during a migration window — never as a fallback triggered by
+  retrying a failed v2 submission (see `TransactionHashMismatchError` in
+  `client-and-errors.md`).
+- **Prefer `TransactionBuilder`/`LegacyV1TransactionBuilder` over
+  `signMessage`/`encodePayload`.** The latter are `@deprecated` legacy helpers.

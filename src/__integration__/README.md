@@ -1,295 +1,145 @@
-# Integration Tests
+# Integration tests
 
-This directory contains integration tests for the 1Money Protocol TypeScript SDK. These tests interact with a real network (local, testnet, or mainnet) to validate the complete functionality of the SDK.
+The integration suite talks to a running 1Money node. The required
+state-changing gate is the local network:
 
-## Overview
+```bash
+npm run test:integration:local
+```
 
-The integration tests cover:
-
-1. **Main Business Flow** (`main-flow.test.ts`)
-   - Issue token
-   - Grant authority
-   - Mint token
-   - Transfer token
-   - Burn token
-   - Bridge and mint
-   - Burn and bridge
-   - Revoke authority
-   - Transaction validation (by hash, receipt, finalized)
-   - Checkpoint APIs
-   - Account APIs
-
-2. **Additional Flows** (`additional-flows.test.ts`)
-   - Update token metadata
-   - Pause and unpause token
-   - Manage blacklist
-   - Manage whitelist
-
-## Prerequisites
-
-Before running integration tests, ensure you have:
-
-1. A running 1Money network (local node, testnet, or mainnet access)
-2. Test accounts with sufficient funds
-3. Private keys for the operator and master accounts
+The suite derives all account addresses from the configured private keys,
+generates temporary user accounts, and creates its own public and private
+token fixtures. No operator address, recipient address, or existing token
+address is required.
 
 ## Configuration
 
-### Environment Variables
-
-Integration tests are configured via environment variables. You can set them in several ways:
-
-1. **Command line** (recommended for CI/CD):
-   ```bash
-   RUN_INTEGRATION_TESTS=true npm run test:integration
-   ```
-
-2. **`.env.integration` file** (recommended for local development):
-   ```bash
-   cp .env.integration.example .env.integration
-   # Edit .env.integration with your configuration
-   ```
-
-3. **Export in shell**:
-   ```bash
-   export RUN_INTEGRATION_TESTS=true
-   export INTEGRATION_TEST_NETWORK=local
-   npm run test:integration
-   ```
-
-### Available Environment Variables
-
-| Variable | Description | Default | Options |
-|----------|-------------|---------|---------|
-| `RUN_INTEGRATION_TESTS` | Enable integration tests | `false` | `true`, `false` |
-| `INTEGRATION_TEST_NETWORK` | Network to connect to | `local` | `local`, `testnet`, `mainnet` |
-| `INTEGRATION_TEST_OPERATOR_KEY` | Operator private key | Local test key | Any valid private key |
-| `INTEGRATION_TEST_MASTER_KEY` | Master account private key | Local test key | Any valid private key |
-| `INTEGRATION_TEST_TIMEOUT` | Test timeout in ms | `120000` | Any number |
-
-## Running Tests
-
-### Quick Start
-
-For local development with a local network:
+Copy the environment template for local development:
 
 ```bash
-# Run all integration tests on local network
-npm run test:integration:local
+cp .env.integration.example .env.integration
+```
 
-# Run all integration tests on testnet
-npm run test:integration:testnet
+The supported settings are:
 
-# Run with custom configuration
-RUN_INTEGRATION_TESTS=true \
-INTEGRATION_TEST_NETWORK=local \
-INTEGRATION_TEST_OPERATOR_KEY=0x... \
-INTEGRATION_TEST_MASTER_KEY=0x... \
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `RUN_INTEGRATION_TESTS` | `false` | Enables network-dependent tests |
+| `INTEGRATION_TEST_NETWORK` | `local` | `local`, `testnet`, or `mainnet` |
+| `INTEGRATION_TEST_OPERATOR_KEY` | Local test key | Issues tokens and creates multisig accounts |
+| `INTEGRATION_TEST_MASTER_KEY` | Local test key | Manages token authorities and policy |
+| `INTEGRATION_TEST_TIMEOUT` | `120000` | Mocha timeout in milliseconds |
+
+State-changing integration tests refuse to run against `mainnet`. Testnet
+execution is deliberately not a one-word script: set
+`INTEGRATION_TEST_NETWORK=testnet` in `.env.integration` alongside funded
+operator and master credentials, then run the network-agnostic script:
+
+```bash
 npm run test:integration
 ```
 
-### Available Scripts
+See `QUICKSTART.md` for what a testnet run costs before doing it.
 
-| Script | Description |
-|--------|-------------|
-| `npm run test:integration` | Run integration tests (requires `RUN_INTEGRATION_TESTS=true`) |
-| `npm run test:integration:local` | Run integration tests on local network |
-| `npm run test:integration:testnet` | Run integration tests on testnet |
-| `npm run test:all` | Run both unit tests and integration tests |
+Never commit `.env.integration` or real private keys.
 
-### Running Specific Tests
+## Coverage
+
+`v2-lifecycle.test.ts` is one sequential lifecycle covering every native v2
+write operation:
+
+- payment and batch payment;
+- token issue, mint, authority, blacklist, whitelist, pause, burn, clawback,
+  metadata update, bridge-and-mint, and burn-and-bridge;
+- multisig account creation.
+
+Each transaction follows the public prepare, sign, authorize, and submit
+pipeline. The helper compares the locally computed transaction hash with the
+hash returned by the node. The suite then polls for receipts and the relevant
+chain state; it does not use fixed sleeps.
+
+The remaining integration files exercise account, chain, checkpoint, token,
+transaction, and status read surfaces. They run directly in Node.
+
+## Commands
 
 ```bash
-# Run only main flow tests
-npx mocha --config .mocharc.integration.js src/__integration__/main-flow.test.ts
+# Complete local gate
+npm run test:integration:local
 
-# Run only additional flow tests
-npx mocha --config .mocharc.integration.js src/__integration__/additional-flows.test.ts
+# Same, plus target / account / full HTTP exchange logging
+npm run test:integration:local:verbose
+
+# Testnet gate: network comes from .env.integration, credentials required
+npm run test:integration
+
+# One file only
+npx mocha --config .mocharc.integration.js \
+  src/__integration__/v2-lifecycle.test.ts
+
+# One lifecycle step
+npx mocha --config .mocharc.integration.js \
+  src/__integration__/v2-lifecycle.test.ts \
+  --grep "batch payment"
 ```
 
-## CI/CD Integration
+The integration glob lives in the npm scripts rather than the Mocha config,
+so a positional file argument loads only that file.
 
-### GitHub Actions Example
+When `RUN_INTEGRATION_TESTS` is not `true`, network suites skip. The lifecycle
+also skips on a node reporting `native_write_mode: "v1_only"` because that
+deployment has not activated the v2 write surface.
 
-```yaml
-name: Integration Tests
+## Batch Payment local prerequisite
 
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
+Batch Payment can be disabled by default in a local node's governance
+configuration. The unified v2 lifecycle does not skip that scenario: it first
+requests an unsigned fee estimate, and a disabled or unavailable Batch Payment
+surface fails with an instruction to enable the feature and expose
+`/v1/transactions/batch_payment/estimate_fee`.
 
-jobs:
-  integration-test:
-    runs-on: ubuntu-latest
+Run this suite against a node with Batch Payment enabled and fund the lifecycle
+sender with enough of the issued token to cover every operation plus the
+receipt's actual fee. The estimate is deliberately requested before the
+submission nonce and is not expected to equal `receipt.fee_used`.
 
-    steps:
-      - uses: actions/checkout@v3
+Batch receipts use the zero address as `success_info.receiver` because there
+is no single recipient. Read the ordered `PaymentExecuted` entries in
+`execution_events` for the actual recipients and amounts.
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
+The Batch Payment failure probe observes receipt and finalized lookups for
+exactly 30 attempts at 250 ms intervals. Only a confirmed HTTP 404 is treated
+as “not found”: its parsed response must also carry
+`error_code: "resource_transaction_not_found"`. A route/proxy 404, another
+resource code, a 500, timeout, network error, malformed receipt, or unexpected
+exception aborts calibration immediately so an unhealthy read API cannot be
+recorded as normal receipt absence.
 
-      - name: Install dependencies
-        run: npm ci
+Cleanup uses the same 30-by-250-ms bounded window when checking whether an
+ambiguous blacklist addition became visible. If it appears, the probe removes
+it and waits for confirmed absence; persistent absence is accepted only after
+the complete window. Metadata read and schema failures abort cleanup.
 
-      - name: Run integration tests
-        env:
-          RUN_INTEGRATION_TESTS: true
-          INTEGRATION_TEST_NETWORK: testnet
-          INTEGRATION_TEST_OPERATOR_KEY: ${{ secrets.OPERATOR_KEY }}
-          INTEGRATION_TEST_MASTER_KEY: ${{ secrets.MASTER_KEY }}
-        run: npm run test:integration
-```
+## Adding a transaction scenario
 
-## Test Structure
-
-### File Organization
-
-```
-src/__integration__/
-├── README.md                    # This file
-├── config.ts                    # Test configuration
-├── setup.ts                     # Account setup and generation
-├── helpers.ts                   # Utility functions
-├── main-flow.test.ts           # Main business flow tests
-└── additional-flows.test.ts    # Additional feature tests
-```
-
-### Test Accounts
-
-The test suite automatically generates the following accounts:
-
-- **Operator**: Signs transactions (from `INTEGRATION_TEST_OPERATOR_KEY`)
-- **Master**: Token creator and authority manager (from `INTEGRATION_TEST_MASTER_KEY`)
-- **User1**: Randomly generated, used for authority delegation
-- **User2**: Randomly generated, used for token operations
-- **User3**: Randomly generated, used for transfers and burns
-
-## Best Practices
-
-### 1. Conditional Execution
-
-Integration tests only run when `RUN_INTEGRATION_TESTS=true`:
+Use the shared context and v2 submission helper:
 
 ```typescript
-(shouldRunIntegrationTests() ? describe : describe.skip)('Test Suite', function() {
-  // Tests here
-});
+const context = getIntegrationContext();
+const prepared = TransactionBuilder.payment(input);
+const { response } = await authorizeAndSubmitV2(
+  prepared,
+  signer,
+  authorized =>
+    context.client.transactions.payment(authorized)
+);
+const receipt = await waitForResult(() =>
+  context.client.transactions.getReceiptByHash(
+    response.hash
+  )
+);
+expect(receipt.success).to.equal(true);
 ```
 
-### 2. Proper Cleanup
-
-Tests should clean up after themselves:
-
-```typescript
-after(function() {
-  resetTestAccounts();
-});
-```
-
-### 3. Timeouts
-
-Integration tests have longer timeouts due to network interactions:
-
-```typescript
-this.timeout(getConfig().timeout); // Default: 120000ms (2 minutes)
-```
-
-### 4. Waiting for Finalization
-
-Always wait for transactions to finalize before asserting results:
-
-```typescript
-const finalized = await waitForFinalization(txHash);
-expect(finalized).to.be.true;
-```
-
-### 5. Network-Specific Configuration
-
-Different networks may require different configurations:
-
-```typescript
-// For local network
-INTEGRATION_TEST_NETWORK=local
-
-// For testnet (may require real keys)
-INTEGRATION_TEST_NETWORK=testnet
-INTEGRATION_TEST_OPERATOR_KEY=0x...
-INTEGRATION_TEST_MASTER_KEY=0x...
-```
-
-## Troubleshooting
-
-### Tests are skipped
-
-**Problem**: Integration tests are being skipped.
-
-**Solution**: Ensure `RUN_INTEGRATION_TESTS=true` is set:
-```bash
-RUN_INTEGRATION_TESTS=true npm run test:integration
-```
-
-### Connection timeout
-
-**Problem**: Tests fail with connection timeout.
-
-**Solution**:
-1. Ensure the network is running and accessible
-2. Increase the timeout: `INTEGRATION_TEST_TIMEOUT=180000`
-3. Check network configuration in `src/api/constants.ts`
-
-### Transaction failures
-
-**Problem**: Transactions fail with "insufficient funds" or similar errors.
-
-**Solution**:
-1. Ensure test accounts have sufficient balance
-2. For local network, fund the accounts before running tests
-3. Check that the operator and master keys are correct
-
-### Signature errors
-
-**Problem**: Transactions fail with signature errors.
-
-**Solution**:
-1. Verify that private keys are correctly formatted (must start with `0x`)
-2. Ensure the correct network chain ID is being used
-3. Check that the account addresses match the private keys
-
-## Writing New Tests
-
-To add new integration tests:
-
-1. Create a new test file in `src/__integration__/`
-2. Import necessary utilities from `config`, `setup`, and `helpers`
-3. Wrap your test suite with conditional execution:
-
-```typescript
-import { expect } from 'chai';
-import { shouldRunIntegrationTests, getConfig } from './config';
-import { getTestAccounts } from './setup';
-import { createTestClient, logSection, logStep } from './helpers';
-
-(shouldRunIntegrationTests() ? describe : describe.skip)('My New Test', function() {
-  this.timeout(getConfig().timeout);
-
-  const client = createTestClient();
-  const accounts = getTestAccounts();
-
-  it('should do something', async function() {
-    logSection('My Test Step');
-    // Your test logic here
-  });
-});
-```
-
-## Contributing
-
-When adding new features to the SDK, please also add corresponding integration tests to ensure the feature works correctly with the network.
-
-## License
-
-MIT
+Read the sender nonce immediately before preparing each transaction and poll
+the exact receipt or state transition the test needs.

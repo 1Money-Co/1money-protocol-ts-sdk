@@ -5,6 +5,7 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { getConfig } from './config';
+import { logGeneratedAccounts } from './logging';
 
 export interface TestAccount extends PrivateKeyAccount {
   privateKey: `0x${string}`;
@@ -16,6 +17,7 @@ export interface TestAccounts {
   user1: TestAccount;
   user2: TestAccount;
   user3: TestAccount;
+  batchFailure: TestAccount;
 }
 
 let testAccounts: TestAccounts | null = null;
@@ -34,6 +36,7 @@ export function getTestAccounts(): TestAccounts {
   const user1Key = generatePrivateKey();
   const user2Key = generatePrivateKey();
   const user3Key = generatePrivateKey();
+  const batchFailureKey = generatePrivateKey();
 
   testAccounts = {
     operator: Object.assign(privateKeyToAccount(config.operatorKey as `0x${string}`), {
@@ -44,25 +47,16 @@ export function getTestAccounts(): TestAccounts {
     }),
     user1: Object.assign(privateKeyToAccount(user1Key), { privateKey: user1Key }),
     user2: Object.assign(privateKeyToAccount(user2Key), { privateKey: user2Key }),
-    user3: Object.assign(privateKeyToAccount(user3Key), { privateKey: user3Key })
+    user3: Object.assign(privateKeyToAccount(user3Key), { privateKey: user3Key }),
+    batchFailure: Object.assign(
+      privateKeyToAccount(batchFailureKey),
+      { privateKey: batchFailureKey }
+    )
   };
 
+  logGeneratedAccounts(config, testAccounts);
+
   return testAccounts;
-}
-
-/**
- * Log test account information
- */
-export function logTestAccounts(): void {
-  const accounts = getTestAccounts();
-
-  console.log('\n=== Integration Test Accounts ===');
-  console.log('Operator:', accounts.operator.address);
-  console.log('Master:', accounts.master.address);
-  console.log('User1:', accounts.user1.address);
-  console.log('User2:', accounts.user2.address);
-  console.log('User3:', accounts.user3.address);
-  console.log('=================================\n');
 }
 
 /**

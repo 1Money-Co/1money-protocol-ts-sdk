@@ -11,7 +11,6 @@ module.exports = {
   ],
   extension: ['ts', 'js'],
   reporter: 'spec',
-  spec: ['src/__integration__/**/*.test.ts'],
   slow: '5000',
   timeout: '120000', // 2 minutes timeout for integration tests
   ui: 'bdd'

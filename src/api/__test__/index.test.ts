@@ -48,6 +48,9 @@ describe('api test', function () {
     expect(apiClient.transactions.getByHash).to.be.a('function');
     expect(apiClient.transactions.getReceiptByHash).to.be.a('function');
     expect(apiClient.transactions.estimateFee).to.be.a('function');
+    expect(
+      apiClient.transactions.estimateBatchPaymentFee
+    ).to.be.a('function');
     expect(apiClient.transactions.payment).to.be.a('function');
 
     // Checkpoints API

@@ -20,6 +20,17 @@ export function assertPositiveInteger(
   }
 }
 
+export function assertPositiveIntegerAtMost(
+  name: string,
+  value: number,
+  max: number
+) {
+  assertPositiveInteger(name, value);
+  if (value > max) {
+    fail(name, value);
+  }
+}
+
 export function assertNonNegativeInteger(
   name: string,
   value: number

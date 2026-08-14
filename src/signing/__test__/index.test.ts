@@ -3,8 +3,9 @@ import 'mocha';
 import { keccak256 } from 'viem';
 
 import { MemoValidationError } from '@/utils';
-import TransactionBuilder, {
-  createPrivateKeySigner,
+import {
+  LegacyV1TransactionBuilder as TransactionBuilder,
+  createPrivateKeySigner
 } from '../';
 import {
   AuthorityAction,
