@@ -48,11 +48,51 @@ const BATCH_FAILURE_FUNDING_BUFFER = '1000';
 const BATCH_FAILURE_OBSERVATION_ATTEMPTS = 30;
 const BATCH_FAILURE_OBSERVATION_INTERVAL_MS = 250;
 
+// Polling a receipt for a transaction submitted moments ago. Measured
+// against the local network with INTEGRATION_TEST_VERBOSE=true: all 33
+// receipt lookups in a run needed exactly two 404s before the 200 (96 of
+// 129 receipt reads overall), because a receipt only becomes readable
+// between 250ms and 500ms after submission. Holding the first look until
+// then removes every one of those misses at no cost in wall clock -- the
+// same ~500ms elapses either way, sleeping rather than issuing reads that
+// cannot succeed. Retries stay short so a slower network still converges.
+const RECEIPT_POLL = {
+  initialDelayMs: 500,
+  intervalMs: 250
+} as const;
+
+// Polling for chain state after its receipt is already confirmed:
+// balances, token metadata, nonces. These are measurably different from
+// receipts -- across a full run, token_account (29 reads), token_metadata
+// (20) and nonce (36) never missed once, because the state is already
+// settled by the time a confirmed receipt lets the test proceed. An
+// initial delay here would be ~500ms of pure waste per call site, which
+// on ~30 sites cost 16s of suite time when it was applied uniformly.
+const STATE_POLL = { intervalMs: 250 } as const;
+
+const utf8ByteLength = (value: string): number =>
+  new TextEncoder().encode(value).length;
+
+// Exactly the per-field protocol limits from
+// src/utils/memo/types.ts: 128 / 64 / 256 bytes. Each field is well past
+// 55 bytes, so all three encode with an RLP long-form string header --
+// a path no other memo in this suite reaches, since the batch payment
+// memo above uses 11 / 10 / 26-byte fields. `type` and `format` stay
+// inside the URL-safe charset the validator enforces.
+const MAX_MEMO_TYPE = `integration/${'t'.repeat(116)}`;
+const MAX_MEMO_FORMAT = `text/plain;${'f'.repeat(53)}`;
+const MAX_MEMO_DATA = `max-size memo ${'d'.repeat(242)}`;
+
 interface BatchPaymentFixture {
   tokenAddress: string;
   tokenSymbol: string;
 }
 
+// The outcomes a rejected batch payment could take, before
+// they are narrowed to the single expected one. Only the
+// widened forms live here; the nonce delta and the
+// continuation outcome are asserted directly against exact
+// values, so they carry no union.
 export interface BatchFailureObservation {
   submission:
     | 'hash_returned'
@@ -60,12 +100,6 @@ export interface BatchFailureObservation {
     | 'outcome_unknown';
   receipt: 'not_found' | 'failure_receipt';
   finalized: 'not_found' | 'failure_receipt';
-  nonce_delta: 0 | 1;
-  next_valid_transaction:
-    | 'same_nonce_accepted'
-    | 'next_nonce_accepted'
-    | 'blocked';
-  balances_unchanged: true;
 }
 
 function isBatchPaymentUnavailable(
@@ -217,7 +251,7 @@ describe('native v2 lifecycle integration', function () {
             context.client.transactions.getReceiptByHash(
               issueResponse.hash
             ),
-          { intervalMs: 250 }
+          RECEIPT_POLL
         );
         expect(issueReceipt.success).to.equal(true);
 
@@ -226,7 +260,7 @@ describe('native v2 lifecycle integration', function () {
             context.client.tokens.getTokenMetadata(
               fixtureTokenAddress
             ),
-          { intervalMs: 250 }
+          STATE_POLL
         );
 
         const authorityNonce = (
@@ -260,7 +294,7 @@ describe('native v2 lifecycle integration', function () {
             context.client.transactions.getReceiptByHash(
               authorityResponse.hash
             ),
-          { intervalMs: 250 }
+          RECEIPT_POLL
         );
         expect(authorityReceipt.success).to.equal(true);
 
@@ -283,7 +317,7 @@ describe('native v2 lifecycle integration', function () {
             }
             return metadata;
           },
-          { intervalMs: 250 }
+          STATE_POLL
         );
 
         const mintTo = async (
@@ -317,7 +351,7 @@ describe('native v2 lifecycle integration', function () {
               context.client.transactions.getReceiptByHash(
                 response.hash
               ),
-            { intervalMs: 250 }
+            RECEIPT_POLL
           );
           expect(receipt.success).to.equal(true);
         };
@@ -366,7 +400,7 @@ describe('native v2 lifecycle integration', function () {
             }
             return accounts;
           },
-          { intervalMs: 250 }
+          STATE_POLL
         );
         expect(
           BigInt(sender.balance) >=
@@ -447,7 +481,7 @@ describe('native v2 lifecycle integration', function () {
             context.client.transactions.getReceiptByHash(
               response.hash
             ),
-          { intervalMs: 250 }
+          RECEIPT_POLL
         );
         expect(receipt.success).to.equal(true);
 
@@ -468,7 +502,7 @@ describe('native v2 lifecycle integration', function () {
             }
             return account;
           },
-          { intervalMs: 250 }
+          STATE_POLL
         );
 
         return fixture;
@@ -517,7 +551,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -539,7 +573,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return metadata;
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
   }
 
@@ -606,7 +640,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           issueHash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -615,7 +649,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getByHash(
           issueHash
         ),
-      { intervalMs: 250 }
+      STATE_POLL
     );
     expect(transaction.hash).to.equal(issueHash);
     expect(transaction.transaction_type).to.equal(
@@ -627,7 +661,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.tokens.getTokenMetadata(
           tokenAddress
         ),
-      { intervalMs: 250 }
+      STATE_POLL
     );
     expect(metadata.symbol).to.equal(tokenSymbol);
     expect(metadata.meta.name).to.equal(
@@ -672,7 +706,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -695,7 +729,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return result;
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
     expect(
       metadata.mint_burn_authorities.some(
@@ -735,7 +769,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -753,7 +787,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return result;
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
     expect(tokenAccount.balance).to.equal('1000');
   });
@@ -787,7 +821,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -813,7 +847,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return { sender, recipient };
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
   });
 
@@ -847,7 +881,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -870,7 +904,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return result;
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
     expect(
       metadata.black_list.some(
@@ -912,7 +946,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -938,7 +972,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return { source, recipient };
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
   });
 
@@ -972,7 +1006,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -995,7 +1029,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return metadata;
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
   });
 
@@ -1033,7 +1067,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -1056,7 +1090,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return metadata;
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
   });
 
@@ -1088,7 +1122,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -1113,7 +1147,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return { account, metadata };
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
   });
 
@@ -1145,7 +1179,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -1162,7 +1196,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return metadata;
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
   });
 
@@ -1194,7 +1228,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -1211,7 +1245,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return metadata;
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
   });
 
@@ -1251,7 +1285,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -1271,7 +1305,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return result;
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
     expect(metadata.meta.uri).to.equal(
       'https://example.com/v2-token.json'
@@ -1319,7 +1353,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -1342,7 +1376,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return metadata;
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
   });
 
@@ -1379,7 +1413,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -1404,7 +1438,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return { account, metadata };
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
   });
 
@@ -1444,7 +1478,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -1469,7 +1503,71 @@ describe('native v2 lifecycle integration', function () {
         }
         return { account, metadata };
       },
-      { intervalMs: 250 }
+      STATE_POLL
+    );
+  });
+
+  // AuthorityAction.Grant is exercised three times above; this is the only
+  // coverage of the Revoke direction. It is placed after the last bridge
+  // operation so that nothing downstream depends on the authority it
+  // removes.
+  it('revokes bridge authority through v2', async function () {
+    const nonce = (
+      await context.client.accounts.getNonce(
+        context.accounts.master.address
+      )
+    ).nonce;
+    const prepared =
+      TransactionBuilder.tokenAuthority({
+        chain_id: chainId,
+        nonce,
+        action: AuthorityAction.Revoke,
+        authority_type: AuthorityType.Bridge,
+        authority_address:
+          context.accounts.user1.address,
+        token: tokenAddress,
+        value: '0'
+      });
+
+    const { response } =
+      await authorizeAndSubmitV2(
+        prepared,
+        masterSigner,
+        authorized =>
+          context.client.tokens.grantAuthority(
+            authorized
+          )
+      );
+
+    const receipt = await waitForResult(
+      () =>
+        context.client.transactions.getReceiptByHash(
+          response.hash
+        ),
+      RECEIPT_POLL
+    );
+    expect(receipt.success).to.equal(true);
+
+    await waitForResult(
+      async () => {
+        const metadata =
+          await context.client.tokens.getTokenMetadata(
+            tokenAddress
+          );
+        if (
+          metadata.bridge_mint_authorities.some(
+            address =>
+              address.toLowerCase() ===
+              context.accounts.user1.address.toLowerCase()
+          )
+        ) {
+          throw new Error(
+            'revoked bridge authority is still listed'
+          );
+        }
+        return metadata;
+      },
+      STATE_POLL
     );
   });
 
@@ -1580,7 +1678,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
     expect(receipt.batch_info?.operations_count).to.equal(
@@ -1680,18 +1778,18 @@ describe('native v2 lifecycle integration', function () {
           operatorAfter
         };
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
   });
 
-  it('probes batch payment atomic failure', async function () {
+  // A batch carrying one blacklisted recipient is refused whole: the node
+  // runs a pre-execution at admission under the full validation rule set
+  // (om-verifier/src/transaction_verifier.rs), so the batch never reaches
+  // execution and never lands. The valid operation alongside it must not
+  // apply either -- that all-or-nothing property is what this pins, together
+  // with the nonce staying reusable so a caller can correct and resubmit.
+  it('refuses a blacklisted-recipient batch payment whole and leaves the nonce reusable', async function () {
     this.timeout(context.config.timeout);
-    if (
-      process.env.BATCH_FAILURE_PROBE_MODE !==
-      'record'
-    ) {
-      this.skip();
-    }
 
     const fixture = await ensureBatchFailureFixture();
     const operations = [
@@ -1774,6 +1872,16 @@ describe('native v2 lifecycle integration', function () {
         rawSubmission = classified.raw;
       }
 
+      // Refused at submit: the node answers 422
+      // business_transaction_failed rather than accepting
+      // the batch and failing it later.
+      expect(
+        submission,
+        `batch submission raw response: ${JSON.stringify(
+          rawSubmission
+        )}`
+      ).to.equal('refused');
+
       const [receiptResult, finalizedResult] =
         await Promise.all([
           observeForWindow(
@@ -1816,6 +1924,13 @@ describe('native v2 lifecycle integration', function () {
           'finalized receipt'
         );
 
+      // A refused batch never enters the chain, so it has
+      // no receipt at all -- not a failure receipt. The
+      // observation window above proves the 422 was not a
+      // misreport of a transaction that landed late.
+      expect(receipt).to.equal('not_found');
+      expect(finalized).to.equal('not_found');
+
       const [
         senderAfter,
         validRecipientAfter,
@@ -1842,6 +1957,11 @@ describe('native v2 lifecycle integration', function () {
       expect(BigInt(senderAfter.balance)).to.equal(
         BigInt(senderBefore.balance)
       );
+      // The all-or-nothing assertion: operation 0 targets a
+      // perfectly valid recipient and still must not apply,
+      // because operation 1 is blacklisted. A node that
+      // settled the batch operation-by-operation would move
+      // this balance and fail here.
       expect(BigInt(validRecipientAfter.balance)).to.equal(
         BigInt(validRecipientBefore.balance)
       );
@@ -1858,11 +1978,10 @@ describe('native v2 lifecycle integration', function () {
         )
       ).nonce;
       const nonceDelta = nodeNonce - nonceBefore;
-      if (nonceDelta !== 0 && nonceDelta !== 1) {
-        throw new Error(
-          `[1Money SDK integration]: expected failed batch nonce delta 0 or 1, received ${nonceDelta}`
-        );
-      }
+      // Nothing was admitted, so no nonce was spent. The
+      // caller keeps the slot and resubmits a corrected
+      // batch at the same nonce -- verified below.
+      expect(nonceDelta).to.equal(0);
 
       const nextPrepared = TransactionBuilder.payment({
         chain_id: chainId,
@@ -1896,65 +2015,33 @@ describe('native v2 lifecycle integration', function () {
         );
       }
 
-      let nextValidTransaction:
-        BatchFailureObservation['next_valid_transaction'];
-      let rawNextValidTransaction: Record<string, unknown>;
-      if (blocked) {
-        nextValidTransaction =
-          blocked.nextValidTransaction;
-        rawNextValidTransaction = blocked.raw;
-      } else {
-        if (!nextResponse) {
-          throw new Error(
-            '[1Money SDK integration]: continuation submission returned no response and no error'
-          );
-        }
-        const nextReceipt = await waitForResult(
-          () =>
-            context.client.transactions.getReceiptByHash(
-              nextResponse.hash
-            ),
-          { intervalMs: 250 }
+      // The refusal leaves the account fully usable: the
+      // very same nonce still admits a well-formed payment,
+      // which is what makes "correct the batch and resubmit"
+      // a safe recovery for a caller.
+      expect(
+        blocked,
+        `continuation submission was rejected: ${JSON.stringify(
+          blocked?.raw
+        )}`
+      ).to.equal(undefined);
+      if (!nextResponse) {
+        throw new Error(
+          '[1Money SDK integration]: continuation submission returned no response and no error'
         );
-        requireSuccessfulReceipt(
-          nextReceipt,
-          'continuation receipt'
-        );
-        nextValidTransaction =
-          nonceDelta === 0
-            ? 'same_nonce_accepted'
-            : 'next_nonce_accepted';
-        rawNextValidTransaction = {
-          hash: nextResponse.hash,
-          nonce: nodeNonce
-        };
       }
-
-      const observation: BatchFailureObservation = {
-        submission,
-        receipt,
-        finalized,
-        nonce_delta: nonceDelta,
-        next_valid_transaction:
-          nextValidTransaction,
-        balances_unchanged: true
-      };
-      console.log('BATCH_FAILURE_DIAGNOSTIC', {
-        submission: rawSubmission,
-        receipt:
-          receiptResult.state === 'found'
-            ? receiptResult.value
-            : receiptResult.error,
-        finalized:
-          finalizedResult.state === 'found'
-            ? finalizedResult.value
-            : finalizedResult.error,
-        next_valid_transaction:
-          rawNextValidTransaction
-      });
-      console.log('BATCH_FAILURE_OBSERVATION_BEGIN');
-      console.log(JSON.stringify(observation, null, 2));
-      console.log('BATCH_FAILURE_OBSERVATION_END');
+      const nextHash = nextResponse.hash;
+      const nextReceipt = await waitForResult(
+        () =>
+          context.client.transactions.getReceiptByHash(
+            nextHash
+          ),
+        RECEIPT_POLL
+      );
+      requireSuccessfulReceipt(
+        nextReceipt,
+        'continuation receipt'
+      );
     } finally {
       await cleanupBatchFailureBlacklist(
         fixture.tokenAddress
@@ -1997,7 +2084,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -2006,7 +2093,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.tokens.getTokenMetadata(
           privateTokenAddress
         ),
-      { intervalMs: 250 }
+      STATE_POLL
     );
     expect(metadata.is_private).to.equal(true);
   });
@@ -2041,7 +2128,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -2064,7 +2151,7 @@ describe('native v2 lifecycle integration', function () {
         }
         return result;
       },
-      { intervalMs: 250 }
+      STATE_POLL
     );
     expect(
       metadata.white_list.some(
@@ -2119,7 +2206,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getReceiptByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      RECEIPT_POLL
     );
     expect(receipt.success).to.equal(true);
 
@@ -2128,7 +2215,7 @@ describe('native v2 lifecycle integration', function () {
         context.client.transactions.getByHash(
           response.hash
         ),
-      { intervalMs: 250 }
+      STATE_POLL
     );
     expect(transaction.transaction_type).to.equal(
       'CreateMultiSig'
@@ -2150,8 +2237,197 @@ describe('native v2 lifecycle integration', function () {
         context.client.accounts.getNonce(
           multisigAddress
         ),
-      { intervalMs: 250 }
+      STATE_POLL
     );
     expect(account.nonce).to.equal(0);
+  });
+
+  // Every v2 operation signs `rlp([payload_fields, memo])`, but only the
+  // batch payment above submits a populated memo, and only a short one.
+  // These three close that gap end-to-end: the node re-derives the signing
+  // hash from the memo bytes it received, so a memo we encode differently
+  // fails signature verification instead of round-tripping.
+  it('round-trips a maximum-size memo through a v2 payment', async function () {
+    // Guard the fixtures themselves -- if they drift off the limit the
+    // test silently stops covering the boundary it exists for.
+    expect(
+      utf8ByteLength(MAX_MEMO_TYPE)
+    ).to.equal(128);
+    expect(
+      utf8ByteLength(MAX_MEMO_FORMAT)
+    ).to.equal(64);
+    expect(
+      utf8ByteLength(MAX_MEMO_DATA)
+    ).to.equal(256);
+
+    const memo = {
+      type: MAX_MEMO_TYPE,
+      format: MAX_MEMO_FORMAT,
+      data: MAX_MEMO_DATA
+    };
+    const nonce = (
+      await context.client.accounts.getNonce(
+        context.accounts.user2.address
+      )
+    ).nonce;
+    const prepared = TransactionBuilder.payment(
+      {
+        chain_id: chainId,
+        nonce,
+        recipient: context.accounts.user3.address,
+        value: '1',
+        token: tokenAddress
+      },
+      { memo }
+    );
+
+    const { response } =
+      await authorizeAndSubmitV2(
+        prepared,
+        user2Signer,
+        authorized =>
+          context.client.transactions.payment(
+            authorized
+          )
+      );
+
+    const receipt = await waitForResult(
+      () =>
+        context.client.transactions.getReceiptByHash(
+          response.hash
+        ),
+      RECEIPT_POLL
+    );
+    expect(receipt.success).to.equal(true);
+
+    const transaction = await waitForResult(
+      () =>
+        context.client.transactions.getByHash(
+          response.hash
+        ),
+      STATE_POLL
+    );
+    expect(transaction.memo).to.deep.equal(memo);
+  });
+
+  it('round-trips a multi-byte UTF-8 memo through a v2 payment', async function () {
+    const data = '结算备注：跨境支付 🧾 ¥1,234.56';
+    // The whole point of this case: the byte length must exceed the
+    // code-point count, or it would not tell byte-counting apart from
+    // character-counting on either side of the wire.
+    expect(
+      utf8ByteLength(data)
+    ).to.be.greaterThan([...data].length);
+
+    const memo = {
+      type: 'integration/utf8',
+      format: 'text/plain',
+      data
+    };
+    const nonce = (
+      await context.client.accounts.getNonce(
+        context.accounts.user2.address
+      )
+    ).nonce;
+    const prepared = TransactionBuilder.payment(
+      {
+        chain_id: chainId,
+        nonce,
+        recipient: context.accounts.user3.address,
+        value: '1',
+        token: tokenAddress
+      },
+      { memo }
+    );
+
+    const { response } =
+      await authorizeAndSubmitV2(
+        prepared,
+        user2Signer,
+        authorized =>
+          context.client.transactions.payment(
+            authorized
+          )
+      );
+
+    const receipt = await waitForResult(
+      () =>
+        context.client.transactions.getReceiptByHash(
+          response.hash
+        ),
+      RECEIPT_POLL
+    );
+    expect(receipt.success).to.equal(true);
+
+    const transaction = await waitForResult(
+      () =>
+        context.client.transactions.getByHash(
+          response.hash
+        ),
+      STATE_POLL
+    );
+    expect(transaction.memo).to.deep.equal(memo);
+  });
+
+  it('round-trips a memo through a v2 token metadata update', async function () {
+    // Memo rides on every v2 operation, not only payments and batches.
+    // The metadata fields repeat exactly what the update earlier in this
+    // suite already set, so re-submitting leaves token state unchanged
+    // and the memo is the only thing under test.
+    const memo = {
+      type: 'integration/metadata',
+      format: 'text/plain',
+      data: 'memo on a non-payment operation'
+    };
+    const nonce = (
+      await context.client.accounts.getNonce(
+        context.accounts.master.address
+      )
+    ).nonce;
+    const prepared =
+      TransactionBuilder.tokenMetadata(
+        {
+          chain_id: chainId,
+          nonce,
+          name: 'Updated V2 Integration Token',
+          uri: 'https://example.com/v2-token.json',
+          token: tokenAddress,
+          additional_metadata: [
+            {
+              key: 'suite',
+              value: 'v2-lifecycle'
+            }
+          ]
+        },
+        { memo }
+      );
+
+    const { response } =
+      await authorizeAndSubmitV2(
+        prepared,
+        masterSigner,
+        authorized =>
+          context.client.tokens.updateMetadata(
+            authorized
+          )
+      );
+
+    const receipt = await waitForResult(
+      () =>
+        context.client.transactions.getReceiptByHash(
+          response.hash
+        ),
+      RECEIPT_POLL
+    );
+    expect(receipt.success).to.equal(true);
+
+    const transaction = await waitForResult(
+      () =>
+        context.client.transactions.getByHash(
+          response.hash
+        ),
+      STATE_POLL
+    );
+    expect(transaction.memo).to.deep.equal(memo);
   });
 });
