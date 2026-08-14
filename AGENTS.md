@@ -33,7 +33,10 @@ flow changed.
 - `npm test` - Run unit tests (nyc + Mocha, config `.mocharc.js`)
 - `npm run test:integration` - Run integration tests against a live network
   (`.mocharc.integration.js`, requires `RUN_INTEGRATION_TESTS=true`)
-- `npm run test:integration:testnet` / `:local` - Pin the integration network
+- `npm run test:integration:local` - Pin the integration run to the local node
+  (`:local:verbose` adds target, account and full HTTP exchange logging).
+  There is no dedicated testnet script: set `INTEGRATION_TEST_NETWORK=testnet`
+  in `.env.integration` and run `npm run test:integration`
 - `npm run test:all` - Unit + integration
 - Unit tests live in `src/**/__test__/*.ts`; integration suite in `src/__integration__/`
   (see its `QUICKSTART.md`)

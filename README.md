@@ -783,6 +783,90 @@ try {
 }
 ```
 
+#### Attach a Memo to a Payment
+
+Every v2 builder takes an optional second argument holding the memo. The memo
+is **part of the signed payload**, so the same payment with a different memo
+produces a different `signingHash` and a different transaction hash — it is not
+a header or an annotation bolted on afterwards.
+
+```typescript
+import {
+  TransactionBuilder,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
+
+const prepared = TransactionBuilder.payment(
+  {
+    chain_id,
+    nonce,
+    recipient: '0xa128999be299373d7881f4add11510030ad13512',
+    value: '1000000000',
+    token: '0x2cd8999Be299373D7881f4aDD11510030ad1412F'
+  },
+  {
+    memo: {
+      type: 'purpose/SALA',
+      format: 'text/plain',
+      data: 'August salary'
+    }
+  }
+);
+
+// Everything downstream is unchanged -- the memo is already inside the digest.
+const signature = await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash);
+const response = await apiClient.transactions.payment(prepared.authorize(signature));
+```
+
+Field limits, enforced identically by the SDK and the node:
+
+| Field | Max | Allowed characters |
+| --- | --- | --- |
+| `type` | 128 bytes | URL-safe only (RFC 3986 unreserved + gen-delims + sub-delims + `%`) |
+| `format` | 64 bytes | URL-safe only, same set |
+| `data` | 256 bytes | any UTF-8 except NUL, C0/C1 control codepoints, and surrogates |
+
+The limits are **UTF-8 byte lengths, not character counts** — `'结算备注'` is
+four characters but twelve bytes. Each field is individually optional; a partial
+memo fills the rest with empty strings, and omitting the option entirely sends
+`{ type: '', format: '', data: '' }`, which is still signed.
+
+Validation is local and happens **before any signer is invoked**: the builder
+calls `validateMemo` while computing the digest, so a malformed memo throws
+rather than spending a signing operation — which matters when the signer is
+backed by an HSM or KMS.
+
+```typescript
+import { MemoValidationError } from '@1money/protocol-ts-sdk';
+
+try {
+  TransactionBuilder.payment(payload, {
+    memo: { type: 'a'.repeat(200), format: '', data: '' }
+  });
+} catch (err) {
+  if (err instanceof MemoValidationError) {
+    // 'MEMO_TYPE_TOO_LONG' | 'MEMO_TYPE_INVALID_CHARS' | 'MEMO_FORMAT_TOO_LONG'
+    // | 'MEMO_FORMAT_INVALID_CHARS' | 'MEMO_DATA_TOO_LONG'
+    // | 'MEMO_DATA_CONTROL_CHARS' | 'MEMO_TOO_LARGE'
+    console.error(err.code, err.message);
+  }
+}
+```
+
+Read it back from the transaction (not the receipt), where it is returned for
+every memo-bearing v2 envelope:
+
+```typescript
+const tx = await apiClient.transactions.getByHash(
+  prepared.authorize(signature).transactionHash
+);
+console.log(tx.memo); // { type: 'purpose/SALA', format: 'text/plain', data: 'August salary' }
+```
+
+The same option works on every v2 builder — `tokenIssue`, `tokenMint`,
+`tokenBlacklist`, `batchPayment` and the rest all accept `{ memo }` as their
+second argument in exactly this shape.
+
 #### Submit Batch Payment
 Pay many recipients of one token in one canonical native-v2 transaction.
 `batchPayment` is **v2-only**: the SDK deliberately exposes no legacy Batch

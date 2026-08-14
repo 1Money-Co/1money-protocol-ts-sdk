@@ -31,11 +31,15 @@ The supported settings are:
 | `INTEGRATION_TEST_TIMEOUT` | `120000` | Mocha timeout in milliseconds |
 
 State-changing integration tests refuse to run against `mainnet`. Testnet
-execution is explicit and requires funded operator and master credentials:
+execution is deliberately not a one-word script: set
+`INTEGRATION_TEST_NETWORK=testnet` in `.env.integration` alongside funded
+operator and master credentials, then run the network-agnostic script:
 
 ```bash
-npm run test:integration:testnet
+npm run test:integration
 ```
+
+See `QUICKSTART.md` for what a testnet run costs before doing it.
 
 Never commit `.env.integration` or real private keys.
 
@@ -63,8 +67,11 @@ transaction, and status read surfaces. They run directly in Node.
 # Complete local gate
 npm run test:integration:local
 
-# Complete testnet gate with configured credentials
-npm run test:integration:testnet
+# Same, plus target / account / full HTTP exchange logging
+npm run test:integration:local:verbose
+
+# Testnet gate: network comes from .env.integration, credentials required
+npm run test:integration
 
 # One file only
 npx mocha --config .mocharc.integration.js \

@@ -50,7 +50,7 @@ in `npm test`, so the unit suite stays deterministic and network-free.
 Run them with:
 
 ```bash
-npm run test:integration:testnet
+npm run test:integration:local
 ```
 
 ### Example
