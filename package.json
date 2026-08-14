@@ -41,7 +41,7 @@
     "test:transaction-response-models": "tsc --project tsconfig.transaction-response-models.json",
     "test:integration": "cross-env RUN_INTEGRATION_TESTS=true mocha --config .mocharc.integration.js \"src/__integration__/**/*.test.ts\"",
     "test:integration:local": "cross-env RUN_INTEGRATION_TESTS=true INTEGRATION_TEST_NETWORK=local mocha --config .mocharc.integration.js \"src/__integration__/**/*.test.ts\"",
-    "test:integration:testnet": "cross-env RUN_INTEGRATION_TESTS=true INTEGRATION_TEST_NETWORK=testnet mocha --config .mocharc.integration.js \"src/__integration__/**/*.test.ts\"",
+    "test:integration:local:verbose": "cross-env INTEGRATION_TEST_VERBOSE=true npm run test:integration:local",
     "test:integration:issue": "cross-env RUN_INTEGRATION_TESTS=true INTEGRATION_TEST_NETWORK=testnet mocha --config .mocharc.integration.js src/__integration__/v2-lifecycle.test.ts --grep \"issues a token\"",
     "test:all": "npm run test && npm run test:integration",
     "lint": "npm run lint:prettier && npm run lint:es",
