@@ -5,6 +5,7 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { getConfig } from './config';
+import { logGeneratedAccounts } from './logging';
 
 export interface TestAccount extends PrivateKeyAccount {
   privateKey: `0x${string}`;
@@ -53,26 +54,9 @@ export function getTestAccounts(): TestAccounts {
     )
   };
 
+  logGeneratedAccounts(config, testAccounts);
+
   return testAccounts;
-}
-
-/**
- * Log test account information
- */
-export function logTestAccounts(): void {
-  const accounts = getTestAccounts();
-
-  console.log('\n=== Integration Test Accounts ===');
-  console.log('Operator:', accounts.operator.address);
-  console.log('Master:', accounts.master.address);
-  console.log('User1:', accounts.user1.address);
-  console.log('User2:', accounts.user2.address);
-  console.log('User3:', accounts.user3.address);
-  console.log(
-    'Batch failure:',
-    accounts.batchFailure.address
-  );
-  console.log('=================================\n');
 }
 
 /**

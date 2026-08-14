@@ -2,6 +2,10 @@ import api from '@/api';
 
 import { getConfig } from './config';
 import {
+  attachHttpLogging,
+  logIntegrationTarget
+} from './logging';
+import {
   getTestAccounts,
   type TestAccounts
 } from './setup';
@@ -30,12 +34,19 @@ export function getIntegrationContext():
     );
   }
 
+  const client = api({
+    network: config.network,
+    timeout: config.timeout
+  });
+
+  // api() has already written the resolved base URL into the shared axios
+  // defaults, so the banner below reports the URL actually in use.
+  logIntegrationTarget(config);
+  attachHttpLogging(config);
+
   context = {
     config,
-    client: api({
-      network: config.network,
-      timeout: config.timeout
-    }),
+    client,
     accounts: getTestAccounts()
   };
   return context;
