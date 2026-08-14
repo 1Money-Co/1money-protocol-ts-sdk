@@ -28,12 +28,27 @@ export async function waitForResult<T>(
   options: {
     attempts?: number;
     intervalMs?: number;
+    /**
+     * Delay before the FIRST lookup, not just between retries.
+     *
+     * Defaults to 0, so existing callers are unchanged. Set it when the
+     * value provably cannot exist yet: a receipt read issued the instant
+     * a transaction is submitted is a guaranteed miss, and issuing it
+     * only produces a 404 that has to be retried anyway.
+     */
+    initialDelayMs?: number;
   } = {}
 ): Promise<T> {
   const attempts = options.attempts ?? 30;
   const intervalMs =
     options.intervalMs ?? 1000;
+  const initialDelayMs =
+    options.initialDelayMs ?? 0;
   let lastError: unknown;
+
+  if (initialDelayMs > 0) {
+    await wait(initialDelayMs);
+  }
 
   for (
     let attempt = 0;

@@ -176,6 +176,31 @@ describe('integration polling helper', function () {
     expect(result).to.equal('ready');
   });
 
+  it('holds the first lookup for initialDelayMs', async function () {
+    // The lifecycle relies on this to skip a read that provably cannot
+    // succeed yet, so the delay has to apply to the FIRST attempt rather
+    // than only between retries.
+    const startedAt = Date.now();
+    let firstLookupAt = 0;
+
+    const result = await waitForResult(
+      async () => {
+        firstLookupAt = Date.now();
+        return 'ready';
+      },
+      {
+        attempts: 1,
+        intervalMs: 0,
+        initialDelayMs: 60
+      }
+    );
+
+    expect(result).to.equal('ready');
+    expect(
+      firstLookupAt - startedAt
+    ).to.be.at.least(50);
+  });
+
   it('returns a result after transient failures', async function () {
     let attempts = 0;
     const result = await waitForResult(
