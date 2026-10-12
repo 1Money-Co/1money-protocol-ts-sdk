@@ -55,6 +55,19 @@ export function hasOwn(
   );
 }
 
+// Reads an own member only: an inherited member is not
+// part of an answer.
+export function ownMember(
+  value: unknown,
+  key: string
+): unknown {
+  return typeof value === 'object' &&
+    value !== null &&
+    hasOwn(value, key)
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
 function ownString(
   body: Record<string, unknown>,
   key: string

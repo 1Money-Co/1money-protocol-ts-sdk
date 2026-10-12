@@ -485,7 +485,7 @@ describe('integration polling helper', function () {
         body: { error_code: 'business_transaction_failed' },
         hash: '0xlocal',
         local_hash: '0xlocal',
-        message: '[1Money SDK]: Transaction outcome unknown: the SDK cannot confirm whether the node admitted transaction 0xlocal. Find its state first: look up the hash and resend the same signed transaction. Do not sign a new transaction for the same intent, at any nonce, until you know its state.'
+        message: '[1Money SDK]: Transaction outcome unknown: the SDK cannot confirm whether the node admitted transaction 0xlocal. Find its state first: look up the hash and resend the same signed transaction (settle() does both). Do not sign a new transaction for the same intent, at any nonce, until you know its state.'
       }
     });
     expect(
@@ -557,7 +557,7 @@ describe('integration polling helper', function () {
         hash: '0xlocal',
         local_hash: '0xlocal',
         message:
-          '[1Money SDK]: Transaction outcome unknown: the SDK cannot confirm whether the node admitted transaction 0xlocal. Find its state first: look up the hash and resend the same signed transaction. Do not sign a new transaction for the same intent, at any nonce, until you know its state.'
+          '[1Money SDK]: Transaction outcome unknown: the SDK cannot confirm whether the node admitted transaction 0xlocal. Find its state first: look up the hash and resend the same signed transaction (settle() does both). Do not sign a new transaction for the same intent, at any nonce, until you know its state.'
       }
     });
   });

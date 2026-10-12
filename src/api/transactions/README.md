@@ -24,6 +24,9 @@ const apiClient = api();
   followed by `.authorize(signature)`, and POST to `/v2/transactions/payment`
   / `/v2/transactions/batch_payment`. See the root `../../../skills/1money-protocol-sdk/references/transactions.md`
   for the full prepare → sign → authorize → submit flow.
+- `submitAndSettle`, `settle` — send (or resume) an `AuthorizedTxV2` and
+  resend the same signed bytes until its receipt appears. See
+  [Settling a write](#settling-a-write).
 - `legacyV1.payment` — the pre-3.0 signed-payload path, explicit opt-in during
   the migration window. POSTs to `/v1/transactions/payment` and is rejected
   with 410 once the node's `native_write_mode` reaches `'v2_only'` (the
@@ -59,6 +62,39 @@ Validation runs at builder time (for both surfaces) and throws
 `MemoValidationError` with codes (`MEMO_TYPE_INVALID_CHARS`,
 `MEMO_DATA_CONTROL_CHARS`, `MEMO_TOO_LARGE`, etc.) matching the server's error
 codes 1:1.
+
+## Settling a write
+
+`transactions.submitAndSettle(authorized, options?)` sends a signed transaction
+that was never sent; `transactions.settle(authorized, options?)` resumes after an
+earlier send (for example after a `TransactionLockedError` or a
+`TransactionOutcomeUnknownError`). Both resend the **same signed bytes** on the
+node's retry schedule until `getReceiptByHash` returns a receipt for the hash,
+and resolve with `{ transactionHash, receipt }`. They never build or sign a
+transaction. Read `receipt.success`: a hold debit can execute and still fail.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `resendIntervalMs` | 70 000 | Send k+1 goes out `resendIntervalMs × k` after send k (the node's retry gate: 70, 140, 210, 280 s apart) |
+| `pollIntervalMs` | 1 000 | First receipt poll interval; it doubles each poll |
+| `maxPollIntervalMs` | 10 000 | Upper bound of the poll interval |
+| `deadlineMs` | 900 000 | Stop and throw the error for the last known state |
+| `throttleBackoffMs` | 60 000 | Wait after a lookup answered `429` or `retry_later` (a firewall allows about 120 reads per minute per IP address) |
+| `signal` | — | An `AbortSignal`; abort throws the error for the last known state |
+
+Outcomes:
+
+- Resolves when the receipt for the hash exists.
+- `submitAndSettle` throws `TransactionSubmissionError` only when its first
+  send was rejected before admission (it then sends nothing more). `settle`
+  never throws `TransactionSubmissionError`: a rejected resend says nothing
+  about the earlier send.
+- If the signal is already aborted, `submitAndSettle` throws a plain `Error`
+  and sends nothing.
+- At the deadline or on abort: `TransactionLockedError` (the node holds the
+  transaction) or `TransactionOutcomeUnknownError`, each with `observations`,
+  the requests and answers of the run (at most 200, numbered by `seq`).
+- `TransactionHashMismatchError` if the node returns another hash.
 
 ## Batch Payment lifecycle
 

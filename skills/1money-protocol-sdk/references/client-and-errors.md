@@ -215,22 +215,49 @@ try {
   if (err instanceof TransactionHashMismatchError) {
     // Already submitted. Do NOT sign again -- look the transaction up
     // by err.localHash / err.serverHash instead.
-  } else if (err instanceof TransactionLockedError) {
-    // The node holds this exact transaction. Resend the SAME
-    // `authorized` (never a new signature) until its receipt appears.
+  } else if (
+    err instanceof TransactionLockedError ||
+    err instanceof TransactionOutcomeUnknownError
+  ) {
+    // Locked or unknown. Resend the SAME `authorized` (never a new
+    // signature) until its receipt appears; settle() does this.
+    const { receipt } = await client.transactions.settle(authorized);
   } else if (err instanceof TransactionSubmissionError) {
     // Rejected before admission. err.action / err.status /
     // err.errorCode identify why -- fix the cause, then send again.
-  } else if (err instanceof TransactionOutcomeUnknownError) {
-    // Unknown. Look up err.transactionHash
-    // (client.transactions.getReceiptByHash / getByHash) and resend the
-    // SAME `authorized` until you know the state. Do not sign the
-    // intent again at any nonce meanwhile.
   } else {
     throw err;
   }
 }
 ```
+
+### Settling a write: `submitAndSettle` and `settle`
+
+`transactions.submitAndSettle(authorized, options?)` sends a signed transaction
+that was never sent; `transactions.settle(authorized, options?)` resumes after an
+earlier send (for example after a `TransactionLockedError` or a
+`TransactionOutcomeUnknownError`). Both resend the **same signed bytes** on the
+node's retry schedule until `getReceiptByHash` returns a receipt for the hash,
+and resolve with `{ transactionHash, receipt }`. They never build or sign a
+transaction. Read `receipt.success`: a hold debit can execute and still fail.
+
+- Resends follow the node's retry gate: send k+1 goes out `resendIntervalMs ×
+  k` after send k (default 70 000 ms, so 70, 140, 210, 280 s apart). A resend
+  of the same bytes can never execute twice.
+- Receipt polls start at `pollIntervalMs` (1 000 ms) and double to
+  `maxPollIntervalMs` (10 000 ms). In the unknown state each poll also looks
+  up the transaction; a 200 there means locked.
+- A lookup answered `429` or `retry_later` changes nothing and waits
+  `throttleBackoffMs` (60 000 ms): a firewall in front of the node blocks an IP
+  address above about 120 reads per minute, and that block also stops the
+  caller's other reads.
+- Proof only gets stronger: locked never goes back to unknown. Only the first
+  send of `submitAndSettle` can end as `TransactionSubmissionError`.
+- At `deadlineMs` (900 000 ms) or on `signal` abort, it throws
+  `TransactionLockedError` or `TransactionOutcomeUnknownError` with
+  `observations` (at most 200, numbered by `seq`). Exception: when the signal
+  is already aborted, `submitAndSettle` throws a plain `Error` and sends
+  nothing.
 
 > **A falsy `submitted` never means "not submitted" — only `submitted ===
 > false` does, and only for that one request.** `TransactionOutcomeUnknownError.submitted` is the literal string

@@ -62,7 +62,11 @@ The package root re-exports: the `api` function, the **signing** layer
 (`TransactionBuilder`, `LegacyV1TransactionBuilder`, `createPrivateKeySigner`,
 `deriveMultisigAddress`, `calculateBatchPaymentOperationsHash`, the EIP-712
 typed-data helpers, signer/types), the
-**utils** (`deriveTokenAddress`, `calcTxHash`, `toHex`, `validateMemo`, …), and
+**utils** (`deriveTokenAddress`, `calcTxHash`, `toHex`, `validateMemo`, …), the
+v2 write errors (`TransactionSubmissionError`, `TransactionLockedError`,
+`TransactionOutcomeUnknownError`, `TransactionHashMismatchError`), the settle
+helpers (`submitAndSettle`, `settle`, also on `client.transactions`) with their
+types (`SettleOptions`, `SettledTransaction`, `SettleObservation`), and
 `client`.
 
 Enums (`AuthorityType`, `AuthorityAction`, `ManageListAction`, `PauseAction`)

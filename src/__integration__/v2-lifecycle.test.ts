@@ -2519,13 +2519,46 @@ describe('native v2 lifecycle integration', function () {
       ).to.equal(transactionHash);
     }
 
-    const receipt = await waitForResult(
-      () =>
-        context.client.transactions.getReceiptByHash(
-          transactionHash
-        ),
-      RECEIPT_POLL
+    // settle finds the state and resolves once the
+    // receipt exists, without signing again.
+    const settled =
+      await context.client.transactions.settle(
+        authorized,
+        { deadlineMs: 120_000 }
+      );
+    expect(
+      settled.transactionHash.toLowerCase()
+    ).to.equal(transactionHash);
+    expect(settled.receipt.success).to.equal(true);
+  });
+
+  it('settles a new payment with submitAndSettle', async function () {
+    const nonce = (
+      await context.client.accounts.getNonce(
+        context.accounts.user2.address
+      )
+    ).nonce;
+    const prepared = TransactionBuilder.payment({
+      chain_id: chainId,
+      nonce,
+      recipient: context.accounts.user3.address,
+      value: '1',
+      token: tokenAddress
+    });
+    const signature = await user2Signer.signDigest(
+      prepared.signingHash
     );
-    expect(receipt.success).to.equal(true);
+    const authorized = prepared.authorize(signature);
+
+    const settled =
+      await context.client.transactions.submitAndSettle(
+        authorized,
+        { deadlineMs: 120_000 }
+      );
+
+    expect(
+      settled.receipt.transaction_hash.toLowerCase()
+    ).to.equal(authorized.transactionHash.toLowerCase());
+    expect(settled.receipt.success).to.equal(true);
   });
 });

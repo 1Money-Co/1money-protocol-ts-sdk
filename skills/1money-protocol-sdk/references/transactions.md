@@ -56,6 +56,8 @@ const authorized = prepared.authorize(signature);
 //        hash and resend the SAME `authorized` first; 'unknown' is truthy on
 //        purpose, so `if (!err.submitted)` does not mistake this for "safe
 //        to sign again")
+//    For locked or unknown, `await client.transactions.settle(authorized)`
+//    resends the same bytes until the receipt appears.
 //    Also throws synchronously (before any network call) if `authorized`
 //    came from a different builder than the method you called it with, e.g.
 //    passing a `tokenBurn` authorization to `client.transactions.payment`.
@@ -622,8 +624,10 @@ const result =
 Read the sender's current nonce before preparing, compare `result.hash` with
 `authorized.transactionHash`, then poll the receipt by hash. When the outcome
 is locked or unknown, never sign a new transaction for the same intent:
-resend the same `authorized` and look up the hash (see
-`client-and-errors.md`).
+resend the same `authorized` and look up the hash —
+`client.transactions.settle(authorized)` does both and resolves with the
+receipt. `client.transactions.submitAndSettle(authorized)` sends and settles
+in one call (see `client-and-errors.md`).
 
 If `client.<module>.<method>(authorized)` throws `TransactionHashMismatchError`
 instead, **do not retry** — `submitted` is `true` on that error, meaning the

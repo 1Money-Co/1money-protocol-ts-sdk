@@ -2,6 +2,7 @@ import { errorCodeOf } from './errors';
 import {
   hasOwn,
   NO_EFFECT_ACTIONS,
+  ownMember,
   readProblem
 } from './problem';
 
@@ -60,19 +61,6 @@ const AMBIGUOUS_CLIENT_ERROR_STATUS = 408;
 // maps to it there.
 const LEGACY_AMBIGUOUS_ERROR_CODE =
   'business_transaction_failed';
-
-// Reads an own member only, like readProblem: an
-// inherited member is not part of the answer.
-function ownMember(
-  value: unknown,
-  key: string
-): unknown {
-  return typeof value === 'object' &&
-    value !== null &&
-    hasOwn(value, key)
-    ? (value as Record<string, unknown>)[key]
-    : undefined;
-}
 
 function extractHash(
   value: unknown

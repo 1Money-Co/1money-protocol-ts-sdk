@@ -1,4 +1,5 @@
 import type { ClientAction } from './problem';
+import type { SettleObservation } from './settle';
 
 // Error codes specific to the /v2 domain-separated
 // write surface.
@@ -164,6 +165,8 @@ export class TransactionLockedError extends Error {
   readonly status?: number;
   /** Raw transport response body, when the client received it. */
   readonly data?: unknown;
+  /** Every request and answer of a settle run, oldest first. */
+  readonly observations?: readonly SettleObservation[];
 
   constructor(
     transactionHash: string,
@@ -171,16 +174,18 @@ export class TransactionLockedError extends Error {
       status?: number;
       data?: unknown;
       problemType?: string;
+      observations?: readonly SettleObservation[];
     } = {}
   ) {
     super(
-      `[1Money SDK]: The node holds transaction ${transactionHash}: it is admitted and locked, but not executed yet. Resend the same signed transaction until it executes. Do not sign a new transaction for the same intent, at any nonce, while it is locked.`
+      `[1Money SDK]: The node holds transaction ${transactionHash}: it is admitted and locked, but not executed yet. Resend the same signed transaction until it executes (settle() does this). Do not sign a new transaction for the same intent, at any nonce, while it is locked.`
     );
     this.name = 'TransactionLockedError';
     this.transactionHash = transactionHash;
     this.status = diagnostic.status;
     this.data = diagnostic.data;
     this.problemType = diagnostic.problemType;
+    this.observations = diagnostic.observations;
   }
 }
 
@@ -222,6 +227,8 @@ export class TransactionOutcomeUnknownError extends
   public readonly action?: unknown;
   /** The problem `type` URI, when the body had one. */
   public readonly problemType?: string;
+  /** Every request and answer of a settle run, oldest first. */
+  public readonly observations?: readonly SettleObservation[];
 
   constructor(
     transactionHash: string,
@@ -231,10 +238,11 @@ export class TransactionOutcomeUnknownError extends
       cause?: unknown;
       action?: unknown;
       problemType?: string;
+      observations?: readonly SettleObservation[];
     } = {}
   ) {
     super(
-      `[1Money SDK]: Transaction outcome unknown: the SDK cannot confirm whether the node admitted transaction ${transactionHash}. Find its state first: look up the hash and resend the same signed transaction. Do not sign a new transaction for the same intent, at any nonce, until you know its state.`
+      `[1Money SDK]: Transaction outcome unknown: the SDK cannot confirm whether the node admitted transaction ${transactionHash}. Find its state first: look up the hash and resend the same signed transaction (settle() does both). Do not sign a new transaction for the same intent, at any nonce, until you know its state.`
     );
     this.name = 'TransactionOutcomeUnknownError';
     this.transactionHash = transactionHash;
@@ -243,6 +251,7 @@ export class TransactionOutcomeUnknownError extends
     this.cause = diagnostic.cause;
     this.action = diagnostic.action;
     this.problemType = diagnostic.problemType;
+    this.observations = diagnostic.observations;
   }
 }
 

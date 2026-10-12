@@ -134,7 +134,10 @@ Otherwise it throws one of these errors. Branch on `instanceof`:
 | `TransactionHashMismatchError` | `true` | The node admitted the transaction, but returned a different hash. Do not send again. |
 
 Never sign a new transaction for the same intent, at any nonce, after a locked or
-unknown outcome: the payment can execute twice. The SDK decides by the `action`
+unknown outcome: the payment can execute twice. `apiClient.transactions.settle(authorized)`
+resends the same signed bytes and resolves with the receipt; send a new write with
+`apiClient.transactions.submitAndSettle(authorized)` to do both in one call (see
+`src/api/transactions/README.md`). The SDK decides by the `action`
 member of the node's error body; on a node without it, a `422`
 `business_transaction_failed` and a `408` are unknown. See
 `skills/1money-protocol-sdk/references/client-and-errors.md` for the full rules.
