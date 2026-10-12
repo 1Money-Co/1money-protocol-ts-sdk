@@ -1,4 +1,5 @@
 import { expect } from 'chai';
+import fc from 'fast-check';
 import 'mocha';
 
 import {
@@ -51,6 +52,15 @@ const NONCE_TOO_LOW: SubmitOutcome = {
   data: {},
   action: 'check_status',
   problemType: `${TYPE_PREFIX}nonce_too_low`
+};
+// A legacy node: no `type`, no `action`.
+const LEGACY_NONCE_TOO_LOW: SubmitOutcome = {
+  kind: 'unknown',
+  status: 422,
+  data: {
+    error_code: 'business_transaction_failed',
+    message: 'nonce too low'
+  }
 };
 const REJECTED: SubmitOutcome = {
   kind: 'rejected',
@@ -391,6 +401,261 @@ describe('runSettle', function () {
     });
   });
 
+  describe('nonce used (nonce_too_low)', function () {
+    const GRACE = SETTLE_DEFAULTS.nonceUsedGraceMs;
+
+    it('stops resending and resolves when the receipt appears in the grace window', async function () {
+      const f = fakeDeps({
+        send: () => NONCE_TOO_LOW,
+        receipt: t => (t >= 30_000 ? RECEIPT : NOT_FOUND)
+      });
+      const settled = await runSettle(
+        AUTHORIZED,
+        'sent',
+        {},
+        f.deps
+      );
+
+      expect(settled.receipt).to.equal(RECEIPT);
+      expect(f.sends).to.deep.equal([0]);
+    });
+
+    it('ends unknown when the grace window ends, after one last receipt poll', async function () {
+      const f = fakeDeps({ send: () => NONCE_TOO_LOW });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'sent', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(f.sends).to.deep.equal([0]);
+      expect(f.receipts[f.receipts.length - 1]).to.equal(
+        GRACE
+      );
+      expect(
+        f.waits.reduce((a, b) => a + b, 0)
+      ).to.equal(GRACE);
+    });
+
+    it('ends locked when an earlier send was accepted', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? ACCEPTED : NONCE_TOO_LOW
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionLockedError
+      );
+      expect(f.sends).to.deep.equal([0, 70_000]);
+      expect(f.receipts[f.receipts.length - 1]).to.equal(
+        70_000 + GRACE
+      );
+    });
+
+    it('treats a nonce_too_low first send of submitAndSettle the same way', async function () {
+      const f = fakeDeps({ send: () => NONCE_TOO_LOW });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(f.sends).to.deep.equal([0]);
+      expect(f.receipts[f.receipts.length - 1]).to.equal(
+        GRACE
+      );
+    });
+
+    it('cuts the grace window at the deadline', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR : NONCE_TOO_LOW
+      });
+      const error = await caught(
+        runSettle(
+          AUTHORIZED,
+          'sent',
+          { deadlineMs: 100_000 },
+          f.deps
+        )
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(f.sends).to.deep.equal([0, 70_000]);
+      expect(f.receipts[f.receipts.length - 1]).to.equal(
+        100_000
+      );
+    });
+
+    it('keeps looking up the hash in the grace window, and ends locked when it is found', async function () {
+      const f = fakeDeps({
+        send: () => NONCE_TOO_LOW,
+        lookup: t =>
+          t >= 10_000 ? { hash: HASH } : NOT_FOUND
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'sent', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionLockedError
+      );
+      expect(f.lookups).to.deep.equal([
+        0, 1_000, 3_000, 7_000, 15_000
+      ]);
+      expect(f.sends).to.deep.equal([0]);
+    });
+
+    it('cuts a throttle back-off at the end of the grace window', async function () {
+      const f = fakeDeps({
+        send: () => NONCE_TOO_LOW,
+        receipt: () =>
+          readError(429, '<html>Too Many Requests</html>')
+      });
+      await caught(
+        runSettle(AUTHORIZED, 'sent', {}, f.deps)
+      );
+
+      expect(f.sends).to.deep.equal([0]);
+      expect(f.receipts).to.deep.equal([0, 60_000, GRACE]);
+    });
+
+    it('uses nonceUsedGraceMs', async function () {
+      const f = fakeDeps({ send: () => NONCE_TOO_LOW });
+      await caught(
+        runSettle(
+          AUTHORIZED,
+          'sent',
+          { nonceUsedGraceMs: 5_000 },
+          f.deps
+        )
+      );
+
+      expect(f.receipts).to.deep.equal([
+        0, 1_000, 3_000, 5_000
+      ]);
+    });
+
+    for (const [name, outcome] of [
+      ['a legacy body without type', LEGACY_NONCE_TOO_LOW],
+      [
+        'a type that is not the exact URI',
+        { ...NONCE_TOO_LOW, problemType: 'nonce_too_low' }
+      ],
+      [
+        'the same identifier under another prefix',
+        {
+          ...NONCE_TOO_LOW,
+          problemType:
+            'https://example.com/problem/nonce_too_low'
+        }
+      ],
+      [
+        'a type with the URI as a prefix only',
+        {
+          ...NONCE_TOO_LOW,
+          problemType: `${TYPE_PREFIX}nonce_too_low_v2`
+        }
+      ]
+    ] as const) {
+      it(`keeps the resend schedule for ${name}`, async function () {
+        const f = fakeDeps({
+          send: () => outcome as SubmitOutcome
+        });
+        await caught(
+          runSettle(AUTHORIZED, 'sent', {}, f.deps)
+        );
+
+        expect(f.sends).to.deep.equal([
+          0, 70_000, 210_000, 420_000, 700_000
+        ]);
+      });
+    }
+
+    it('never sends after nonce_too_low, and never rejects after the first send (property)', async function () {
+      const outcomes = [
+        ACCEPTED,
+        LOCKED,
+        SERVER_ERROR,
+        NONCE_TOO_LOW,
+        LEGACY_NONCE_TOO_LOW,
+        REJECTED
+      ];
+      await fc.assert(
+        fc.asyncProperty(
+          fc.constantFrom<'clean' | 'sent'>(
+            'clean',
+            'sent'
+          ),
+          fc.array(fc.constantFrom(...outcomes), {
+            minLength: 1,
+            maxLength: 6
+          }),
+          fc.integer({ min: 1, max: 200_000 }),
+          async (start, script, grace) => {
+            const f = fakeDeps({
+              send: index =>
+                script[Math.min(index, script.length - 1)]
+            });
+            const error = await caught(
+              runSettle(
+                AUTHORIZED,
+                start,
+                { nonceUsedGraceMs: grace },
+                f.deps
+              )
+            );
+            const used = f.sends.findIndex(
+              (_, index) =>
+                script[
+                  Math.min(index, script.length - 1)
+                ] === NONCE_TOO_LOW
+            );
+            const sent = f.sends.map(
+              (_, index) =>
+                script[Math.min(index, script.length - 1)]
+            );
+            if (used >= 0) {
+              expect(f.sends).to.have.length(used + 1);
+              expect(
+                f.receipts[f.receipts.length - 1]
+              ).to.equal(
+                Math.min(
+                  SETTLE_DEFAULTS.deadlineMs,
+                  f.sends[used] + grace
+                )
+              );
+            }
+            if (start === 'clean' && sent[0] === REJECTED) {
+              expect(error).to.be.instanceOf(
+                TransactionSubmissionError
+              );
+              expect(f.sends).to.have.length(1);
+            } else if (
+              sent.some(o => o === ACCEPTED || o === LOCKED)
+            ) {
+              expect(error).to.be.instanceOf(
+                TransactionLockedError
+              );
+            } else {
+              expect(error).to.be.instanceOf(
+                TransactionOutcomeUnknownError
+              );
+            }
+          }
+        ),
+        { numRuns: 500 }
+      );
+    });
+  });
+
   describe('throttling (429 or retry_later on a lookup)', function () {
     const THROTTLED = readError(429, '<html>Too Many Requests</html>');
 
@@ -601,6 +866,8 @@ describe('runSettle', function () {
       ['resendIntervalMs', Number.NaN],
       ['maxPollIntervalMs', Number.POSITIVE_INFINITY],
       ['throttleBackoffMs', 0],
+      ['nonceUsedGraceMs', 0],
+      ['nonceUsedGraceMs', 2_147_483_648],
       ['maxPollIntervalMs', 2_147_483_648]
     ] as const) {
       it(`rejects ${name} = ${value} before any request`, async function () {

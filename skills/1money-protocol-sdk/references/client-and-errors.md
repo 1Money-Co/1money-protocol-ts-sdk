@@ -251,6 +251,13 @@ transaction. Read `receipt.success`: a hold debit can execute and still fail.
   `throttleBackoffMs` (60 000 ms): a firewall in front of the node blocks an IP
   address above about 120 reads per minute, and that block also stops the
   caller's other reads.
+- A send answered with the problem type `nonce_too_low` means the nonce is
+  used. The helper stops resending, polls the receipt for `nonceUsedGraceMs`
+  (70 000 ms, cut at `deadlineMs`), and without a receipt throws the error for
+  the last known state. It never says "rejected": a missing receipt can be a
+  node that is behind. Do not sign the intent again until you know whether
+  this hash executed. A node that sends no problem `type` keeps the full
+  resend schedule.
 - Proof only gets stronger: locked never goes back to unknown. Only the first
   send of `submitAndSettle` can end as `TransactionSubmissionError`.
 - At `deadlineMs` (900 000 ms) or on `signal` abort, it throws

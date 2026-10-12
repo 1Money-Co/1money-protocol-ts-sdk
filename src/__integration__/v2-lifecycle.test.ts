@@ -2561,4 +2561,64 @@ describe('native v2 lifecycle integration', function () {
     ).to.equal(authorized.transactionHash.toLowerCase());
     expect(settled.receipt.success).to.equal(true);
   });
+
+  it('ends settle soon when another payment used the nonce', async function () {
+    const nonce = (
+      await context.client.accounts.getNonce(
+        context.accounts.user2.address
+      )
+    ).nonce;
+    const sign = async (value: string) => {
+      const prepared = TransactionBuilder.payment({
+        chain_id: chainId,
+        nonce,
+        recipient: context.accounts.user3.address,
+        value,
+        token: tokenAddress
+      });
+      return prepared.authorize(
+        await user2Signer.signDigest(prepared.signingHash)
+      );
+    };
+    const unsent = await sign('1');
+    const used = await sign('2');
+    await context.client.transactions.submitAndSettle(used, {
+      deadlineMs: 120_000
+    });
+
+    const started = Date.now();
+    let error: unknown;
+    try {
+      await context.client.transactions.settle(unsent, {
+        nonceUsedGraceMs: 2_000,
+        deadlineMs: 20_000
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    const elapsed = Date.now() - started;
+
+    expect(error).to.be.instanceOf(
+      TransactionOutcomeUnknownError
+    );
+    const sends = (
+      error as TransactionOutcomeUnknownError
+    ).observations?.filter(o => o.request === 'send');
+    // One send either way: the next resend is due at 70 s.
+    expect(sends).to.have.length(1);
+    if (sends?.[0].problemType === undefined) {
+      // A node without problem types answers the legacy
+      // 422, keeps the schedule, and stops at the deadline.
+      expect(sends?.[0]).to.include({
+        result: 'unknown',
+        status: 422
+      });
+      expect(elapsed).to.be.at.least(20_000);
+    } else {
+      expect(sends[0].problemType).to.equal(
+        'https://developer.1moneynetwork.com/problem/nonce_too_low'
+      );
+      expect(elapsed).to.be.below(15_000);
+    }
+  });
 });

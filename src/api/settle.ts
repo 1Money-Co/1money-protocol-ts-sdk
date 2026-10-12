@@ -23,6 +23,10 @@ export interface SettleOptions {
   deadlineMs?: number;
   // The wait after a lookup answered 429 or retry_later.
   throttleBackoffMs?: number;
+  // How long to poll the receipt after a send answered
+  // nonce_too_low. No send can execute after it, but the
+  // receipt read can reach a node that is behind.
+  nonceUsedGraceMs?: number;
   signal?: AbortSignal;
 }
 
@@ -59,8 +63,14 @@ export const SETTLE_DEFAULTS = {
   pollIntervalMs: 1_000,
   maxPollIntervalMs: 10_000,
   deadlineMs: 900_000,
-  throttleBackoffMs: 60_000
+  throttleBackoffMs: 60_000,
+  nonceUsedGraceMs: 70_000
 } as const;
+
+// Matched exactly, as the node matches its own type URIs.
+// A legacy node sends no type, so it never matches.
+const NONCE_USED_TYPE =
+  'https://developer.1moneynetwork.com/problem/nonce_too_low';
 
 const MAX_OBSERVATIONS = 200;
 
@@ -302,11 +312,16 @@ export async function runSettle(
   let poll = options.pollIntervalMs;
 
   const aborted = () => options.signal?.aborted === true;
-  const elapsed = () => deps.now() - t0;
+  // Set by a send answered nonce_too_low: the nonce is
+  // used, so no later send can help.
+  let resendsStopped = false;
+  let endAt = t0 + options.deadlineMs;
   // The node's retry gate: send k+1 is due
   // `resendIntervalMs * k` after send k.
   const nextSendAt = () =>
-    sends === 0
+    resendsStopped
+      ? Number.POSITIVE_INFINITY
+      : sends === 0
       ? t0
       : lastSend + options.resendIntervalMs * sends;
   const send = async (): Promise<SubmitOutcome> => {
@@ -314,6 +329,16 @@ export async function runSettle(
     sends += 1;
     lastSend = deps.now();
     log.addSend(outcome);
+    if (
+      outcome.kind !== 'accepted' &&
+      outcome.problemType === NONCE_USED_TYPE
+    ) {
+      resendsStopped = true;
+      endAt = Math.min(
+        endAt,
+        lastSend + options.nonceUsedGraceMs
+      );
+    }
     return outcome;
   };
 
@@ -350,8 +375,9 @@ export async function runSettle(
       return { transactionHash: hash, receipt };
     }
     log.addRead('receipt', receipt, false);
-    // The last poll runs at the deadline itself.
-    if (elapsed() >= options.deadlineMs) {
+    // The last poll runs at the end time itself: the
+    // deadline, or the end of the nonce grace window.
+    if (deps.now() >= endAt) {
       throw stateError(state, hash, log.entries);
     }
     let throttled = isThrottled(receipt);
@@ -389,7 +415,7 @@ export async function runSettle(
           Math.min(
             wait,
             nextSendAt() - now,
-            t0 + options.deadlineMs - now
+            endAt - now
           )
         ),
         options.signal

@@ -80,6 +80,7 @@ transaction. Read `receipt.success`: a hold debit can execute and still fail.
 | `maxPollIntervalMs` | 10 000 | Upper bound of the poll interval |
 | `deadlineMs` | 900 000 | Stop and throw the error for the last known state |
 | `throttleBackoffMs` | 60 000 | Wait after a lookup answered `429` or `retry_later` (a firewall allows about 120 reads per minute per IP address) |
+| `nonceUsedGraceMs` | 70 000 | After a send answered `nonce_too_low`, poll the receipt this long, then stop |
 | `signal` | — | An `AbortSignal`; abort throws the error for the last known state |
 
 Outcomes:
@@ -91,6 +92,12 @@ Outcomes:
   about the earlier send.
 - If the signal is already aborted, `submitAndSettle` throws a plain `Error`
   and sends nothing.
+- A send answered `nonce_too_low` means the nonce is used: the transaction
+  executed, or another transaction used the nonce. No send can help, so the
+  helper stops resending and polls the receipt for `nonceUsedGraceMs`. Without
+  a receipt it then throws the error for the last known state. It never
+  reports "rejected": the receipt read can reach a node that has not executed
+  the transaction yet. Nodes that send no problem `type` keep the full schedule.
 - At the deadline or on abort: `TransactionLockedError` (the node holds the
   transaction) or `TransactionOutcomeUnknownError`, each with `observations`,
   the requests and answers of the run (at most 200, numbered by `seq`).
