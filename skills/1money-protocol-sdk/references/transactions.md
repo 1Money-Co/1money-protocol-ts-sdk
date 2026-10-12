@@ -43,14 +43,19 @@ const signature = await createPrivateKeySigner(privateKey).signDigest(
 //    node will reject at admission.
 const authorized = prepared.authorize(signature);
 
-// 5. SUBMIT to the matching endpoint. Throws one of three distinct errors —
-//    see client-and-errors.md for the full contract and which are safe to
-//    retry:
-//      - TransactionHashMismatchError   (submitted: true      -- do NOT retry)
-//      - TransactionSubmissionError     (submitted: false     -- safe to retry)
-//      - TransactionOutcomeUnknownError (submitted: 'unknown' -- query the
-//        hash first; 'unknown' is truthy on purpose, so `if (!err.submitted)`
-//        does not mistake this for "safe to retry")
+// 5. SUBMIT to the matching endpoint. Throws one of four distinct errors —
+//    see client-and-errors.md for the full contract and when signing again
+//    is safe:
+//      - TransactionHashMismatchError   (submitted: true      -- do NOT sign
+//        again)
+//      - TransactionLockedError         (submitted: true      -- resend the
+//        SAME `authorized` until it executes; do NOT sign again)
+//      - TransactionSubmissionError     (submitted: false     -- rejected
+//        before admission; fix the cause, then send again)
+//      - TransactionOutcomeUnknownError (submitted: 'unknown' -- look up the
+//        hash and resend the SAME `authorized` first; 'unknown' is truthy on
+//        purpose, so `if (!err.submitted)` does not mistake this for "safe
+//        to sign again")
 //    Also throws synchronously (before any network call) if `authorized`
 //    came from a different builder than the method you called it with, e.g.
 //    passing a `tokenBurn` authorization to `client.transactions.payment`.
@@ -615,8 +620,10 @@ const result =
 ```
 
 Read the sender's current nonce before preparing, compare `result.hash` with
-`authorized.transactionHash`, then poll the receipt by hash. Do not
-automatically resubmit when the outcome is unknown.
+`authorized.transactionHash`, then poll the receipt by hash. When the outcome
+is locked or unknown, never sign a new transaction for the same intent:
+resend the same `authorized` and look up the hash (see
+`client-and-errors.md`).
 
 If `client.<module>.<method>(authorized)` throws `TransactionHashMismatchError`
 instead, **do not retry** — `submitted` is `true` on that error, meaning the

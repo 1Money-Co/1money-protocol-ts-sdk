@@ -6,6 +6,7 @@ export { default as client } from './client';
 export * from './signing';
 export * from './utils';
 export * from './api/errors';
+export type { ClientAction } from './api/problem';
 
 export type { AxiosStatic } from 'axios';
 export type { InitConfig, Options, ParsedError, PromiseWrapper } from './client/core';

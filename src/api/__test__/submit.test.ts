@@ -6,10 +6,14 @@ import { axiosStatic, setInitConfig } from '../../client';
 import {
   isNativeV2NotActive,
   TransactionHashMismatchError,
+  TransactionLockedError,
   TransactionOutcomeUnknownError,
   TransactionSubmissionError
 } from '../errors';
-import { submitAuthorized } from '../submit';
+import {
+  sendAuthorized,
+  submitAuthorized
+} from '../submit';
 
 import type { AuthorizedTxV2 } from '@/signing/v2';
 
@@ -227,7 +231,8 @@ describe('submitAuthorized', function () {
       );
       const err =
         caught as TransactionSubmissionError;
-      // Never submitted -- safe to retry once /v2 is active.
+      // Rejected before admission -- send again once /v2 is
+      // active.
       expect(err.submitted).to.equal(false);
       expect(err.status).to.equal(403);
       expect(err.errorCode).to.equal(
@@ -377,11 +382,10 @@ describe('submitAuthorized', function () {
 
   // Regression coverage for the round-2 finding: core.ts's login branch
   // (src/client/core.ts) resolves with just the response body, discarding
-  // the numeric HTTP status -- so isRefusedResponse's `typeof v.status ===
-  // 'number'` check can never see a refusal that arrived this way (e.g. a
-  // WAF/gateway 401 in front of the node). Before the fix this fell
-  // through to TransactionOutcomeUnknownError even though it is exactly as
-  // pre-admission as any other 4xx.
+  // the numeric HTTP status -- so a status check can never see a refusal
+  // that arrived this way (e.g. a WAF/gateway 401 in front of the node).
+  // Before the fix this fell through to TransactionOutcomeUnknownError
+  // even though it is exactly as pre-admission as any other 4xx.
   describe('401 refused via the login branch (status discarded by core.ts)', function () {
     it('throws TransactionSubmissionError (submitted: false), not TransactionOutcomeUnknownError', async function () {
       axiosStatic.defaults.adapter = (config =>
@@ -423,6 +427,202 @@ describe('submitAuthorized', function () {
       expect(caught).to.not.be.instanceOf(
         TransactionOutcomeUnknownError
       );
+    });
+  });
+
+  // Issue #49: the node answers 422 to a resend of a
+  // transaction it already holds. That answer must never
+  // read as "NOT submitted".
+  describe('node action decides the outcome', function () {
+    const TYPE_PREFIX =
+      'https://developer.1moneynetwork.com/problem/';
+
+    function respondWithProblem(
+      status: number,
+      data: unknown
+    ) {
+      axiosStatic.defaults.adapter = (config =>
+        Promise.reject({
+          message: `Request failed with status code ${status}`,
+          name: 'AxiosError',
+          config,
+          response: {
+            status,
+            statusText: 'Error',
+            headers: {},
+            config,
+            data
+          }
+        })) as typeof originalAdapter;
+    }
+
+    async function caughtFrom(): Promise<unknown> {
+      try {
+        await submitAuthorized(AUTHORIZED, 'payment');
+      } catch (error) {
+        return error;
+      }
+      throw new Error('expected a rejection');
+    }
+
+    const IN_FLIGHT = {
+      type: `${TYPE_PREFIX}submission_already_in_flight`,
+      title: 'Transaction already in flight',
+      status: 422,
+      instance: 'urn:uuid:0192f0c4',
+      action: 'in_progress',
+      tx_hash: LOCAL_HASH,
+      error_code: 'business_transaction_failed',
+      message:
+        'Transaction processing failed: already inflight; please retry later'
+    };
+
+    it('throws TransactionLockedError, not TransactionSubmissionError, for a 422 in-flight answer', async function () {
+      respondWithProblem(422, IN_FLIGHT);
+      const caught = await caughtFrom();
+
+      expect(caught).to.be.instanceOf(
+        TransactionLockedError
+      );
+      expect(caught).to.not.be.instanceOf(
+        TransactionSubmissionError
+      );
+      const err = caught as TransactionLockedError;
+      expect(err.submitted).to.equal(true);
+      expect(err.action).to.equal('in_progress');
+      expect(err.transactionHash).to.equal(
+        LOCAL_HASH
+      );
+      expect(err.status).to.equal(422);
+      expect(err.data).to.deep.equal(IN_FLIGHT);
+      expect(err.problemType).to.equal(
+        `${TYPE_PREFIX}submission_already_in_flight`
+      );
+      expect(err.message).to.not.match(
+        /NOT submitted|safe to retry/i
+      );
+    });
+
+    it('throws TransactionOutcomeUnknownError for the legacy 422 without an action', async function () {
+      respondWithProblem(422, {
+        error_code: 'business_transaction_failed',
+        message:
+          'Transaction processing failed: already inflight; please retry later'
+      });
+      const caught = await caughtFrom();
+
+      expect(caught).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(
+        (caught as TransactionOutcomeUnknownError)
+          .status
+      ).to.equal(422);
+    });
+
+    it('throws TransactionOutcomeUnknownError with the action for check_status', async function () {
+      respondWithProblem(422, {
+        type: `${TYPE_PREFIX}nonce_too_low`,
+        status: 422,
+        action: 'check_status',
+        error_code: 'business_transaction_failed'
+      });
+      const err =
+        (await caughtFrom()) as TransactionOutcomeUnknownError;
+
+      expect(err).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(err.action).to.equal('check_status');
+      expect(err.problemType).to.equal(
+        `${TYPE_PREFIX}nonce_too_low`
+      );
+    });
+
+    it('throws TransactionSubmissionError with the action for a no-effect action', async function () {
+      respondWithProblem(400, {
+        type: `${TYPE_PREFIX}invalid_signature`,
+        status: 400,
+        action: 'fix_request',
+        error_code: 'validation_invalid_signature'
+      });
+      const err =
+        (await caughtFrom()) as TransactionSubmissionError;
+
+      expect(err).to.be.instanceOf(
+        TransactionSubmissionError
+      );
+      expect(err.submitted).to.equal(false);
+      expect(err.action).to.equal('fix_request');
+      expect(err.problemType).to.equal(
+        `${TYPE_PREFIX}invalid_signature`
+      );
+      expect(err.errorCode).to.equal(
+        'validation_invalid_signature'
+      );
+      expect(err.message).to.match(
+        /rejected before admission/
+      );
+    });
+
+    it('gives the same error whether the client rejects or resolves', async function () {
+      respondWithProblem(422, IN_FLIGHT);
+      const rejected = await caughtFrom();
+
+      setInitConfig({
+        baseURL: LOCAL_API_URL,
+        onError: (err: unknown) => err
+      });
+      try {
+        respondWithProblem(422, IN_FLIGHT);
+        const resolved = await caughtFrom();
+        expect(resolved).to.be.instanceOf(
+          TransactionLockedError
+        );
+        expect(
+          (resolved as TransactionLockedError).message
+        ).to.equal(
+          (rejected as TransactionLockedError).message
+        );
+      } finally {
+        setInitConfig({
+          baseURL: originalBaseURL,
+          onError: undefined
+        });
+        axiosStatic.defaults.baseURL = LOCAL_API_URL;
+      }
+    });
+  });
+
+  describe('sendAuthorized', function () {
+    it('returns the outcome and does not throw for a node answer', async function () {
+      axiosStatic.defaults.adapter = (config =>
+        Promise.reject({
+          message: 'Request failed with status code 500',
+          name: 'AxiosError',
+          config,
+          response: {
+            status: 500,
+            statusText: 'Internal Server Error',
+            headers: {},
+            config,
+            data: { message: 'system error' }
+          }
+        })) as typeof originalAdapter;
+
+      const outcome = await sendAuthorized(AUTHORIZED);
+      expect(outcome.kind).to.equal('unknown');
+    });
+
+    it('returns accepted with the node hash', async function () {
+      respondWith(LOCAL_HASH);
+      expect(
+        await sendAuthorized(AUTHORIZED)
+      ).to.deep.equal({
+        kind: 'accepted',
+        serverHash: LOCAL_HASH,
+        response: { hash: LOCAL_HASH }
+      });
     });
   });
 

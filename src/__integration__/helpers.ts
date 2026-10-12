@@ -1,4 +1,5 @@
 import {
+  TransactionLockedError,
   TransactionOutcomeUnknownError,
   TransactionSubmissionError
 } from '@/api/errors';
@@ -227,34 +228,66 @@ export function requireSuccessfulReceipt(
   }
 }
 
+// The raw diagnostic of an error whose transaction may
+// be on the node (locked or unknown).
+function heldOutcomeRaw(
+  error:
+    | TransactionLockedError
+    | TransactionOutcomeUnknownError,
+  localHash: string
+): Record<string, unknown> {
+  return {
+    status: error.status,
+    body: error.data,
+    hash: error.transactionHash,
+    local_hash: localHash,
+    message: error.message
+  };
+}
+
 export function classifyNextValidSubmissionError(
   error: unknown,
   nonce: number,
   localHash: string
 ): {
-  nextValidTransaction: 'blocked';
+  nextValidTransaction:
+    | 'blocked'
+    | 'locked'
+    | 'outcome_unknown';
   raw: Record<string, unknown>;
 } {
-  if (!(error instanceof TransactionSubmissionError)) {
-    throw error;
+  if (error instanceof TransactionSubmissionError) {
+    return {
+      nextValidTransaction: 'blocked',
+      raw: {
+        nonce,
+        status: error.status,
+        body: error.data,
+        local_hash: localHash,
+        message: error.message
+      }
+    };
   }
-  return {
-    nextValidTransaction: 'blocked',
-    raw: {
-      nonce,
-      status: error.status,
-      body: error.data,
-      local_hash: localHash,
-      message: error.message
-    }
-  };
+  if (error instanceof TransactionLockedError) {
+    return {
+      nextValidTransaction: 'locked',
+      raw: { nonce, ...heldOutcomeRaw(error, localHash) }
+    };
+  }
+  if (error instanceof TransactionOutcomeUnknownError) {
+    return {
+      nextValidTransaction: 'outcome_unknown',
+      raw: { nonce, ...heldOutcomeRaw(error, localHash) }
+    };
+  }
+  throw error;
 }
 
 export function classifyBatchFailureSubmission(
   error: unknown,
   localHash: string
 ): {
-  submission: 'refused' | 'outcome_unknown';
+  submission: 'refused' | 'locked' | 'outcome_unknown';
   raw: Record<string, unknown>;
 } {
   if (error instanceof TransactionSubmissionError) {
@@ -268,16 +301,16 @@ export function classifyBatchFailureSubmission(
       }
     };
   }
+  if (error instanceof TransactionLockedError) {
+    return {
+      submission: 'locked',
+      raw: heldOutcomeRaw(error, localHash)
+    };
+  }
   if (error instanceof TransactionOutcomeUnknownError) {
     return {
       submission: 'outcome_unknown',
-      raw: {
-        status: error.status,
-        body: error.data,
-        hash: error.transactionHash,
-        local_hash: localHash,
-        message: error.message
-      }
+      raw: heldOutcomeRaw(error, localHash)
     };
   }
   throw error;

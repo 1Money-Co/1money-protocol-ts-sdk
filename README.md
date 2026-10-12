@@ -121,6 +121,24 @@ plain `async` functions and return a native `Promise` — `await` them in a
 `try/catch` instead of chaining `.success()/.error()`; see the write examples
 under [API Methods](#api-methods) below.
 
+#### v2 write outcomes
+
+A v2 write resolves with `{ hash }` when the node admits the transaction.
+Otherwise it throws one of these errors. Branch on `instanceof`:
+
+| Thrown | `submitted` | What to do |
+| --- | --- | --- |
+| `TransactionSubmissionError` | `false` | The node rejected the request before admission. Fix the cause (`err.action`, `err.status`, `err.errorCode`), then send again. |
+| `TransactionLockedError` | `true` | The node holds this exact transaction. Resend the same `authorized` until its receipt appears. |
+| `TransactionOutcomeUnknownError` | `'unknown'` | The SDK cannot tell. Look up `err.transactionHash` and resend the same `authorized` until you know the state. |
+| `TransactionHashMismatchError` | `true` | The node admitted the transaction, but returned a different hash. Do not send again. |
+
+Never sign a new transaction for the same intent, at any nonce, after a locked or
+unknown outcome: the payment can execute twice. The SDK decides by the `action`
+member of the node's error body; on a node without it, a `422`
+`business_transaction_failed` and a `408` are unknown. See
+`skills/1money-protocol-sdk/references/client-and-errors.md` for the full rules.
+
 For the chainable wrapper, always implement both handlers for proper error management:
 
 1. `.success()`: Handles successful API responses
