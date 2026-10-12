@@ -116,6 +116,15 @@ describe('readProblem', function () {
     ).to.equal(undefined);
   });
 
+  it('sets only the members it found', function () {
+    expect(
+      readProblem({ message: 'refused' })
+    ).to.deep.equal({
+      hasAction: false,
+      hasTxHash: false
+    });
+  });
+
   it('never reads the message or the title', function () {
     const p = readProblem({
       title: 'in_progress',

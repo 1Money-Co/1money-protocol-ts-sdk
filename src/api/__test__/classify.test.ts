@@ -349,6 +349,104 @@ describe('classifySubmitResponse', function () {
     });
   });
 
+  describe('exact outcome shapes', function () {
+    it('leaves out the members it did not find', function () {
+      const body = { action: 'fix_request' };
+      expect(
+        classifySubmitResponse(body, LOCAL)
+      ).to.deep.equal({
+        kind: 'rejected',
+        status: 0,
+        data: body,
+        nodeMessage: 'the node rejected the request',
+        action: 'fix_request'
+      });
+
+      const lockedBody = { action: 'in_progress' };
+      expect(
+        classifySubmitResponse(lockedBody, LOCAL)
+      ).to.deep.equal({
+        kind: 'locked',
+        data: lockedBody
+      });
+
+      expect(
+        classifySubmitResponse(undefined, LOCAL)
+      ).to.deep.equal({ kind: 'unknown' });
+
+      const failure = new Error('socket hang up');
+      expect(
+        classifySubmitResponse(failure, LOCAL)
+      ).to.deep.equal({
+        kind: 'unknown',
+        cause: failure
+      });
+    });
+
+    it('keeps the data member of an unknown bare value', function () {
+      const value = { data: { x: 1 } };
+      expect(
+        classifySubmitResponse(value, LOCAL)
+      ).to.deep.equal({
+        kind: 'unknown',
+        data: { x: 1 },
+        cause: value
+      });
+    });
+
+    it('uses a text fallback when the message is absent or not a string', function () {
+      expect(
+        classifySubmitResponse(
+          { action: 'retry_later', message: 42 },
+          LOCAL
+        )
+      ).to.include({
+        nodeMessage: 'the node rejected the request'
+      });
+      expect(
+        classifySubmitResponse(
+          { name: 'AxiosError', status: 400, data: {} },
+          LOCAL
+        )
+      ).to.include({
+        kind: 'rejected',
+        nodeMessage: 'the node rejected the request'
+      });
+      expect(
+        classifySubmitResponse(
+          { code: 401, data: null },
+          LOCAL
+        )
+      ).to.include({
+        kind: 'rejected',
+        nodeMessage:
+          'the node returned a 401 (unauthorized) response'
+      });
+    });
+
+    it('takes no status that is not a number', function () {
+      expect(
+        classifySubmitResponse(
+          { action: 'fix_request', status: '429' },
+          LOCAL
+        )
+      ).to.include({ kind: 'rejected', status: 0 });
+      // A ParsedError always has a numeric status; with a
+      // string one the value is a bare body without an
+      // action, so it is unknown, not rejected.
+      expect(
+        classifySubmitResponse(
+          {
+            name: 'AxiosError',
+            status: '400',
+            data: { error_code: 'validation_failed' }
+          },
+          LOCAL
+        ).kind
+      ).to.equal('unknown');
+    });
+  });
+
   describe('rules 5 to 8: no action (legacy node or gateway)', function () {
     it('is unknown for a 422 business_transaction_failed (rule 5, UC7)', function () {
       const body = {

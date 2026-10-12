@@ -98,12 +98,11 @@ type ParsedErrorShape = {
 function isParsedErrorShape(
   value: unknown
 ): value is ParsedErrorShape {
+  // A string own `name` already proves an object.
   return (
     typeof ownMember(value, 'name') === 'string' &&
     typeof ownMember(value, 'status') === 'number' &&
-    typeof value === 'object' &&
-    value !== null &&
-    hasOwn(value, 'data')
+    hasOwn(value as object, 'data')
   );
 }
 
