@@ -114,3 +114,100 @@ export function readProblem(
   }
   return fields;
 }
+
+// The node's own members of a problem body, and the legacy
+// members it keeps for older clients. None of them is a
+// typed member of the problem type.
+const NON_TYPED_MEMBERS: ReadonlySet<string> = new Set([
+  'type',
+  'title',
+  'status',
+  'instance',
+  'action',
+  'error_code',
+  'message'
+]);
+
+/**
+ * The RFC 9457 problem details of a node error body. Decide
+ * on `type` and `action`; `title` is for humans and can
+ * change.
+ */
+export interface ApiProblem {
+  /** The problem type URI, or `about:blank`. Compare the whole string. */
+  readonly type: string;
+  readonly title?: string;
+  readonly status?: number;
+  /** The request ID, `urn:uuid:<id>`. Quote it to the node operator. */
+  readonly instance?: string;
+  /**
+   * Missing when the body has no action, or one this SDK does
+   * not know. On a submission, treat a missing action as
+   * `check_status`.
+   */
+  readonly action?: ClientAction;
+  /**
+   * The typed members of the type, as sent. A member can be
+   * missing from an older node. Numbers above 2^53 are not exact.
+   */
+  readonly members: Readonly<Record<string, unknown>>;
+  /** `tx_hash` as sent, when it is a string. */
+  readonly txHash?: string;
+  /** `retry_after_secs`, when it is a whole number, 0 or more. */
+  readonly retryAfterSecs?: number;
+}
+
+// Like the Rust SDK's `ApiProblem::from_body`: a body without
+// a string `type` (a legacy body) has no problem, and a member
+// of the wrong type is left out instead of failing the parse.
+export function parseProblem(
+  body: unknown
+): ApiProblem | undefined {
+  if (typeof body !== 'object' || body === null) {
+    return undefined;
+  }
+  const record = body as Record<string, unknown>;
+  const type = ownString(record, 'type');
+  if (type === undefined) return undefined;
+
+  // Object.fromEntries defines each key as an own member, so a
+  // `__proto__` member stays data.
+  const members = Object.freeze(
+    Object.fromEntries(
+      Object.keys(record)
+        .filter(key => !NON_TYPED_MEMBERS.has(key))
+        .map(key => [key, record[key]])
+    )
+  );
+  const title = ownString(record, 'title');
+  const status = ownMember(record, 'status');
+  const instance = ownString(record, 'instance');
+  const action = ownMember(record, 'action');
+  const txHash = ownString(record, 'tx_hash');
+  const retryAfterSecs = ownMember(
+    record,
+    'retry_after_secs'
+  );
+  return Object.freeze({
+    type,
+    ...(title !== undefined && { title }),
+    ...(isHttpStatus(status) && { status }),
+    ...(instance !== undefined && { instance }),
+    ...(isClientAction(action) && { action }),
+    members,
+    ...(txHash !== undefined && { txHash }),
+    ...(isSeconds(retryAfterSecs) && { retryAfterSecs })
+  });
+}
+
+function isHttpStatus(value: unknown): value is number {
+  return (
+    Number.isInteger(value) &&
+    (value as number) >= 100 &&
+    (value as number) <= 599
+  );
+}
+
+function isSeconds(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}

@@ -1,4 +1,6 @@
-import type { ClientAction } from './problem';
+import { parseProblem } from './problem';
+
+import type { ApiProblem, ClientAction } from './problem';
 import type { SettleObservation } from './settle';
 
 // Error codes specific to the /v2 domain-separated
@@ -125,6 +127,7 @@ export class TransactionSubmissionError extends
   readonly action?: ClientAction;
   // The problem `type` URI, when the body had one.
   readonly problemType?: string;
+  readonly problem?: ApiProblem;
 
   constructor(
     status: number,
@@ -145,6 +148,7 @@ export class TransactionSubmissionError extends
     this.data = data;
     this.action = problem.action;
     this.problemType = problem.problemType;
+    this.problem = parseProblem(data);
   }
 }
 
@@ -165,6 +169,7 @@ export class TransactionLockedError extends Error {
   readonly status?: number;
   /** Raw transport response body, when the client received it. */
   readonly data?: unknown;
+  readonly problem?: ApiProblem;
   /** Every request and answer of a settle run, oldest first. */
   readonly observations?: readonly SettleObservation[];
 
@@ -185,6 +190,7 @@ export class TransactionLockedError extends Error {
     this.status = diagnostic.status;
     this.data = diagnostic.data;
     this.problemType = diagnostic.problemType;
+    this.problem = parseProblem(diagnostic.data);
     this.observations = diagnostic.observations;
   }
 }
@@ -227,6 +233,7 @@ export class TransactionOutcomeUnknownError extends
   public readonly action?: unknown;
   /** The problem `type` URI, when the body had one. */
   public readonly problemType?: string;
+  public readonly problem?: ApiProblem;
   /** Every request and answer of a settle run, oldest first. */
   public readonly observations?: readonly SettleObservation[];
 
@@ -251,6 +258,7 @@ export class TransactionOutcomeUnknownError extends
     this.cause = diagnostic.cause;
     this.action = diagnostic.action;
     this.problemType = diagnostic.problemType;
+    this.problem = parseProblem(diagnostic.data);
     this.observations = diagnostic.observations;
   }
 }
