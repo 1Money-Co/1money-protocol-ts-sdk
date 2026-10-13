@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import {
   TransactionHashMismatchError,
+  TransactionLockedError,
   TransactionOutcomeUnknownError,
   TransactionSubmissionError
 } from '@/api/errors';
@@ -441,7 +442,7 @@ describe('integration polling helper', function () {
     ).to.throw(/malformed receipt/);
   });
 
-  it('maps only an explicit continuation refusal to blocked', function () {
+  it('maps a continuation refusal to blocked, and keeps the body of a held outcome', function () {
     expect(
       classifyNextValidSubmissionError(
         new TransactionSubmissionError(
@@ -460,12 +461,44 @@ describe('integration polling helper', function () {
         body: { message: 'refused' },
         local_hash: '0xlocal',
         message:
-          '[1Money SDK]: Transaction submission refused (HTTP 422): refused. The transaction was NOT submitted -- it is safe to retry once the cause is addressed.'
+          '[1Money SDK]: Transaction rejected before admission (HTTP 422): refused. This request did not lock the transaction or use its nonce. Fix the cause before you send again. Sign a new transaction for the same intent only if no other transaction for it is locked, executed, or in an unknown state.'
       }
     });
 
+    expect(
+      classifyNextValidSubmissionError(
+        new TransactionOutcomeUnknownError(
+          '0xlocal',
+          {
+            status: 422,
+            data: { error_code: 'business_transaction_failed' }
+          }
+        ),
+        9,
+        '0xlocal'
+      )
+    ).to.deep.equal({
+      nextValidTransaction: 'outcome_unknown',
+      raw: {
+        nonce: 9,
+        status: 422,
+        body: { error_code: 'business_transaction_failed' },
+        hash: '0xlocal',
+        local_hash: '0xlocal',
+        message: '[1Money SDK]: Transaction outcome unknown: the SDK cannot confirm whether the node admitted transaction 0xlocal. Find its state first: look up the hash and resend the same signed transaction (settle() does both). Do not sign a new transaction for the same intent, at any nonce, until you know its state.'
+      }
+    });
+    expect(
+      classifyNextValidSubmissionError(
+        new TransactionLockedError('0xlocal', {
+          status: 422
+        }),
+        9,
+        '0xlocal'
+      ).nextValidTransaction
+    ).to.equal('locked');
+
     const failures: unknown[] = [
-      new TransactionOutcomeUnknownError('0xlocal'),
       new TransactionHashMismatchError(
         '0xlocal',
         '0xserver'
@@ -501,7 +534,7 @@ describe('integration polling helper', function () {
         body: { message: 'rejected' },
         local_hash: '0xlocal',
         message:
-          '[1Money SDK]: Transaction submission refused (HTTP 422): rejected. The transaction was NOT submitted -- it is safe to retry once the cause is addressed.'
+          '[1Money SDK]: Transaction rejected before admission (HTTP 422): rejected. This request did not lock the transaction or use its nonce. Fix the cause before you send again. Sign a new transaction for the same intent only if no other transaction for it is locked, executed, or in an unknown state.'
       }
     });
 
@@ -524,9 +557,21 @@ describe('integration polling helper', function () {
         hash: '0xlocal',
         local_hash: '0xlocal',
         message:
-          '[1Money SDK]: Transaction outcome unknown -- the request completed but the response carried no transaction hash, so the SDK cannot confirm whether the node admitted transaction 0xlocal. This is neither a confirmed submission nor a confirmed non-submission. Do NOT blindly retry: query this hash against the node first -- retrying risks double-submitting on the same nonce.'
+          '[1Money SDK]: Transaction outcome unknown: the SDK cannot confirm whether the node admitted transaction 0xlocal. Find its state first: look up the hash and resend the same signed transaction (settle() does both). Do not sign a new transaction for the same intent, at any nonce, until you know its state.'
       }
     });
+  });
+
+  it('classifies a locked submission as locked', function () {
+    expect(
+      classifyBatchFailureSubmission(
+        new TransactionLockedError('0xlocal', {
+          status: 422,
+          data: { action: 'in_progress' }
+        }),
+        '0xlocal'
+      ).submission
+    ).to.equal('locked');
   });
 
   it('rethrows a submitted hash mismatch instead of normalizing it', function () {

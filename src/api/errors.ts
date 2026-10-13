@@ -1,3 +1,6 @@
+import type { ClientAction } from './problem';
+import type { SettleObservation } from './settle';
+
 // Error codes specific to the /v2 domain-separated
 // write surface.
 export const V2_ERROR_CODES = {
@@ -27,14 +30,19 @@ export type V2ErrorCode =
 
 // The three possible `submitted` values across the write-outcome
 // error hierarchy below (TransactionHashMismatchError /
-// TransactionSubmissionError / TransactionOutcomeUnknownError).
+// TransactionLockedError / TransactionSubmissionError /
+// TransactionOutcomeUnknownError). `true` covers both
+// TransactionHashMismatchError and TransactionLockedError.
 // Exported so callers can name the union explicitly instead of
 // re-deriving it. `true` and `false` are unconditional and safe to
 // branch on with strict equality; `'unknown'` is deliberately a
 // truthy, non-boolean value -- see TransactionOutcomeUnknownError.
-// Never treat a falsy `submitted` as "safe to retry": only
-// `submitted === false` means that. Prefer `instanceof` over reading
-// `submitted` at all when you have the error classes in scope.
+// Never treat a falsy `submitted` as "not submitted": only
+// `submitted === false` means that, and only for that one request
+// (signing the intent again is safe only when no other transaction
+// for it is locked, executed, or unknown). Prefer `instanceof` over
+// reading `submitted` at all when you have the error classes in
+// scope.
 export type TransactionSubmittedState =
   | true
   | false
@@ -70,9 +78,9 @@ export class TransactionHashMismatchError extends
   }
 }
 
-// Exported so submit.ts can read the node's error_code out of a
+// Exported so classify.ts can read the node's error_code out of a
 // resolved-not-rejected ParsedError-shaped value when classifying a
-// refused write (see TransactionSubmissionError).
+// submit response.
 export function errorCodeOf(
   error: unknown
 ): string | undefined {
@@ -90,20 +98,16 @@ export function errorCodeOf(
     : undefined;
 }
 
-// The write was rejected by the node (or by the transport, e.g. a
-// caught rejection with the same ParsedError shape, or a gateway/WAF
-// 401 whose status core.ts's login branch discards -- see
-// src/api/submit.ts's isLoginRefusalBody) before it ever touched the
-// mempool. Only a 4xx status (other than 408 -- see
-// src/api/submit.ts's isRefusedResponse for why that one status
-// cannot be trusted) reaches this class; a 5xx is routed to
-// TransactionOutcomeUnknownError instead, since l1client's own 500
-// bucket mixes pre-admission pool rejections with failures that can
-// follow a successful admission and a client cannot tell them apart
-// from the status code alone. Unlike TransactionHashMismatchError,
-// `submitted` is unconditionally `false` here: it is always safe to
-// retry once the underlying cause (the HTTP status / error_code
-// below) is addressed.
+// The node rejected this request before admission:
+// the body's `action` proves no effect (fix_request,
+// retry_later, use_other_node), or, on a node without
+// the `action` member, the status is a 4xx that cannot
+// follow admission (see src/api/classify.ts). This
+// request did not lock the transaction or use its
+// nonce. `submitted` is `false` for this request only:
+// it says nothing about an earlier send of the same
+// transaction, or about another transaction for the same
+// intent.
 export class TransactionSubmissionError extends
   Error {
   readonly submitted = false;
@@ -117,30 +121,82 @@ export class TransactionSubmissionError extends
   // raw ParsedError with the same `.data` shape; this replaces that
   // shape, not narrows it.
   readonly data?: unknown;
+  // The node's `action`, when the body had one.
+  readonly action?: ClientAction;
+  // The problem `type` URI, when the body had one.
+  readonly problemType?: string;
 
   constructor(
     status: number,
     data: unknown,
-    nodeMessage: string
+    nodeMessage: string,
+    problem: {
+      action?: ClientAction;
+      problemType?: string;
+    } = {}
   ) {
     const errorCode = errorCodeOf({ data });
     super(
-      `[1Money SDK]: Transaction submission refused (HTTP ${status}${errorCode ? `, ${errorCode}` : ''}): ${nodeMessage}. The transaction was NOT submitted -- it is safe to retry once the cause is addressed.`
+      `[1Money SDK]: Transaction rejected before admission (HTTP ${status}${errorCode ? `, ${errorCode}` : ''}): ${nodeMessage}. This request did not lock the transaction or use its nonce. Fix the cause before you send again. Sign a new transaction for the same intent only if no other transaction for it is locked, executed, or in an unknown state.`
     );
     this.name = 'TransactionSubmissionError';
     this.status = status;
     this.errorCode = errorCode;
     this.data = data;
+    this.action = problem.action;
+    this.problemType = problem.problemType;
   }
 }
 
-// The HTTP round-trip did not come back with a string `hash` -- e.g.
-// a client-side timeout, a network error, a 5xx (including a 408:
-// see src/api/submit.ts's isRefusedResponse for why even that
-// "client error" status cannot be trusted as pre-admission), or a
-// 2xx body missing the field entirely. This is genuinely ambiguous:
-// the node may or may not have admitted the transaction, so unlike
-// TransactionSubmissionError this must NOT claim "safe to retry".
+// The node holds this exact transaction: it is admitted
+// and locked (it holds the sender's nonce), but not
+// executed yet. The node answers `action: in_progress`
+// to a resend that comes before its retry gate allows
+// one. The node does not broadcast a locked transaction
+// again by itself: resend the same signed bytes until
+// the transaction executes. Never sign a new transaction
+// for the same intent while it is locked.
+export class TransactionLockedError extends Error {
+  readonly submitted = true;
+  readonly action = 'in_progress' as const;
+  readonly transactionHash: string;
+  readonly problemType?: string;
+  /** Raw transport metadata, when the client received it. */
+  readonly status?: number;
+  /** Raw transport response body, when the client received it. */
+  readonly data?: unknown;
+  /** Every request and answer of a settle run, oldest first. */
+  readonly observations?: readonly SettleObservation[];
+
+  constructor(
+    transactionHash: string,
+    diagnostic: {
+      status?: number;
+      data?: unknown;
+      problemType?: string;
+      observations?: readonly SettleObservation[];
+    } = {}
+  ) {
+    super(
+      `[1Money SDK]: The node holds transaction ${transactionHash}: it is admitted and locked, but not executed yet. Resend the same signed transaction until it executes (settle() does this). Do not sign a new transaction for the same intent, at any nonce, while it is locked.`
+    );
+    this.name = 'TransactionLockedError';
+    this.transactionHash = transactionHash;
+    this.status = diagnostic.status;
+    this.data = diagnostic.data;
+    this.problemType = diagnostic.problemType;
+    this.observations = diagnostic.observations;
+  }
+}
+
+// The response does not tell whether the node admitted
+// the transaction: `action: check_status` or an action
+// the SDK does not know; on a node without `action`, a
+// 422 `business_transaction_failed` or a 408; a 5xx, a
+// timeout, a network error, or a 2xx body without a
+// hash. The transaction may be rejected, locked, or
+// already executed, so unlike TransactionSubmissionError
+// this must NOT claim "safe to retry".
 //
 // `submitted` is the literal string 'unknown', not `undefined`/absent.
 // An earlier version of this error had no `submitted` field at all, on
@@ -164,6 +220,15 @@ export class TransactionOutcomeUnknownError extends
   public readonly data?: unknown;
   /** Original parsed transport result, when available. */
   public readonly cause?: unknown;
+  /**
+   * The body's `action` value as sent, when it had one. It
+   * can be a value this SDK does not know.
+   */
+  public readonly action?: unknown;
+  /** The problem `type` URI, when the body had one. */
+  public readonly problemType?: string;
+  /** Every request and answer of a settle run, oldest first. */
+  public readonly observations?: readonly SettleObservation[];
 
   constructor(
     transactionHash: string,
@@ -171,16 +236,22 @@ export class TransactionOutcomeUnknownError extends
       status?: number;
       data?: unknown;
       cause?: unknown;
+      action?: unknown;
+      problemType?: string;
+      observations?: readonly SettleObservation[];
     } = {}
   ) {
     super(
-      `[1Money SDK]: Transaction outcome unknown -- the request completed but the response carried no transaction hash, so the SDK cannot confirm whether the node admitted transaction ${transactionHash}. This is neither a confirmed submission nor a confirmed non-submission. Do NOT blindly retry: query this hash against the node first -- retrying risks double-submitting on the same nonce.`
+      `[1Money SDK]: Transaction outcome unknown: the SDK cannot confirm whether the node admitted transaction ${transactionHash}. Find its state first: look up the hash and resend the same signed transaction (settle() does both). Do not sign a new transaction for the same intent, at any nonce, until you know its state.`
     );
     this.name = 'TransactionOutcomeUnknownError';
     this.transactionHash = transactionHash;
     this.status = diagnostic.status;
     this.data = diagnostic.data;
     this.cause = diagnostic.cause;
+    this.action = diagnostic.action;
+    this.problemType = diagnostic.problemType;
+    this.observations = diagnostic.observations;
   }
 }
 

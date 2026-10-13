@@ -1,4 +1,5 @@
 import { API_VERSION } from '@/api/constants';
+import { settle, submitAndSettle } from '@/api/settle';
 import { submitAuthorized } from '@/api/submit';
 import { get, post } from '@/client';
 
@@ -86,6 +87,20 @@ export const transactionsApi = {
       authorized,
       'batchPayment'
     ),
+
+  /**
+   * Send a signed v2 transaction that was never sent, then
+   * resend the same signed bytes on the node's schedule until
+   * its receipt appears. Never signs. Read `receipt.success`.
+   */
+  submitAndSettle,
+
+  /**
+   * Resume after an earlier send of the same signed v2
+   * transaction: find its state and resend the same signed
+   * bytes until its receipt appears. Never signs.
+   */
+  settle,
 
   /**
    * Legacy v1 writes. Explicit opt-in for the migration window;

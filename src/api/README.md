@@ -43,6 +43,28 @@ apiClient.checkpoints.getNumber()
   });
 ```
 
+## v2 write outcomes
+
+Every method that takes an `AuthorizedTxV2` resolves with `{ hash }` when the
+node admits the transaction, and otherwise throws one of these errors
+(`src/api/errors.ts`, classified in `src/api/classify.ts`):
+
+| Thrown | `submitted` | What to do |
+| --- | --- | --- |
+| `TransactionSubmissionError` | `false` | The node rejected the request before admission. Fix the cause (`err.action`, `err.status`, `err.errorCode`), then send again. |
+| `TransactionLockedError` | `true` | The node holds this exact transaction. Resend the same `authorized` until its receipt appears. |
+| `TransactionOutcomeUnknownError` | `'unknown'` | The SDK cannot tell. Look up `err.transactionHash` and resend the same `authorized` until you know the state. |
+| `TransactionHashMismatchError` | `true` | The node admitted the transaction, but returned a different hash. Do not send again. |
+
+Never sign a new transaction for the same intent, at any nonce, after a locked or
+unknown outcome: the payment can execute twice. `transactions.settle(authorized)`
+resends the same signed bytes until the receipt appears, and
+`transactions.submitAndSettle(authorized)` sends and settles in one call (see
+`transactions/README.md`). The SDK decides by the `action`
+member of the node's error body; on a node without it, a `422`
+`business_transaction_failed` and a `408` are unknown. See
+`skills/1money-protocol-sdk/references/client-and-errors.md` for the full rules.
+
 ## Available Endpoints
 
 ### Accounts

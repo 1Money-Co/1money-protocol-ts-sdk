@@ -18,6 +18,12 @@ import {
   PauseAction
 } from '@/api/tokens/types';
 
+import {
+  TransactionLockedError,
+  TransactionOutcomeUnknownError,
+  TransactionSubmissionError
+} from '@/api/errors';
+
 import { getIntegrationContext } from './context';
 import {
   classifyBatchFailureSubmission,
@@ -97,6 +103,7 @@ export interface BatchFailureObservation {
   submission:
     | 'hash_returned'
     | 'refused'
+    | 'locked'
     | 'outcome_unknown';
   receipt: 'not_found' | 'failure_receipt';
   finalized: 'not_found' | 'failure_receipt';
@@ -1874,13 +1881,29 @@ describe('native v2 lifecycle integration', function () {
 
       // Refused at submit: the node answers 422
       // business_transaction_failed rather than accepting
-      // the batch and failing it later.
+      // the batch and failing it later. A node with the
+      // `action` member states that the refusal had no
+      // effect. A node without it gives only that code,
+      // which also covers answers that follow admission,
+      // so the SDK reports the outcome as unknown; the
+      // observation window below then proves that nothing
+      // landed.
+      const body = rawSubmission.body;
+      const bodyHasAction =
+        typeof body === 'object' &&
+        body !== null &&
+        Object.prototype.hasOwnProperty.call(
+          body,
+          'action'
+        );
       expect(
         submission,
         `batch submission raw response: ${JSON.stringify(
           rawSubmission
         )}`
-      ).to.equal('refused');
+      ).to.equal(
+        bodyHasAction ? 'refused' : 'outcome_unknown'
+      );
 
       const [receiptResult, finalizedResult] =
         await Promise.all([
@@ -2429,5 +2452,173 @@ describe('native v2 lifecycle integration', function () {
       STATE_POLL
     );
     expect(transaction.memo).to.deep.equal(memo);
+  });
+
+  // Issue #49: the node answers 422 to a resend of a
+  // transaction it already holds or executed. The SDK
+  // must never report that resend as "rejected before
+  // admission".
+  it('never reports a resend of the same signed payment as rejected', async function () {
+    const nonce = (
+      await context.client.accounts.getNonce(
+        context.accounts.user2.address
+      )
+    ).nonce;
+    const prepared = TransactionBuilder.payment({
+      chain_id: chainId,
+      nonce,
+      recipient: context.accounts.user3.address,
+      value: '1',
+      token: tokenAddress
+    });
+    const signature = await user2Signer.signDigest(
+      prepared.signingHash
+    );
+    const authorized = prepared.authorize(signature);
+    const transactionHash =
+      authorized.transactionHash.toLowerCase();
+
+    const first =
+      await context.client.transactions.payment(
+        authorized
+      );
+    expect(first.hash.toLowerCase()).to.equal(
+      transactionHash
+    );
+
+    // At once: before the node's retry gate allows a
+    // resend of this hash.
+    let resend: unknown;
+    try {
+      resend =
+        await context.client.transactions.payment(
+          authorized
+        );
+    } catch (error) {
+      resend = error;
+    }
+
+    expect(
+      resend,
+      `resend outcome: ${String(resend)}`
+    ).to.not.be.instanceOf(TransactionSubmissionError);
+    // Locked (a node with `action`, transaction still
+    // held), unknown (a node without `action`, or the
+    // transaction already executed), or a 2xx with the
+    // same hash.
+    if (
+      !(resend instanceof TransactionLockedError) &&
+      !(resend instanceof TransactionOutcomeUnknownError)
+    ) {
+      expect(
+        (resend as { hash?: unknown }).hash,
+        `resend outcome: ${String(resend)}`
+      ).to.be.a('string');
+      expect(
+        (resend as { hash: string }).hash.toLowerCase()
+      ).to.equal(transactionHash);
+    }
+
+    // settle finds the state and resolves once the
+    // receipt exists, without signing again.
+    const settled =
+      await context.client.transactions.settle(
+        authorized,
+        { deadlineMs: 120_000 }
+      );
+    expect(
+      settled.transactionHash.toLowerCase()
+    ).to.equal(transactionHash);
+    expect(settled.receipt.success).to.equal(true);
+  });
+
+  it('settles a new payment with submitAndSettle', async function () {
+    const nonce = (
+      await context.client.accounts.getNonce(
+        context.accounts.user2.address
+      )
+    ).nonce;
+    const prepared = TransactionBuilder.payment({
+      chain_id: chainId,
+      nonce,
+      recipient: context.accounts.user3.address,
+      value: '1',
+      token: tokenAddress
+    });
+    const signature = await user2Signer.signDigest(
+      prepared.signingHash
+    );
+    const authorized = prepared.authorize(signature);
+
+    const settled =
+      await context.client.transactions.submitAndSettle(
+        authorized,
+        { deadlineMs: 120_000 }
+      );
+
+    expect(
+      settled.receipt.transaction_hash.toLowerCase()
+    ).to.equal(authorized.transactionHash.toLowerCase());
+    expect(settled.receipt.success).to.equal(true);
+  });
+
+  it('ends settle soon when another payment used the nonce', async function () {
+    const nonce = (
+      await context.client.accounts.getNonce(
+        context.accounts.user2.address
+      )
+    ).nonce;
+    const sign = async (value: string) => {
+      const prepared = TransactionBuilder.payment({
+        chain_id: chainId,
+        nonce,
+        recipient: context.accounts.user3.address,
+        value,
+        token: tokenAddress
+      });
+      return prepared.authorize(
+        await user2Signer.signDigest(prepared.signingHash)
+      );
+    };
+    const unsent = await sign('1');
+    const used = await sign('2');
+    await context.client.transactions.submitAndSettle(used, {
+      deadlineMs: 120_000
+    });
+
+    const started = Date.now();
+    let error: unknown;
+    try {
+      await context.client.transactions.settle(unsent, {
+        nonceUsedGraceMs: 2_000,
+        deadlineMs: 20_000
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    const elapsed = Date.now() - started;
+
+    expect(error).to.be.instanceOf(
+      TransactionOutcomeUnknownError
+    );
+    const sends = (
+      error as TransactionOutcomeUnknownError
+    ).observations?.filter(o => o.request === 'send');
+    // One send either way: the next resend is due at 70 s.
+    expect(sends).to.have.length(1);
+    if (sends?.[0].problemType === undefined) {
+      // A node without problem types answers the legacy
+      // 422, keeps the schedule, and stops at the deadline.
+      expect(sends?.[0]).to.include({
+        result: 'unknown',
+        status: 422
+      });
+      expect(elapsed).to.be.at.least(20_000);
+    } else {
+      expect(sends[0].problemType).to.equal(
+        'https://developer.1moneynetwork.com/problem/nonce_too_low'
+      );
+      expect(elapsed).to.be.below(15_000);
+    }
   });
 });

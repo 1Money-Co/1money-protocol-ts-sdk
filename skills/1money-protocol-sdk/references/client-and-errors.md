@@ -23,7 +23,7 @@ transaction entered admission.
 
 `client.transactions.batchPayment(authorized)` is different: it is a native-v2
 submission and returns a plain promise. Its failures use the retry-safety
-semantics in [the three outcomes of a v2 write](#the-three-outcomes-of-a-v2-write).
+semantics in [the outcomes of a v2 write](#the-outcomes-of-a-v2-write).
 Do not treat an estimate error as a submission outcome, and do not retry an
 ambiguous submit just because a previous estimate succeeded.
 
@@ -107,77 +107,104 @@ interface ParsedError<T extends string = string> {
 
 Imported from the package **root only** — `isNativeV2NotActive`,
 `isLegacyWriteDisabled`, `TransactionHashMismatchError`,
-`TransactionSubmissionError`, `TransactionOutcomeUnknownError`, the
+`TransactionLockedError`, `TransactionSubmissionError`,
+`TransactionOutcomeUnknownError`, the
 `TransactionSubmittedState` type (`= true | false | 'unknown'`), and the raw
 `V2_ERROR_CODES` map are all root exports (`src/index.ts` re-exports
 `./api/errors`); none of them are re-exported from `/api`. These only apply to
 the native v2 / legacy v1 **write** surface — read endpoints don't raise them.
 
-### The three outcomes of a v2 write
+### The outcomes of a v2 write
 
-`submitAuthorized` (`src/api/submit.ts`, backing every `AuthorizedTxV2`-taking
-method) classifies the result of `await client.<module>.<method>(authorized)`
-into exactly three, deliberately distinct thrown-error shapes. **Branch on
-`instanceof`, not on `.message` and not on a truthiness check of
-`submitted`** — `submitted` is typed `TransactionSubmittedState = true |
-false | 'unknown'` (exported from the package root), and only the two
-strict-equality checks `submitted === true` / `submitted === false` carry
-meaning on their own:
+A signed transaction is in one of three states at the node: **rejected before
+admission** (no lock, nonce not used), **admitted and locked** (holds the
+sender's nonce, not executed yet), or **consumed** (executed). When no answer
+tells which, the state is **unknown**. Two rules follow:
 
-| Thrown | `submitted` | Safe to retry? | Meaning |
+- **Safety:** sign a new transaction for the same intent, at any nonce, only
+  when the node rejected the request before admission, and no other
+  transaction for the intent is locked, consumed, or unknown. Otherwise a
+  payment can execute twice.
+- **Liveness:** the node does not broadcast a locked transaction again by
+  itself. Resend the **same signed bytes** (the same `AuthorizedTxV2`) until
+  the transaction executes. A resend of the same bytes can never execute
+  twice: the node treats the same hash as the same transaction.
+
+`submitAuthorized` (`src/api/submit.ts`, backing every
+`AuthorizedTxV2`-taking method) classifies the answer
+(`src/api/classify.ts`). **Branch on `instanceof`, not on `.message` and not
+on a truthiness check of `submitted`** — `submitted` is typed
+`TransactionSubmittedState = true | false | 'unknown'` (exported from the
+package root), and only the two strict-equality checks `submitted === true` /
+`submitted === false` carry meaning on their own:
+
+| Thrown | `submitted` | Sign a new transaction for the intent? | Meaning |
 | --- | --- | --- | --- |
+| *(none — resolves with `{ hash }`)* | — | **No** | The node admitted the transaction (locked or executed). |
 | `TransactionHashMismatchError` | `true` | **No** | The node admitted the write, but the hash it returned doesn't match the one computed locally. |
-| `TransactionSubmissionError` | `false` | **Yes**, once the cause is fixed | The node (or a gateway/WAF in front of it) refused the write outright — it never reached the mempool. |
-| `TransactionOutcomeUnknownError` | `'unknown'` | **No — verify first** | Ambiguous: e.g. a client-side timeout, a network error, a `5xx` (or `408`), or a 2xx body with no `hash`. The node may or may not have admitted the transaction. |
+| `TransactionLockedError` | `true` | **No** — resend the same `authorized` until it executes | The node holds this exact transaction (`action: in_progress`). |
+| `TransactionSubmissionError` | `false` | **Only** after you fix the cause, and only if no other transaction for the intent is locked, executed, or unknown | The node rejected this request before admission. |
+| `TransactionOutcomeUnknownError` | `'unknown'` | **No** — find the state first: look up the hash, resend the same `authorized` | The answer does not tell whether the node admitted the transaction. |
 
-When the HTTP client did receive an ambiguous response, a
-`TransactionOutcomeUnknownError` also preserves its optional `status` and raw
-`data` body (and the parsed transport value as `cause`) for diagnostics. These
-fields explain the observation only; they do not make an unknown outcome safe
-to retry.
+`TransactionSubmissionError` and `TransactionOutcomeUnknownError` carry
+`action` (the body's `action`; on the unknown error it can be a value this SDK
+does not know) and `problemType` (the problem `type` URI), when the node sent
+them. `TransactionLockedError` and `TransactionOutcomeUnknownError` keep the
+raw `status` and `data` body; the unknown error also keeps the parsed
+transport value as `cause`. These fields explain the observation only; they do
+not make an unknown outcome safe to sign again.
 
-**The refused/unknown split is by HTTP status, and it is deliberately not a
-plain "4xx vs 5xx" rule:**
+**The node's `action` decides; the HTTP status decides only when the body has
+no `action`.** Nodes with the API error contract send an RFC 9457 problem body
+with an `action` member on every error. Older nodes and gateways do not. The
+first matching rule wins:
 
-- **`4xx` (except `408`) → `TransactionSubmissionError`, `submitted: false`.**
-  l1client's REST layer returns every other `4xx` — validation failures,
-  resource-not-found, the read-only-node refusal, `/v2` not yet active,
-  rate-limiting — synchronously, before the request ever reaches pool
-  submission (`om-api-types/src/rest/error.rs`'s `get_status_code`,
-  `om-api-types/src/native/error.rs`'s `http_status_code`). None of those
-  branches call into the pool first.
-- **`408` → `TransactionOutcomeUnknownError`, `submitted: 'unknown'`, the one
-  `4xx` exception.** l1client's REST layer wraps every handler — including
-  the pool-admission call — in a `tokio::time::timeout` (10s) that answers
-  `408` and discards whatever the handler was doing if the clock wins the
-  race (`om-api-rest/src/infra/mod.rs`'s `timeout` middleware). If admission
-  completes a hair too late, the transaction can be genuinely on-chain
-  despite the `408` — unlike every other `4xx`, which the handler itself
-  returns before ever calling the pool.
-- **`5xx` → `TransactionOutcomeUnknownError`, `submitted: 'unknown'`, never
-  `TransactionSubmissionError`.** l1client collapses a wide range of `ApiError`
-  variants into one opaque `500` (`SystemDatabaseError` / `SystemNetworkError`
-  / `SystemServiceError` / `SystemConfigError`), and that same `ApiError`
-  family includes `PoolError` — the pool's own admission rejection — mapped
-  to the identical `500`. A client cannot tell "the pool bounced this before
-  admission" from "something failed after the pool accepted it" by status
-  code alone, so a `5xx` can never be trusted as "not submitted". The same
-  reasoning applies a fortiori to a `502`/`503`/`504` from an ALB/nginx/
-  Cloudflare sitting in front of the node — that layer has even less
-  visibility into whether the node's pool admitted the write before the
-  gateway gave up.
-- **A `401` whose HTTP status never reaches `submitAuthorized` still counts
-  as refused.** The underlying HTTP client's login branch (`src/client/
+| # | Answer | Outcome |
+| --- | --- | --- |
+| 1 | A string `hash` in the body | resolves (hash checked) |
+| 2 | `action` is `fix_request`, `retry_later`, or `use_other_node` (any status, also a 5xx such as `node_syncing`) | `TransactionSubmissionError` |
+| 3 | `action` is `in_progress`, and `tx_hash` is absent or equals the local hash | `TransactionLockedError` |
+| 4 | Any other `action` value (`check_status`, an unknown value, `in_progress` with another hash or a `tx_hash` that is not a string) | `TransactionOutcomeUnknownError` |
+| 5 | No `action`; `422` with `error_code: business_transaction_failed` | `TransactionOutcomeUnknownError` |
+| 6 | No `action`; `408` | `TransactionOutcomeUnknownError` |
+| 7 | No `action`; any other `4xx` with a body, or the body-only `401` shape | `TransactionSubmissionError` |
+| 8 | Anything else: `5xx`, timeout, network error, no body, 2xx without `hash` | `TransactionOutcomeUnknownError` |
+
+Why the rules for a body without `action` are this narrow:
+
+- **`422 business_transaction_failed` is unknown (rule 5).** On a node
+  without `action`, this one code covers "already inflight" (the node holds
+  this exact transaction), the nonce-lock answers, and real refusals alike.
+  A resend of a held transaction gets it, so it can follow admission. Some
+  real refusals (for example a nonce gap) therefore read as unknown on such a
+  node; that errs on the safe side.
+- **`408` is unknown (rule 6).** l1client's REST layer wraps every handler —
+  including the pool-admission call — in a `tokio::time::timeout` (10s) that
+  answers `408` and discards whatever the handler was doing if the clock wins
+  the race. If admission completes a hair too late, the transaction can be on
+  the node despite the `408`.
+- **A `5xx` without `action` is unknown (rule 8).** l1client's `500` bucket
+  mixes rejections before admission with failures that can follow it, and a
+  `502`/`503`/`504` from a load balancer in front of the node can follow a
+  successful admission as easily as precede one. With `action`, a `5xx` that
+  proves no effect (`retry_later`) is a rejection (rule 2).
+- **Every other `4xx` without `action` is a rejection (rule 7).** The node
+  returns those synchronously, before it calls the pool. A firewall or load
+  balancer `4xx` (for example a WAF `429` or `403`) comes before the request
+  reaches the node.
+- **A `401` whose HTTP status never reaches `submitAuthorized` still counts as
+  a rejection.** The underlying HTTP client's login branch (`src/client/
   core.ts`, triggered by the shared `isLogin` rule in `src/client/index.ts`:
   `status === 401 || res.code == 401`) resolves with just the response body,
-  discarding the numeric status. `submitAuthorized` recognizes this shape —
-  a body with `code == 401` (the same loose equality `isLogin` itself uses)
-  — and still throws `TransactionSubmissionError` with `status: 401`, since
-  a WAF/gateway 401 is exactly as pre-admission as any other refusal.
+  discarding the numeric status. `submitAuthorized` recognizes this shape — a
+  body with `code == 401` (the same loose equality `isLogin` itself uses) —
+  and throws `TransactionSubmissionError` with `status: 401`.
+- **No rule reads message text.**
 
 ```typescript
 import {
   TransactionHashMismatchError,
+  TransactionLockedError,
   TransactionSubmissionError,
   TransactionOutcomeUnknownError,
 } from '@1money/protocol-ts-sdk';
@@ -186,24 +213,63 @@ try {
   const { hash } = await client.transactions.payment(authorized);
 } catch (err) {
   if (err instanceof TransactionHashMismatchError) {
-    // Already submitted. Do NOT retry -- look the transaction up by
-    // err.localHash / err.serverHash instead.
+    // Already submitted. Do NOT sign again -- look the transaction up
+    // by err.localHash / err.serverHash instead.
+  } else if (
+    err instanceof TransactionLockedError ||
+    err instanceof TransactionOutcomeUnknownError
+  ) {
+    // Locked or unknown. Resend the SAME `authorized` (never a new
+    // signature) until its receipt appears; settle() does this.
+    const { receipt } = await client.transactions.settle(authorized);
   } else if (err instanceof TransactionSubmissionError) {
-    // NOT submitted. err.status / err.errorCode identify why (see the five
-    // v2 error codes below, or a plain HTTP error) -- fix the cause, then
-    // retry is safe.
-  } else if (err instanceof TransactionOutcomeUnknownError) {
-    // Genuinely unknown. Query err.transactionHash against the node
-    // (client.transactions.getByHash) before deciding whether to retry --
-    // a blind retry risks double-submitting on the same nonce.
+    // Rejected before admission. err.action / err.status /
+    // err.errorCode identify why -- fix the cause, then send again.
   } else {
     throw err;
   }
 }
 ```
 
-> **A falsy `submitted` is never "safe to retry" — only `submitted === false`
-> is.** `TransactionOutcomeUnknownError.submitted` is the literal string
+### Settling a write: `submitAndSettle` and `settle`
+
+`transactions.submitAndSettle(authorized, options?)` sends a signed transaction
+that was never sent; `transactions.settle(authorized, options?)` resumes after an
+earlier send (for example after a `TransactionLockedError` or a
+`TransactionOutcomeUnknownError`). Both resend the **same signed bytes** on the
+node's retry schedule until `getReceiptByHash` returns a receipt for the hash,
+and resolve with `{ transactionHash, receipt }`. They never build or sign a
+transaction. Read `receipt.success`: a hold debit can execute and still fail.
+They copy `authorized` when they start, so a later change to that object does
+not change what they send. No send starts after the deadline.
+
+- Resends follow the node's retry gate: send k+1 goes out `resendIntervalMs ×
+  k` after send k (default 70 000 ms, so 70, 140, 210, 280 s apart). A resend
+  of the same bytes can never execute twice.
+- Receipt polls start at `pollIntervalMs` (1 000 ms) and double to
+  `maxPollIntervalMs` (10 000 ms). In the unknown state each poll also looks
+  up the transaction; a 200 there means locked.
+- A lookup answered `429` or `retry_later` changes nothing and waits
+  `throttleBackoffMs` (60 000 ms): a firewall in front of the node blocks an IP
+  address above about 120 reads per minute, and that block also stops the
+  caller's other reads.
+- A send answered with the problem type `nonce_too_low` means the nonce is
+  used. The helper stops resending, polls the receipt for `nonceUsedGraceMs`
+  (70 000 ms, cut at `deadlineMs`), and without a receipt throws the error for
+  the last known state. It never says "rejected": a missing receipt can be a
+  node that is behind. Do not sign the intent again until you know whether
+  this hash executed. A node that sends no problem `type` keeps the full
+  resend schedule.
+- Proof only gets stronger: locked never goes back to unknown. Only the first
+  send of `submitAndSettle` can end as `TransactionSubmissionError`.
+- At `deadlineMs` (900 000 ms) or on `signal` abort, it throws
+  `TransactionLockedError` or `TransactionOutcomeUnknownError` with
+  `observations` (at most 200, numbered by `seq`). Exception: when the signal
+  is already aborted, `submitAndSettle` throws a plain `Error` and sends
+  nothing.
+
+> **A falsy `submitted` never means "not submitted" — only `submitted ===
+> false` does, and only for that one request.** `TransactionOutcomeUnknownError.submitted` is the literal string
 > `'unknown'`, not `undefined`/absent and not `false`. An earlier version of
 > this error had no `submitted` field at all, on the theory that a caller
 > checking `err.submitted === false` (`TransactionSubmissionError`'s
@@ -217,7 +283,8 @@ try {
 > declines to treat it as a confirmed submission. **Never write `if
 > (!err.submitted)` or `if (err.submitted)` to decide whether to retry** —
 > use `instanceof`, or `submitted === true` / `submitted === false`
-> specifically.
+> specifically. Even `submitted === false` tells you about this request only;
+> see the safety rule in [the outcomes of a v2 write](#the-outcomes-of-a-v2-write).
 
 > **Why this needed fixing:** the underlying HTTP client
 > (`src/client/core.ts`) **resolves** its promise instead of rejecting it
@@ -229,7 +296,7 @@ try {
 > `TransactionHashMismatchError` — telling the caller "already submitted, do
 > not retry" for a transaction that never left the process. `submitAuthorized`
 > now classifies both a caught rejection and a resolved
-> `ParsedError`-shaped value the same way, so the three outcomes above hold
+> `ParsedError`-shaped value the same way, so the outcomes above hold
 > regardless of whether a global `onError`/`onTimeout` is configured.
 
 > **Why the refused/unknown split needed a second fix:** an earlier version
@@ -244,6 +311,14 @@ try {
 > produces (see the `401` bullet above), which previously fell through to
 > `TransactionOutcomeUnknownError` despite being just as pre-admission as any
 > other refusal.
+
+> **Why it needed a third fix:** the `4xx`-means-refused rule still read a
+> `422` "already inflight" answer as "NOT submitted, safe to retry". The node
+> sends that answer to a resend of a transaction it already holds, so a
+> caller that trusted the error signed a new transaction for the same intent,
+> and the payment could execute twice. The SDK now reads the node's `action`
+> member, and treats `422 business_transaction_failed` without `action` as
+> unknown.
 
 ### The five error codes
 

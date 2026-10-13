@@ -21,4 +21,8 @@ semgrep.sarif
 
 package-lock.json
 
+# Stryker mutation test output (npm run test:mutation)
+/.stryker-tmp/
+/reports/mutation/
+
 .env.integration
