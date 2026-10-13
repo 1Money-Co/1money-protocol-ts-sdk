@@ -277,6 +277,22 @@ function stateAfterSend(
   return outcome.kind === 'locked' ? 'locked' : state;
 }
 
+// The caller may change or reuse its object while the
+// engine waits, and every send must carry the same signed
+// bytes. The JSON round trip is the body the client sends.
+function privateCopy(
+  authorized: AuthorizedTxV2
+): AuthorizedTxV2 {
+  return {
+    operation: authorized.operation,
+    path: authorized.path,
+    request: JSON.parse(
+      JSON.stringify(authorized.request)
+    ) as AuthorizedTxV2['request'],
+    transactionHash: authorized.transactionHash
+  };
+}
+
 function stateError(
   state: HeldState,
   hash: string,
@@ -303,7 +319,8 @@ export async function runSettle(
 ): Promise<SettledTransaction> {
   // Checked before any request.
   const options = resolveOptions(settleOptions);
-  const hash = authorized.transactionHash;
+  const signed = privateCopy(authorized);
+  const hash = signed.transactionHash;
   const t0 = deps.now();
   const log = new ObservationLog(t0, deps.now);
   let state: HeldState = 'unknown';
@@ -325,7 +342,7 @@ export async function runSettle(
       ? t0
       : lastSend + options.resendIntervalMs * sends;
   const send = async (): Promise<SubmitOutcome> => {
-    const outcome = await deps.send(authorized);
+    const outcome = await deps.send(signed);
     sends += 1;
     lastSend = deps.now();
     log.addSend(outcome);
@@ -390,7 +407,14 @@ export async function runSettle(
       throttled = isThrottled(transaction);
     }
 
-    if (!aborted() && deps.now() >= nextSendAt()) {
+    // The lookup can end after endAt: no send may start
+    // after it.
+    const sendCheckedAt = deps.now();
+    if (
+      !aborted() &&
+      sendCheckedAt < endAt &&
+      sendCheckedAt >= nextSendAt()
+    ) {
       state = stateAfterSend(await send(), state, hash);
     }
 

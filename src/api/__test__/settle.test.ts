@@ -98,6 +98,9 @@ interface Script {
   send?: (index: number, t: number) => SubmitOutcome;
   receipt?: (t: number) => unknown;
   lookup?: (t: number) => unknown;
+  // Simulated request latency: the clock moves this much
+  // while a lookup is in flight.
+  lookupLatencyMs?: number;
 }
 
 // A fake clock: time moves only when the engine sleeps.
@@ -107,9 +110,17 @@ function fakeDeps(script: Script) {
   const receipts: number[] = [];
   const lookups: number[] = [];
   const waits: number[] = [];
+  const sentBodies: string[] = [];
   const deps: SettleDeps = {
-    send: async () => {
+    send: async authorized => {
       sends.push(t);
+      sentBodies.push(
+        JSON.stringify([
+          authorized.path,
+          authorized.request,
+          authorized.transactionHash
+        ])
+      );
       return (script.send ?? (() => LOCKED))(
         sends.length - 1,
         t
@@ -121,6 +132,7 @@ function fakeDeps(script: Script) {
     },
     lookup: async () => {
       lookups.push(t);
+      t += script.lookupLatencyMs ?? 0;
       return (script.lookup ?? (() => NOT_FOUND))(t);
     },
     now: () => t,
@@ -130,7 +142,7 @@ function fakeDeps(script: Script) {
       t += ms;
     }
   };
-  return { deps, sends, receipts, lookups, waits };
+  return { deps, sends, receipts, lookups, waits, sentBodies };
 }
 
 async function caught(
@@ -774,6 +786,102 @@ describe('runSettle', function () {
       expect(f.sends).to.deep.equal([
         0, 70_000, 210_000, 420_000, 700_000
       ]);
+    });
+  });
+
+  describe('the caller cannot change what is sent', function () {
+    it('resends the request it had at the start, after the caller changes the object', async function () {
+      const authorized: AuthorizedTxV2 = {
+        ...AUTHORIZED,
+        request: { ...AUTHORIZED.request }
+      };
+      const f = fakeDeps({
+        send: index => {
+          if (index === 0) {
+            Object.assign(authorized, {
+              path: '/v2/transactions/other',
+              request: { chain_id: 1212101, nonce: 8 },
+              transactionHash: OTHER
+            });
+          }
+          return LOCKED;
+        }
+      });
+      await caught(
+        runSettle(authorized, 'clean', {}, f.deps)
+      );
+
+      expect(f.sends).to.have.length(5);
+      expect(new Set(f.sentBodies)).to.have.lengthOf(1);
+      expect(f.sentBodies[0]).to.equal(
+        JSON.stringify([
+          AUTHORIZED.path,
+          AUTHORIZED.request,
+          AUTHORIZED.transactionHash
+        ])
+      );
+    });
+
+    it('resends the request it had at the start, after the caller changes a nested member', async function () {
+      const authorized: AuthorizedTxV2 = {
+        ...AUTHORIZED,
+        request: {
+          ...AUTHORIZED.request,
+          authorization: { r: '0x01', s: '0x02', v: 0 }
+        }
+      };
+      const f = fakeDeps({
+        send: index => {
+          if (index === 0) {
+            (
+              authorized.request.authorization as {
+                r: string;
+              }
+            ).r = '0x03';
+          }
+          return LOCKED;
+        }
+      });
+      await caught(
+        runSettle(authorized, 'clean', {}, f.deps)
+      );
+
+      expect(f.sends).to.have.length(5);
+      expect(new Set(f.sentBodies)).to.have.lengthOf(1);
+      expect(f.sentBodies[0]).to.include('"r":"0x01"');
+    });
+  });
+
+  describe('deadline and request latency', function () {
+    it('does not start a send after a slow lookup crosses the deadline', async function () {
+      const f = fakeDeps({ lookupLatencyMs: 20 });
+      const error = await caught(
+        runSettle(
+          AUTHORIZED,
+          'sent',
+          { deadlineMs: 10 },
+          f.deps
+        )
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(f.sends).to.deep.equal([]);
+    });
+
+    it('does not start a send when a lookup ends exactly at the deadline', async function () {
+      const f = fakeDeps({ lookupLatencyMs: 10 });
+      await caught(
+        runSettle(
+          AUTHORIZED,
+          'sent',
+          { deadlineMs: 10 },
+          f.deps
+        )
+      );
+
+      expect(f.sends).to.deep.equal([]);
     });
   });
 

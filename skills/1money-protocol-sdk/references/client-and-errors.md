@@ -240,6 +240,8 @@ earlier send (for example after a `TransactionLockedError` or a
 node's retry schedule until `getReceiptByHash` returns a receipt for the hash,
 and resolve with `{ transactionHash, receipt }`. They never build or sign a
 transaction. Read `receipt.success`: a hold debit can execute and still fail.
+They copy `authorized` when they start, so a later change to that object does
+not change what they send. No send starts after the deadline.
 
 - Resends follow the node's retry gate: send k+1 goes out `resendIntervalMs ×
   k` after send k (default 70 000 ms, so 70, 140, 210, 280 s apart). A resend
