@@ -211,9 +211,13 @@ class ObservationLog {
         this.add('send', 'accepted');
         return;
       case 'locked':
+        // A released node's text proves locked without
+        // an `action` member: log none.
         this.add('send', 'locked', {
           status: outcome.status,
-          action: 'in_progress',
+          action: outcome.legacyText
+            ? undefined
+            : 'in_progress',
           problemType: outcome.problemType
         });
         return;

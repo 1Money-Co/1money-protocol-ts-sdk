@@ -64,6 +64,7 @@ const LEGACY_NONCE_TOO_LOW: SubmitOutcome = {
 };
 const REJECTED: SubmitOutcome = {
   kind: 'rejected',
+  refusal: 'request',
   status: 400,
   data: { error_code: 'validation_invalid_signature' },
   nodeMessage: 'bad signature',

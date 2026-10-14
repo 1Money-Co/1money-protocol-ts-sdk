@@ -104,7 +104,9 @@ export function errorCodeOf(
 // the body's `action` proves no effect (fix_request,
 // retry_later, use_other_node), or, on a node without
 // the `action` member, the status is a 4xx that cannot
-// follow admission (see src/api/classify.ts). This
+// follow admission, or the message is a released node's
+// refusal of the signed bytes (see src/api/classify.ts).
+// This
 // request did not lock the transaction or use its
 // nonce. `submitted` is `false` for this request only:
 // it says nothing about an earlier send of the same
@@ -155,8 +157,9 @@ export class TransactionSubmissionError extends
 // The node holds this exact transaction: it is admitted
 // and locked (it holds the sender's nonce), but not
 // executed yet. The node answers `action: in_progress`
-// to a resend that comes before its retry gate allows
-// one. The node does not broadcast a locked transaction
+// (a released node: "already inflight; please retry
+// later") to a resend that comes before its retry gate
+// allows one. The node does not broadcast a locked transaction
 // again by itself: resend the same signed bytes until
 // the transaction executes. Never sign a new transaction
 // for the same intent while it is locked.
