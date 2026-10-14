@@ -134,13 +134,58 @@ Otherwise it throws one of these errors. Branch on `instanceof`:
 | `TransactionHashMismatchError` | `true` | The node admitted the transaction, but returned a different hash. Do not send again. |
 
 Never sign a new transaction for the same intent, at any nonce, after a locked or
-unknown outcome: the payment can execute twice. `apiClient.transactions.settle(authorized)`
+unknown outcome: the payment can execute twice. Resending the **same** signed
+transaction is always safe: it has the same hash, so at most one copy executes.
+`apiClient.transactions.settle(authorized)`
 resends the same signed bytes and resolves with the receipt; send a new write with
 `apiClient.transactions.submitAndSettle(authorized)` to do both in one call (see
 `src/api/transactions/README.md`). The SDK decides by the `action`
 member of the node's error body; on a node without it, a `422`
 `business_transaction_failed` and a `408` are unknown. See
 `skills/1money-protocol-sdk/references/client-and-errors.md` for the full rules.
+
+#### Problem details
+
+A node with the API error contract sends an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
+problem body on its API errors (not on `/api/health`, `/api/status` or `/metrics`).
+The SDK parses it into `err.problem` (type `ApiProblem`) on every `ParsedError` (the
+value that `.error()` gets and that a rejected promise throws), and on the `TransactionSubmissionError`, `TransactionLockedError` and
+`TransactionOutcomeUnknownError` of a single submit. `err.problem` is `undefined` when
+the body has no string `type`, for example on an older node; the write errors keep
+`err.action` and `err.problemType` for that case, and the errors that `settle` throws
+at the end have no body. An HTTP 401 is not a `ParsedError`: the default client's login
+rule passes the raw body to `.login()`, or resolves the promise with it. That body has
+`type` and `action` as plain members, but no `problem`.
+
+| Member | Meaning |
+| --- | --- |
+| `type` | The problem type URI, `https://developer.1moneynetwork.com/problem/<identifier>`, or `about:blank`. Compare the whole string. |
+| `action` | `fix_request`, `retry_later`, `in_progress`, `check_status` or `use_other_node`. `undefined` when the body has no action or one this SDK does not know: on a submission, treat that as `check_status`. |
+| `instance` | The request ID, `urn:uuid:<id>`. Quote it when you report a problem to a node operator. |
+| `title`, `status` | The type's short summary and the HTTP status. |
+| `members` | The typed members of the type, as sent (for example `tx_hash`, `nonce`, `path`). A member can be missing from an older node. `txHash` and `retryAfterSecs` read the two common ones. |
+
+Decide on `type` and `action`, not on `message` or `title`: their text can change.
+A 404 is not always "absent": a path that the node does not serve gives
+`route_not_found`.
+
+```typescript
+import type { ParsedError } from '@1money/protocol-ts-sdk';
+
+const TRANSACTION_NOT_FOUND =
+  'https://developer.1moneynetwork.com/problem/transaction_not_found';
+
+try {
+  await apiClient.transactions.getByHash(hash);
+} catch (err) {
+  const { problem } = err as ParsedError;
+  if (problem?.type === TRANSACTION_NOT_FOUND) {
+    // Not found yet. Look it up again later.
+  } else {
+    console.error(problem?.instance, err);
+  }
+}
+```
 
 For the chainable wrapper, always implement both handlers for proper error management:
 

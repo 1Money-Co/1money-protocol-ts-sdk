@@ -6,6 +6,9 @@ import {
   isLegacyWriteDisabled,
   isNativeV2NotActive,
   TransactionHashMismatchError,
+  TransactionLockedError,
+  TransactionOutcomeUnknownError,
+  TransactionSubmissionError,
   V2_ERROR_CODES
 } from '../errors';
 
@@ -112,4 +115,69 @@ describe('v2 errors', function () {
       }
     );
   }
+});
+
+describe('problem details on the write errors', function () {
+  const TYPE =
+    'https://developer.1moneynetwork.com/problem/insufficient_balance';
+  const INSTANCE =
+    'urn:uuid:0192f0c4-7d2e-7a51-9b0e-3c1d2e4f5a6b';
+  const body = {
+    type: TYPE,
+    title: 'Insufficient balance',
+    status: 422,
+    instance: INSTANCE,
+    action: 'fix_request',
+    tx_hash: LOCAL,
+    error_code: 'business_transaction_failed',
+    message: 'insufficient balance'
+  };
+
+  it('exposes the parsed problem of the body on each error', function () {
+    const errors = [
+      new TransactionSubmissionError(422, body, 'refused', {
+        action: 'fix_request',
+        problemType: TYPE
+      }),
+      new TransactionLockedError(LOCAL, {
+        status: 422,
+        data: body,
+        problemType: TYPE
+      }),
+      new TransactionOutcomeUnknownError(LOCAL, {
+        status: 422,
+        data: body,
+        action: 'fix_request',
+        problemType: TYPE
+      })
+    ];
+    for (const err of errors) {
+      expect(err.problem?.type).to.equal(TYPE);
+      expect(err.problem?.instance).to.equal(INSTANCE);
+      expect(err.problem?.action).to.equal('fix_request');
+      expect(err.problem?.txHash).to.equal(LOCAL);
+      expect(err.problem?.members).to.deep.equal({
+        tx_hash: LOCAL
+      });
+    }
+  });
+
+  it('has no problem when the body has none', function () {
+    const legacy = {
+      error_code: 'business_transaction_failed',
+      message: 'refused'
+    };
+    expect(
+      new TransactionSubmissionError(422, legacy, 'refused')
+        .problem
+    ).to.equal(undefined);
+    expect(
+      new TransactionLockedError(LOCAL).problem
+    ).to.equal(undefined);
+    expect(
+      new TransactionOutcomeUnknownError(LOCAL, {
+        status: 500
+      }).problem
+    ).to.equal(undefined);
+  });
 });

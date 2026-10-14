@@ -94,8 +94,22 @@ interface ParsedError<T extends string = string> {
   stack: string;
   status: number;   // HTTP status, or 500 if none
   data?: any;       // server error body when present
+  problem?: ApiProblem; // parsed problem details of `data`, when present
 }
 ```
+
+`ApiProblem` (a type export of the root and of `/client`, `src/api/problem.ts`) is the node's RFC 9457
+problem body: `type` (the type URI; compare the whole string), `action` (one of
+the five client actions, `undefined` when missing or unknown), `instance` (the
+request ID, `urn:uuid:<id>`), `title`, `status`, and `members` (the typed
+members of the type, as sent; nested values are shared with `data`), with the
+accessors `txHash` (`tx_hash` as sent) and `retryAfterSecs`. `problem` is absent when the body has no string `type`
+(an older node, or an empty or text body). With the default login rule
+(`isLogin`, `src/client/index.ts`), an HTTP 401 never becomes a `ParsedError`:
+the client passes the raw body to `.login()`, or resolves the promise with it, so it has no
+`problem`; read `type` and `action` from that body. Decide on `problem.type` and
+`problem.action`, never on `message` or `title`. A 404 with type
+`route_not_found` is a wrong path, not a missing record.
 
 > **Timeout discriminator caveat.** A timeout is typed `ParsedError<'timeout'>`,
 > but that `'timeout'` is only the *type-level* tag — at runtime the object is a
@@ -149,8 +163,13 @@ package root), and only the two strict-equality checks `submitted === true` /
 `TransactionSubmissionError` and `TransactionOutcomeUnknownError` carry
 `action` (the body's `action`; on the unknown error it can be a value this SDK
 does not know) and `problemType` (the problem `type` URI), when the node sent
-them. `TransactionLockedError` and `TransactionOutcomeUnknownError` keep the
-raw `status` and `data` body; the unknown error also keeps the parsed
+them. When one submit throws them, they also carry `problem`, the parsed
+`ApiProblem` of the body (see [ParsedError shape](#parsederror-shape)). The
+errors that `settle` and `submitAndSettle` throw at the end have no body, so
+`problem` is absent there; read `observations`. `action` and `problemType` stay
+the fields to classify on: `problem` needs a string `type`, which an older node
+does not send. `TransactionLockedError` and
+`TransactionOutcomeUnknownError` keep the raw `status` and `data` body; the unknown error also keeps the parsed
 transport value as `cause`. These fields explain the observation only; they do
 not make an unknown outcome safe to sign again.
 

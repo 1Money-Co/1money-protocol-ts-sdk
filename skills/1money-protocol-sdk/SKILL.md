@@ -66,8 +66,8 @@ typed-data helpers, signer/types), the
 v2 write errors (`TransactionSubmissionError`, `TransactionLockedError`,
 `TransactionOutcomeUnknownError`, `TransactionHashMismatchError`), the settle
 helpers (`submitAndSettle`, `settle`, also on `client.transactions`) with their
-types (`SettleOptions`, `SettledTransaction`, `SettleObservation`), and
-`client`.
+types (`SettleOptions`, `SettledTransaction`, `SettleObservation`), the
+error-body types `ApiProblem` and `ClientAction`, and `client`.
 
 Enums (`AuthorityType`, `AuthorityAction`, `ManageListAction`, `PauseAction`)
 and request/response **types** live under the `/api` subpath, **not** the root.
@@ -129,7 +129,7 @@ try {
   const res = await client.checkpoints.getNumber();
   console.log(res.number);
 } catch (err) {
-  console.error(err); // ParsedError: { name, message, status, data, stack }
+  console.error(err); // ParsedError: { name, message, status, data, stack, problem? }
 }
 ```
 

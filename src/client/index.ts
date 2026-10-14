@@ -118,6 +118,7 @@ export function setInitConfig(config: InitConfig & { headers?: RawAxiosRequestHe
 }
 
 export type { InitConfig, Options, ParsedError, PromiseWrapper } from './core';
+export type { ApiProblem } from '@/api/problem';
 
 export const axiosStatic = client.axios;
 

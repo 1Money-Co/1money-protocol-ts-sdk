@@ -1,6 +1,8 @@
+import { parseProblem } from '@/api/problem';
 import { _typeof } from '@/utils';
 import axios from 'axios';
 
+import type { ApiProblem } from '@/api/problem';
 import type { AxiosError, AxiosRequestConfig, AxiosRequestHeaders, AxiosResponse, AxiosResponseHeaders, AxiosStatic, RawAxiosRequestHeaders, RawAxiosResponseHeaders } from 'axios';
 
 export type ParsedError<T extends string = string> = {
@@ -9,6 +11,8 @@ export type ParsedError<T extends string = string> = {
   stack: string;
   status: number;
   data?: any;
+  /** The problem details of `data`, when the node sent them. */
+  problem?: ApiProblem;
 };
 
 export type ResponseData<T = null> = {
@@ -417,6 +421,7 @@ export class Request {
     const stack: string = err?.stack ?? '';
     const status = err?.response?.status ?? 500;
     const data = err?.response?.data ?? undefined;
+    const problem = parseProblem(data);
 
     // Validate status code
     if (typeof status !== 'number' || status < 100 || status > 599) {
@@ -425,7 +430,8 @@ export class Request {
         message: 'Invalid HTTP status code',
         stack,
         status: 500,
-        data
+        data,
+        ...(problem && { problem })
       };
     }
 
@@ -434,7 +440,8 @@ export class Request {
       message,
       stack,
       status,
-      data
+      data,
+      ...(problem && { problem })
     };
   }
 
