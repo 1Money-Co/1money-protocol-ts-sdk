@@ -78,36 +78,50 @@ not change what they send. No send starts after the deadline.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `resendIntervalMs` | 70 000 | Send k+1 goes out `resendIntervalMs × k` after send k (the node's retry gate: 70, 140, 210, 280 s apart) |
-| `pollIntervalMs` | 1 000 | First receipt poll interval; it doubles each poll |
+| `pollIntervalMs` | 1 000 | First receipt poll interval; it doubles each poll, except right after a `404` read (see below) |
 | `maxPollIntervalMs` | 10 000 | Upper bound of the poll interval |
 | `deadlineMs` | 900 000 | Stop and throw the error for the last known state |
 | `throttleBackoffMs` | 60 000 | Wait after a lookup answered `429` or `retry_later` (a firewall allows about 120 reads per minute per IP address) |
-| `nonceUsedGraceMs` | 70 000 | After a send answered `nonce_too_low`, poll the receipt this long, then stop |
+| `nonceUsedGraceMs` | 70 000 | After a send answered `nonce_too_low`: the longest wait for the receipt when the receipt reads keep failing |
 | `signal` | — | An `AbortSignal`; abort throws the error for the last known state |
 
 Outcomes:
 
 - Resolves when the receipt for the hash exists.
-- `submitAndSettle` throws `TransactionSubmissionError` only when its first
-  send was rejected before admission, or answered `nonce_too_low` (it then
-  sends nothing more). `settle`
-  never throws `TransactionSubmissionError`: a rejected resend says nothing
-  about the earlier send.
+- **First send of `submitAndSettle`:** any `4xx` except `408` and
+  `in_progress` throws `TransactionSubmissionError` at once, with the node's
+  message. The bytes were never sent, so no node holds them. Never pass
+  `submitAndSettle` signed bytes that may have been sent; use `settle`.
+- **A refusal of the signed bytes** (bad signature, wrong chain id, bad memo,
+  and other checks of the bytes alone) throws `TransactionSubmissionError` on
+  any send of either helper, while no node is known to have admitted the
+  transaction: the same bytes fail on every node. Any other refusal of a
+  later send says nothing about the earlier send and ends nothing.
+- **States:** a `2xx` means *accepted*; the transaction is *locked* only when a
+  lookup finds it or a node says it holds it. While it is accepted or unknown,
+  each poll also looks it up.
+- **Probes:** while no node is known to hold it, a lookup that answers `404`
+  starts a resend at once (at most three: about 1, 3 and 7 s after the first
+  send). After the probes, three `404` lookups in a row end the run with
+  `TransactionOutcomeUnknownError` and `endReason: 'not_found_after_probes'`,
+  about 10 s after the first send. A failed or rate-limited read never counts.
+  Right after a `404` the next poll comes after `pollIntervalMs`, unless a read
+  was rate-limited earlier in the run.
+- **`nonce_too_low`** (the problem type, or the fixed text of a released node)
+  means the nonce is used. No send can help, so the helper stops sending and
+  reads only the receipt: three receipt `404`s in a row end the run with
+  `endReason: 'nonce_used'` (about 3 s); `nonceUsedGraceMs` is the limit when
+  the reads keep failing. It never reports "rejected" here.
+- **Resends** follow the node's retry gate (`resendIntervalMs × k`) in every
+  state; the count starts again once the transaction is locked.
 - If the signal is already aborted, `submitAndSettle` throws a plain `Error`
   and sends nothing.
-- A send answered `nonce_too_low` means the nonce is used: the transaction
-  executed, or another transaction used the nonce. On the first send of
-  `submitAndSettle` the transaction was never sent, so another transaction
-  used the nonce: it throws `TransactionSubmissionError` at once. Never pass
-  `submitAndSettle` signed bytes that may have been sent; use `settle`.
-- After any other send, no send can help, so the helper stops resending and
-  polls the receipt for `nonceUsedGraceMs`. Without a receipt it then throws
-  the error for the last known state. It never reports "rejected": the receipt
-  read can reach a node that has not executed the transaction yet. Nodes that
-  send no problem `type` keep the full schedule.
-- At the deadline or on abort: `TransactionLockedError` (the node holds the
-  transaction) or `TransactionOutcomeUnknownError`, each with `observations`,
-  the requests and answers of the run (at most 200, numbered by `seq`).
+- **Other ends:** `TransactionLockedError` (a node holds the transaction) or
+  `TransactionOutcomeUnknownError`, each with `endReason` (`deadline`,
+  `nonce_used`, `not_found_after_probes`, `aborted`) and `observations`, the
+  requests and answers of the run (at most 200, numbered by `seq`; a send
+  entry carries the node's `message`). Neither error makes it safe to sign
+  the intent again.
 - `TransactionHashMismatchError` if the node returns another hash.
 
 ## Batch Payment lifecycle

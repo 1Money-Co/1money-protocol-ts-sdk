@@ -660,15 +660,15 @@ const defaultDeps: SettleDeps = {
 
 /**
  * Send a signed transaction that was never sent, and
- * resend the same signed bytes on the node's schedule until
- * its receipt appears. Throws TransactionSubmissionError
- * only when this first send is rejected before admission,
- * or answered nonce_too_low (another transaction used the
- * nonce); at the deadline or on abort, throws
- * TransactionLockedError or TransactionOutcomeUnknownError
- * with every observation. Signed bytes that may have been
- * sent before go to `settle`: this function trusts that
- * they were not.
+ * resend the same signed bytes until its receipt appears.
+ * Throws TransactionSubmissionError when the first send
+ * gets any 4xx but 408 and in_progress, or when, before any
+ * node is known to have admitted it, a send is refused for
+ * its signed bytes. Otherwise ends with
+ * TransactionLockedError or TransactionOutcomeUnknownError,
+ * with `endReason` and every observation. Signed bytes that
+ * may have been sent before go to `settle`: this function
+ * trusts that they were not.
  */
 export function submitAndSettle(
   authorized: AuthorizedTxV2,
@@ -684,10 +684,12 @@ export function submitAndSettle(
 
 /**
  * Find the state of a signed transaction that was sent
- * before, and resend the same signed bytes on the node's
- * schedule until its receipt appears. Never throws
- * TransactionSubmissionError: a rejected resend says
- * nothing about the earlier send.
+ * before, and resend the same signed bytes until its
+ * receipt appears. Throws TransactionSubmissionError only
+ * when, before any node is known to have admitted it, a
+ * send is refused for its signed bytes: any other refusal
+ * says nothing about the earlier send. Otherwise ends like
+ * `submitAndSettle`.
  */
 export function settle(
   authorized: AuthorizedTxV2,
