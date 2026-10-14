@@ -2562,6 +2562,44 @@ describe('native v2 lifecycle integration', function () {
     expect(settled.receipt.success).to.equal(true);
   });
 
+  // UC17: a refused first send ends at once, with the node's
+  // reason, on a node with problem types and on a released
+  // node (legacy 422) alike.
+  it('rejects a payment the node refuses on the first send of submitAndSettle', async function () {
+    const nonce = (
+      await context.client.accounts.getNonce(
+        context.accounts.user2.address
+      )
+    ).nonce;
+    const prepared = TransactionBuilder.payment({
+      chain_id: chainId,
+      nonce,
+      recipient: context.accounts.user3.address,
+      // Far more than any test account holds.
+      value: '1000000000000000000000000000000',
+      token: tokenAddress
+    });
+    const authorized = prepared.authorize(
+      await user2Signer.signDigest(prepared.signingHash)
+    );
+
+    const started = Date.now();
+    let error: unknown;
+    try {
+      await context.client.transactions.submitAndSettle(
+        authorized,
+        { deadlineMs: 60_000 }
+      );
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).to.be.instanceOf(TransactionSubmissionError);
+    expect(Date.now() - started).to.be.below(10_000);
+    const message = (error as Error).message.toLowerCase();
+    expect(message).to.include('balance');
+  });
+
   it('ends settle soon when another payment used the nonce', async function () {
     const nonce = (
       await context.client.accounts.getNonce(
@@ -2601,24 +2639,24 @@ describe('native v2 lifecycle integration', function () {
     expect(error).to.be.instanceOf(
       TransactionOutcomeUnknownError
     );
+    expect(error).to.have.property('endReason', 'nonce_used');
     const sends = (
       error as TransactionOutcomeUnknownError
     ).observations?.filter(o => o.request === 'send');
-    // One send either way: the next resend is due at 70 s.
+    // No send after the nonce answer.
     expect(sends).to.have.length(1);
     if (sends?.[0].problemType === undefined) {
-      // A node without problem types answers the legacy
-      // 422, keeps the schedule, and stops at the deadline.
+      // A released node answers with its legacy nonce text.
       expect(sends?.[0]).to.include({
         result: 'unknown',
         status: 422
       });
-      expect(elapsed).to.be.at.least(20_000);
     } else {
       expect(sends[0].problemType).to.equal(
         'https://developer.1moneynetwork.com/problem/nonce_too_low'
       );
-      expect(elapsed).to.be.below(15_000);
     }
+    // Three receipt 404s, about 1 s apart.
+    expect(elapsed).to.be.below(15_000);
   });
 });

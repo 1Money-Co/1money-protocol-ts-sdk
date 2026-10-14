@@ -3,7 +3,7 @@ import 'mocha';
 
 import { LOCAL_API_URL } from '../constants';
 import { axiosStatic, setInitConfig } from '../../client';
-import { TransactionLockedError } from '../errors';
+import { TransactionOutcomeUnknownError } from '../errors';
 import { settle, submitAndSettle } from '../settle';
 
 import type { AuthorizedTxV2 } from '@/signing/v2';
@@ -158,9 +158,11 @@ describe('submitAndSettle and settle (real dependencies)', function () {
     } catch (error) {
       caught = error;
     }
+    // A 2xx alone is accepted, not locked (R2).
     expect(caught).to.be.instanceOf(
-      TransactionLockedError
+      TransactionOutcomeUnknownError
     );
+    expect(caught).to.have.property('endReason', 'aborted');
     expect(Date.now() - started).to.be.below(2_000);
   });
 });
