@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import { createServer } from 'http';
 import 'mocha';
 
+import { get } from '../';
 import Request from '../core';
 
 import type { Server } from 'http';
@@ -39,6 +40,17 @@ const REPLIES: Record<string, Reply> = {
       instance: INSTANCE,
       action: 'fix_request',
       method: 'GET'
+    })
+  },
+  '/v1/unauthorized': {
+    status: 401,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      type: `${TYPE_PREFIX}unauthorized`,
+      title: 'Unauthorized',
+      status: 401,
+      instance: INSTANCE,
+      action: 'fix_request'
     })
   },
   '/v1/legacy_empty_404': { status: 404, body: '' },
@@ -150,6 +162,18 @@ describe('ParsedError problem details', function () {
       expect(err.status).to.be.oneOf([404, 405]);
       expect(err).to.not.have.property('problem');
     }
+  });
+
+  // The default client's login rule resolves a 401 with the
+  // raw body instead of an error, so no ParsedError is made.
+  it('resolves a 401 with the raw body and no problem on the default client', async function () {
+    const resolved = await get(`${baseURL}/v1/unauthorized`, {
+      withCredentials: false
+    });
+    expect(resolved).to.deep.equal(
+      JSON.parse(REPLIES['/v1/unauthorized'].body)
+    );
+    expect(resolved).to.not.have.property('problem');
   });
 
   it('has no problem for a legacy body, and keeps its data', async function () {

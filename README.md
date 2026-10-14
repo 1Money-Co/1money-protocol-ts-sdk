@@ -148,12 +148,14 @@ member of the node's error body; on a node without it, a `422`
 
 A node with the API error contract sends an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
 problem body on its API errors (not on `/api/health`, `/api/status` or `/metrics`).
-The SDK parses it into `err.problem` (type `ApiProblem`) on every read error
-(`ParsedError`), and on the `TransactionSubmissionError`, `TransactionLockedError` and
+The SDK parses it into `err.problem` (type `ApiProblem`) on every `ParsedError` (the
+value that `.error()` gets and that a rejected promise throws), and on the `TransactionSubmissionError`, `TransactionLockedError` and
 `TransactionOutcomeUnknownError` of a single submit. `err.problem` is `undefined` when
 the body has no string `type`, for example on an older node; the write errors keep
 `err.action` and `err.problemType` for that case, and the errors that `settle` throws
-at the end have no body.
+at the end have no body. An HTTP 401 is not a `ParsedError`: the default client's login
+rule passes the raw body to `.login()`, or resolves the promise with it. That body has
+`type` and `action` as plain members, but no `problem`.
 
 | Member | Meaning |
 | --- | --- |

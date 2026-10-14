@@ -104,7 +104,10 @@ the five client actions, `undefined` when missing or unknown), `instance` (the
 request ID, `urn:uuid:<id>`), `title`, `status`, and `members` (the typed
 members of the type, as sent; nested values are shared with `data`), with the
 accessors `txHash` (`tx_hash` as sent) and `retryAfterSecs`. `problem` is absent when the body has no string `type`
-(an older node, or an empty or text body). Decide on `problem.type` and
+(an older node, or an empty or text body). With the default login rule
+(`isLogin`, `src/client/index.ts`), an HTTP 401 never becomes a `ParsedError`:
+the client passes the raw body to `.login()`, or resolves the promise with it, so it has no
+`problem`; read `type` and `action` from that body. Decide on `problem.type` and
 `problem.action`, never on `message` or `title`. A 404 with type
 `route_not_found` is a wrong path, not a missing record.
 

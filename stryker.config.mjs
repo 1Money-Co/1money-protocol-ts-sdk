@@ -1,6 +1,6 @@
 // Mutation tests of the submit outcome classifier, which
 // decides when the SDK may tell a caller "rejected before
-// admission". Run with `npm run test:mutation`; not part
+// admission", and of the problem parser beside it. Run with `npm run test:mutation`; not part
 // of `npm test`.
 export default {
   testRunner: 'mocha',
@@ -11,6 +11,7 @@ export default {
     config: '.mocharc.js',
     spec: [
       'src/api/__test__/problem.test.ts',
+      'src/api/__test__/apiProblem.test.ts',
       'src/api/__test__/classify.test.ts',
       'src/api/__test__/submit.test.ts'
     ]
