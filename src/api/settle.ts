@@ -378,6 +378,24 @@ export async function runSettle(
         }
       );
     }
+    // So does nonce_too_low: H was never sent, so another
+    // transaction used the nonce, and H can never execute.
+    if (
+      outcome.kind === 'unknown' &&
+      outcome.problemType === NONCE_USED_TYPE &&
+      outcome.status !== undefined
+    ) {
+      const message = ownMember(outcome.data, 'message');
+      throw new TransactionSubmissionError(
+        outcome.status,
+        outcome.data,
+        typeof message === 'string' ? message : 'nonce too low',
+        {
+          action: readProblem(outcome.data).action,
+          problemType: outcome.problemType
+        }
+      );
+    }
     state = stateAfterSend(outcome, state, hash);
   }
 
@@ -506,9 +524,13 @@ const defaultDeps: SettleDeps = {
  * Send a signed transaction that was never sent, and
  * resend the same signed bytes on the node's schedule until
  * its receipt appears. Throws TransactionSubmissionError
- * only when this first send is rejected before admission;
- * at the deadline or on abort, throws TransactionLockedError
- * or TransactionOutcomeUnknownError with every observation.
+ * only when this first send is rejected before admission,
+ * or answered nonce_too_low (another transaction used the
+ * nonce); at the deadline or on abort, throws
+ * TransactionLockedError or TransactionOutcomeUnknownError
+ * with every observation. Signed bytes that may have been
+ * sent before go to `settle`: this function trusts that
+ * they were not.
  */
 export function submitAndSettle(
   authorized: AuthorizedTxV2,

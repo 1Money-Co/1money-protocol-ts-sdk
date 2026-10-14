@@ -273,9 +273,12 @@ not change what they send. No send starts after the deadline.
   address above about 120 reads per minute, and that block also stops the
   caller's other reads.
 - A send answered with the problem type `nonce_too_low` means the nonce is
-  used. The helper stops resending, polls the receipt for `nonceUsedGraceMs`
-  (70 000 ms, cut at `deadlineMs`), and without a receipt throws the error for
-  the last known state. It never says "rejected": a missing receipt can be a
+  used. On the first send of `submitAndSettle` the bytes were never sent, so
+  another transaction used the nonce: it throws `TransactionSubmissionError`.
+  Never pass `submitAndSettle` bytes that may have been sent; use `settle`.
+  After any other send, the helper stops resending, polls the receipt for
+  `nonceUsedGraceMs` (70 000 ms, cut at `deadlineMs`), and without a receipt
+  throws the error for the last known state. It never says "rejected": a missing receipt can be a
   node that is behind. Do not sign the intent again until you know whether
   this hash executed. A node that sends no problem `type` keeps the full
   resend schedule.

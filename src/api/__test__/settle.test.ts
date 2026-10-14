@@ -468,19 +468,20 @@ describe('runSettle', function () {
       );
     });
 
-    it('treats a nonce_too_low first send of submitAndSettle the same way', async function () {
+    it('rejects a nonce_too_low first send of submitAndSettle: another transaction used the nonce', async function () {
       const f = fakeDeps({ send: () => NONCE_TOO_LOW });
       const error = await caught(
         runSettle(AUTHORIZED, 'clean', {}, f.deps)
       );
 
       expect(error).to.be.instanceOf(
-        TransactionOutcomeUnknownError
+        TransactionSubmissionError
       );
+      expect(error)
+        .to.have.property('problemType')
+        .that.equals(NONCE_TOO_LOW.problemType);
       expect(f.sends).to.deep.equal([0]);
-      expect(f.receipts[f.receipts.length - 1]).to.equal(
-        GRACE
-      );
+      expect(f.receipts).to.deep.equal([]);
     });
 
     it('cuts the grace window at the deadline', async function () {
@@ -624,6 +625,10 @@ describe('runSettle', function () {
                 f.deps
               )
             );
+            const rejectedFirst =
+              start === 'clean' &&
+              (script[0] === REJECTED ||
+                script[0] === NONCE_TOO_LOW);
             const used = f.sends.findIndex(
               (_, index) =>
                 script[
@@ -634,6 +639,14 @@ describe('runSettle', function () {
               (_, index) =>
                 script[Math.min(index, script.length - 1)]
             );
+            if (rejectedFirst) {
+              expect(error).to.be.instanceOf(
+                TransactionSubmissionError
+              );
+              expect(f.sends).to.have.length(1);
+              expect(f.receipts).to.deep.equal([]);
+              return;
+            }
             if (used >= 0) {
               expect(f.sends).to.have.length(used + 1);
               expect(
@@ -645,12 +658,7 @@ describe('runSettle', function () {
                 )
               );
             }
-            if (start === 'clean' && sent[0] === REJECTED) {
-              expect(error).to.be.instanceOf(
-                TransactionSubmissionError
-              );
-              expect(f.sends).to.have.length(1);
-            } else if (
+            if (
               sent.some(o => o === ACCEPTED || o === LOCKED)
             ) {
               expect(error).to.be.instanceOf(

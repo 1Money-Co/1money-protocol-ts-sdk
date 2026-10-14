@@ -89,17 +89,22 @@ Outcomes:
 
 - Resolves when the receipt for the hash exists.
 - `submitAndSettle` throws `TransactionSubmissionError` only when its first
-  send was rejected before admission (it then sends nothing more). `settle`
+  send was rejected before admission, or answered `nonce_too_low` (it then
+  sends nothing more). `settle`
   never throws `TransactionSubmissionError`: a rejected resend says nothing
   about the earlier send.
 - If the signal is already aborted, `submitAndSettle` throws a plain `Error`
   and sends nothing.
 - A send answered `nonce_too_low` means the nonce is used: the transaction
-  executed, or another transaction used the nonce. No send can help, so the
-  helper stops resending and polls the receipt for `nonceUsedGraceMs`. Without
-  a receipt it then throws the error for the last known state. It never
-  reports "rejected": the receipt read can reach a node that has not executed
-  the transaction yet. Nodes that send no problem `type` keep the full schedule.
+  executed, or another transaction used the nonce. On the first send of
+  `submitAndSettle` the transaction was never sent, so another transaction
+  used the nonce: it throws `TransactionSubmissionError` at once. Never pass
+  `submitAndSettle` signed bytes that may have been sent; use `settle`.
+- After any other send, no send can help, so the helper stops resending and
+  polls the receipt for `nonceUsedGraceMs`. Without a receipt it then throws
+  the error for the last known state. It never reports "rejected": the receipt
+  read can reach a node that has not executed the transaction yet. Nodes that
+  send no problem `type` keep the full schedule.
 - At the deadline or on abort: `TransactionLockedError` (the node holds the
   transaction) or `TransactionOutcomeUnknownError`, each with `observations`,
   the requests and answers of the run (at most 200, numbered by `seq`).
