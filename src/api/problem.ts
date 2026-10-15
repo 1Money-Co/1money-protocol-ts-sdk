@@ -81,8 +81,8 @@ function ownString(
 }
 
 // Reads the members the classifier decides on. Never
-// reads `message` or `title`: no decision depends on
-// message text.
+// reads `message` or `title`; only the legacy rules read
+// message text (src/api/legacyText.ts).
 export function readProblem(
   body: unknown
 ): ProblemFields {
@@ -113,6 +113,47 @@ export function readProblem(
     fields.txHash = txHash;
   }
   return fields;
+}
+
+const PROBLEM_TYPE_PREFIX =
+  'https://developer.1moneynetwork.com/problem/';
+
+// Problem types that refuse the signed bytes themselves:
+// each is built only from a check of the bytes and fixed
+// chain constants, and that check exists unchanged in every
+// release that accepts v2 submits (v0.8.3 on), so bytes an
+// older node admitted cannot get it. Left out: types that a
+// check of node state or governance settings also builds
+// (`transaction_too_large`, `batch_payment_invalid`), and
+// checks added after v0.8.3 (`zero_payment_value`,
+// `bridge_sender_mismatch`, `token_field_invalid`,
+// `provenance_not_admissible`).
+//
+// Typed with `undefined` so that `has` takes a missing type.
+export const BYTES_REFUSAL_TYPES: ReadonlySet<
+  string | undefined
+> = new Set(
+    [
+      'envelope_signature_invalid',
+      'signature_pairing_invalid',
+      'chain_id_mismatch',
+      'sender_not_allowed',
+      'memo_invalid'
+    ].map(id => `${PROBLEM_TYPE_PREFIX}${id}`)
+  );
+
+// The node's own text of an error body, for people to
+// read: `message`, else the problem `title`.
+export function bodyMessage(
+  body: unknown
+): string | undefined {
+  for (const key of ['message', 'title']) {
+    const text = ownMember(body, key);
+    if (typeof text === 'string' && text !== '') {
+      return text;
+    }
+  }
+  return undefined;
 }
 
 // The node's own members of a problem body, and the legacy

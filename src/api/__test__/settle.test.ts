@@ -64,6 +64,7 @@ const LEGACY_NONCE_TOO_LOW: SubmitOutcome = {
 };
 const REJECTED: SubmitOutcome = {
   kind: 'rejected',
+  refusal: 'request',
   status: 400,
   data: { error_code: 'validation_invalid_signature' },
   nodeMessage: 'bad signature',
@@ -170,7 +171,9 @@ describe('runSettle', function () {
       const f = fakeDeps({
         send: () => ACCEPTED,
         receipt: t =>
-          t >= 100_000 ? RECEIPT : NOT_FOUND
+          t >= 100_000 ? RECEIPT : NOT_FOUND,
+        // The node holds it: the lookup finds it.
+        lookup: () => ({ hash: HASH })
       });
       const settled = await runSettle(
         AUTHORIZED,
@@ -187,8 +190,9 @@ describe('runSettle', function () {
       // schedule re-broadcasts it.
       expect(f.sends).to.have.length(2);
       expect(f.sends[1]).to.be.at.least(70_000);
-      // Locked after a 2xx: no lookup is needed.
-      expect(f.lookups).to.deep.equal([]);
+      // Accepted after a 2xx; the first lookup finds it,
+      // so it is locked and needs no more lookups.
+      expect(f.lookups).to.deep.equal([0]);
     });
 
     it('throws TransactionSubmissionError only for a rejected first send (UC14)', async function () {
@@ -299,7 +303,7 @@ describe('runSettle', function () {
       });
     });
 
-    it('never throws TransactionSubmissionError, even when every resend is rejected', async function () {
+    it('never throws TransactionSubmissionError when every resend is refused for the request', async function () {
       const f = fakeDeps({ send: () => REJECTED });
       expect(
         await caught(
@@ -416,10 +420,10 @@ describe('runSettle', function () {
   describe('nonce used (nonce_too_low)', function () {
     const GRACE = SETTLE_DEFAULTS.nonceUsedGraceMs;
 
-    it('stops resending and resolves when the receipt appears in the grace window', async function () {
+    it('stops resending and resolves when the receipt appears', async function () {
       const f = fakeDeps({
         send: () => NONCE_TOO_LOW,
-        receipt: t => (t >= 30_000 ? RECEIPT : NOT_FOUND)
+        receipt: t => (t >= 2_000 ? RECEIPT : NOT_FOUND)
       });
       const settled = await runSettle(
         AUTHORIZED,
@@ -432,8 +436,11 @@ describe('runSettle', function () {
       expect(f.sends).to.deep.equal([0]);
     });
 
-    it('ends unknown when the grace window ends, after one last receipt poll', async function () {
-      const f = fakeDeps({ send: () => NONCE_TOO_LOW });
+    it('ends unknown at the grace cap when the receipt reads keep failing, after one last poll', async function () {
+      const f = fakeDeps({
+        send: () => NONCE_TOO_LOW,
+        receipt: () => readError(500, { message: 'x' })
+      });
       const error = await caught(
         runSettle(AUTHORIZED, 'sent', {}, f.deps)
       );
@@ -450,10 +457,11 @@ describe('runSettle', function () {
       ).to.equal(GRACE);
     });
 
-    it('ends locked when an earlier send was accepted', async function () {
+    it('ends locked when a lookup had found it', async function () {
       const f = fakeDeps({
         send: index =>
-          index === 0 ? ACCEPTED : NONCE_TOO_LOW
+          index === 0 ? ACCEPTED : NONCE_TOO_LOW,
+        lookup: () => ({ hash: HASH })
       });
       const error = await caught(
         runSettle(AUTHORIZED, 'clean', {}, f.deps)
@@ -463,36 +471,39 @@ describe('runSettle', function () {
         TransactionLockedError
       );
       expect(f.sends).to.deep.equal([0, 70_000]);
-      expect(f.receipts[f.receipts.length - 1]).to.equal(
-        70_000 + GRACE
-      );
+      // Three receipt 404s after the nonce answer.
+      expect(f.receipts.slice(-3)).to.deep.equal([
+        71_000, 72_000, 73_000
+      ]);
     });
 
-    it('treats a nonce_too_low first send of submitAndSettle the same way', async function () {
+    it('rejects a nonce_too_low first send of submitAndSettle: another transaction used the nonce', async function () {
       const f = fakeDeps({ send: () => NONCE_TOO_LOW });
       const error = await caught(
         runSettle(AUTHORIZED, 'clean', {}, f.deps)
       );
 
       expect(error).to.be.instanceOf(
-        TransactionOutcomeUnknownError
+        TransactionSubmissionError
       );
+      expect(error)
+        .to.have.property('problemType')
+        .that.equals(NONCE_TOO_LOW.problemType);
       expect(f.sends).to.deep.equal([0]);
-      expect(f.receipts[f.receipts.length - 1]).to.equal(
-        GRACE
-      );
+      expect(f.receipts).to.deep.equal([]);
     });
 
-    it('cuts the grace window at the deadline', async function () {
+    it('cuts the grace cap at the deadline', async function () {
       const f = fakeDeps({
         send: index =>
-          index === 0 ? SERVER_ERROR : NONCE_TOO_LOW
+          index === 0 ? SERVER_ERROR : NONCE_TOO_LOW,
+        receipt: () => readError(500, { message: 'x' })
       });
       const error = await caught(
         runSettle(
           AUTHORIZED,
           'sent',
-          { deadlineMs: 100_000 },
+          { deadlineMs: 1_500 },
           f.deps
         )
       );
@@ -500,28 +511,32 @@ describe('runSettle', function () {
       expect(error).to.be.instanceOf(
         TransactionOutcomeUnknownError
       );
-      expect(f.sends).to.deep.equal([0, 70_000]);
+      // settle sends at once; the probe at 1 s gets the
+      // nonce answer.
+      expect(f.sends).to.deep.equal([0, 1_000]);
+      expect(error).to.have.property('endReason', 'nonce_used');
       expect(f.receipts[f.receipts.length - 1]).to.equal(
-        100_000
+        1_500
       );
     });
 
-    it('keeps looking up the hash in the grace window, and ends locked when it is found', async function () {
+    it('reads only the receipt after the nonce answer, even when a lookup would find the hash', async function () {
+      // A node can still hold a stale H in its pool after
+      // another transaction used the nonce.
       const f = fakeDeps({
         send: () => NONCE_TOO_LOW,
-        lookup: t =>
-          t >= 10_000 ? { hash: HASH } : NOT_FOUND
+        lookup: t => (t > 0 ? { hash: HASH } : NOT_FOUND)
       });
       const error = await caught(
         runSettle(AUTHORIZED, 'sent', {}, f.deps)
       );
 
+      // A lookup after the nonce answer would have made it
+      // locked.
       expect(error).to.be.instanceOf(
-        TransactionLockedError
+        TransactionOutcomeUnknownError
       );
-      expect(f.lookups).to.deep.equal([
-        0, 1_000, 3_000, 7_000, 15_000
-      ]);
+      expect(f.lookups).to.deep.equal([0]);
       expect(f.sends).to.deep.equal([0]);
     });
 
@@ -540,7 +555,10 @@ describe('runSettle', function () {
     });
 
     it('uses nonceUsedGraceMs', async function () {
-      const f = fakeDeps({ send: () => NONCE_TOO_LOW });
+      const f = fakeDeps({
+        send: () => NONCE_TOO_LOW,
+        receipt: () => readError(500, { message: 'x' })
+      });
       await caught(
         runSettle(
           AUTHORIZED,
@@ -550,9 +568,10 @@ describe('runSettle', function () {
         )
       );
 
-      expect(f.receipts).to.deep.equal([
-        0, 1_000, 3_000, 5_000
-      ]);
+      expect(f.sends).to.deep.equal([0]);
+      expect(f.receipts[f.receipts.length - 1]).to.equal(
+        5_000
+      );
     });
 
     for (const [name, outcome] of [
@@ -579,7 +598,8 @@ describe('runSettle', function () {
     ] as const) {
       it(`keeps the resend schedule for ${name}`, async function () {
         const f = fakeDeps({
-          send: () => outcome as SubmitOutcome
+          send: () => outcome as SubmitOutcome,
+          lookup: () => ({ hash: HASH })
         });
         await caught(
           runSettle(AUTHORIZED, 'sent', {}, f.deps)
@@ -591,7 +611,7 @@ describe('runSettle', function () {
       });
     }
 
-    it('never sends after nonce_too_low, and never rejects after the first send (property)', async function () {
+    it('keeps the R2 rules for any answers and lookups (property)', async function () {
       const outcomes = [
         ACCEPTED,
         LOCKED,
@@ -600,6 +620,20 @@ describe('runSettle', function () {
         LEGACY_NONCE_TOO_LOW,
         REJECTED
       ];
+      const reads = [
+        NOT_FOUND,
+        { hash: HASH },
+        readError(500, { message: 'x' }),
+        readError(429, '<html>Too Many Requests</html>')
+      ];
+      // A first-send answer that refuses bytes never sent.
+      const refusesFirst = (o: SubmitOutcome) =>
+        o.kind === 'rejected' ||
+        (o.kind === 'unknown' &&
+          o.status !== undefined &&
+          o.status >= 400 &&
+          o.status < 500 &&
+          o.status !== 408);
       await fc.assert(
         fc.asyncProperty(
           fc.constantFrom<'clean' | 'sent'>(
@@ -610,56 +644,87 @@ describe('runSettle', function () {
             minLength: 1,
             maxLength: 6
           }),
-          fc.integer({ min: 1, max: 200_000 }),
-          async (start, script, grace) => {
+          fc.array(fc.constantFrom(...reads), {
+            minLength: 1,
+            maxLength: 12
+          }),
+          async (start, script, lookups) => {
             const f = fakeDeps({
               send: index =>
-                script[Math.min(index, script.length - 1)]
+                script[Math.min(index, script.length - 1)],
+              lookup: () =>
+                lookups[
+                  Math.min(
+                    f.lookups.length - 1,
+                    lookups.length - 1
+                  )
+                ]
             });
             const error = await caught(
-              runSettle(
-                AUTHORIZED,
-                start,
-                { nonceUsedGraceMs: grace },
-                f.deps
-              )
+              runSettle(AUTHORIZED, start, {}, f.deps)
             );
-            const used = f.sends.findIndex(
-              (_, index) =>
-                script[
-                  Math.min(index, script.length - 1)
-                ] === NONCE_TOO_LOW
-            );
-            const sent = f.sends.map(
-              (_, index) =>
-                script[Math.min(index, script.length - 1)]
-            );
-            if (used >= 0) {
-              expect(f.sends).to.have.length(used + 1);
-              expect(
-                f.receipts[f.receipts.length - 1]
-              ).to.equal(
-                Math.min(
-                  SETTLE_DEFAULTS.deadlineMs,
-                  f.sends[used] + grace
-                )
-              );
-            }
-            if (start === 'clean' && sent[0] === REJECTED) {
+            const answer = (index: number) =>
+              script[Math.min(index, script.length - 1)];
+
+            if (start === 'clean' && refusesFirst(script[0])) {
               expect(error).to.be.instanceOf(
                 TransactionSubmissionError
               );
               expect(f.sends).to.have.length(1);
-            } else if (
-              sent.some(o => o === ACCEPTED || o === LOCKED)
-            ) {
-              expect(error).to.be.instanceOf(
-                TransactionLockedError
-              );
-            } else {
-              expect(error).to.be.instanceOf(
-                TransactionOutcomeUnknownError
-              );
+              return;
+            }
+            // No refusal of the bytes in these answers, so
+            // no later send ends the run as rejected.
+            expect(error).to.not.be.instanceOf(
+              TransactionSubmissionError
+            );
+            // No send after a nonce_too_low answer.
+            const used = f.sends.findIndex(
+              (_, index) => answer(index) === NONCE_TOO_LOW
+            );
+            if (used >= 0) {
+              expect(f.sends).to.have.length(used + 1);
+            }
+            // At most three probes: the gate allows no send
+            // between the first one and 70 s.
+            expect(
+              f.sends.filter(t => t > 0 && t < 70_000)
+            ).to.have.length.at.most(3);
+
+            const observations = observationsOf(error);
+            const lockedSeen = observations.some(
+              o =>
+                (o.request === 'lookup' &&
+                  o.result === 'found') ||
+                (o.request === 'send' &&
+                  o.result === 'locked')
+            );
+            expect(error).to.be.instanceOf(
+              lockedSeen
+                ? TransactionLockedError
+                : TransactionOutcomeUnknownError
+            );
+            const reason = (error as { endReason?: unknown })
+              .endReason;
+            expect([
+              'deadline',
+              'nonce_used',
+              'not_found_after_probes'
+            ]).to.include(reason);
+            if (reason === 'not_found_after_probes') {
+              const lastLookups = observations
+                .filter(o => o.request === 'lookup')
+                .slice(-3);
+              expect(
+                lastLookups.map(o => o.result)
+              ).to.deep.equal([
+                'not_found',
+                'not_found',
+                'not_found'
+              ]);
+            }
+            if (reason === 'nonce_used') {
+              expect(used).to.be.at.least(0);
             }
           }
         ),
@@ -1020,5 +1085,627 @@ describe('runSettle', function () {
       observations[observations.length - 1].seq -
         observations[0].seq
     ).to.equal(199);
+  });
+});
+
+// Revision R2 (3.1.1): first-send refusals, probes, the
+// accepted state, the receipt-only nonce end, endReason.
+describe('runSettle (R2)', function () {
+  const SERVER_ERROR_500: SubmitOutcome = SERVER_ERROR;
+  const STATE_REFUSAL: SubmitOutcome = {
+    kind: 'unknown',
+    status: 422,
+    data: {
+      error_code: 'business_transaction_failed',
+      message:
+        'Transaction processing failed: Execution admission denied: token process error: TokenProcessError: mint_address: 0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed, error: Transfer failed: insufficient balance in source account'
+    }
+  };
+  const BYTES_REFUSAL: SubmitOutcome = {
+    kind: 'rejected',
+    refusal: 'bytes',
+    status: 422,
+    data: {
+      error_code: 'business_transaction_failed',
+      message:
+        'Transaction processing failed: Failed to recover REST envelope: invalid signature bytes'
+    },
+    nodeMessage:
+      'Transaction processing failed: Failed to recover REST envelope: invalid signature bytes'
+  };
+  const LEGACY_IN_FLIGHT: SubmitOutcome = {
+    kind: 'locked',
+    status: 422,
+    data: {
+      error_code: 'business_transaction_failed',
+      message:
+        'Transaction processing failed: already inflight; please retry later'
+    },
+    legacyText: true
+  };
+  const LEGACY_NONCE_USED: SubmitOutcome = {
+    kind: 'unknown',
+    status: 422,
+    data: {
+      error_code: 'business_transaction_failed',
+      message:
+        'Transaction processing failed: nonce already used; state advanced'
+    },
+    nonceUsed: true
+  };
+  const FOUND = { hash: HASH };
+  const READ_FAILED = readError(500, { message: 'system error' });
+
+  function endReasonOf(error: unknown) {
+    return (error as { endReason?: unknown }).endReason;
+  }
+
+  describe('first send of submitAndSettle (C1)', function () {
+    it('throws TransactionSubmissionError at once for a legacy state refusal, with the node text (UC17)', async function () {
+      const f = fakeDeps({ send: () => STATE_REFUSAL });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionSubmissionError
+      );
+      expect((error as Error).message).to.include(
+        'insufficient balance in source account'
+      );
+      expect(
+        (error as TransactionSubmissionError).status
+      ).to.equal(422);
+      expect(f.sends).to.deep.equal([0]);
+      expect(f.receipts).to.deep.equal([]);
+      expect(f.lookups).to.deep.equal([]);
+    });
+
+    it('throws for a check_status 4xx and a legacy nonce text', async function () {
+      for (const outcome of [
+        NONCE_TOO_LOW,
+        LEGACY_NONCE_USED,
+        {
+          kind: 'unknown',
+          status: 409,
+          data: {},
+          action: 'check_status',
+          problemType: `${TYPE_PREFIX}sender_locked_by_other_transaction`
+        } as SubmitOutcome
+      ]) {
+        const f = fakeDeps({ send: () => outcome });
+        expect(
+          await caught(
+            runSettle(AUTHORIZED, 'clean', {}, f.deps)
+          )
+        ).to.be.instanceOf(TransactionSubmissionError);
+        expect(f.sends).to.deep.equal([0]);
+      }
+    });
+
+    it('does not throw for a 408, a 5xx, a timeout, or in_progress for another hash', async function () {
+      for (const outcome of [
+        { kind: 'unknown', status: 408, data: {} },
+        SERVER_ERROR_500,
+        { kind: 'unknown' },
+        {
+          kind: 'unknown',
+          status: 422,
+          data: {},
+          action: 'in_progress'
+        }
+      ] as SubmitOutcome[]) {
+        const f = fakeDeps({
+          send: index => (index === 0 ? outcome : ACCEPTED),
+          lookup: () => FOUND,
+          receipt: t => (t >= 2_000 ? RECEIPT : NOT_FOUND)
+        });
+        const settled = await runSettle(
+          AUTHORIZED,
+          'clean',
+          {},
+          f.deps
+        );
+        expect(settled.receipt).to.deep.equal(RECEIPT);
+      }
+    });
+
+    it('is locked after a legacy in-flight text, with no action in the log (UC19)', async function () {
+      const f = fakeDeps({
+        send: () => LEGACY_IN_FLIGHT,
+        receipt: t => (t >= 75_000 ? RECEIPT : NOT_FOUND)
+      });
+      await runSettle(AUTHORIZED, 'clean', {}, f.deps);
+
+      expect(f.lookups).to.deep.equal([]);
+      expect(f.sends).to.have.length(2);
+      expect(f.sends[1]).to.equal(70_000);
+    });
+  });
+
+  describe('refusal of the bytes on a later send (C4b, UC18)', function () {
+    it('ends submitAndSettle as rejected', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR_500 : BYTES_REFUSAL
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionSubmissionError
+      );
+      expect(f.sends).to.deep.equal([0, 1_000]);
+    });
+
+    it('ends settle as rejected, but a refusal of the request does not', async function () {
+      const bytes = fakeDeps({ send: () => BYTES_REFUSAL });
+      expect(
+        await caught(
+          runSettle(AUTHORIZED, 'sent', {}, bytes.deps)
+        )
+      ).to.be.instanceOf(TransactionSubmissionError);
+      expect(bytes.sends).to.deep.equal([0]);
+
+      const request = fakeDeps({
+        send: () => REJECTED,
+        lookup: () => FOUND,
+        receipt: t => (t >= 3_000 ? RECEIPT : NOT_FOUND)
+      });
+      const settled = await runSettle(
+        AUTHORIZED,
+        'sent',
+        {},
+        request.deps
+      );
+      expect(settled.receipt).to.deep.equal(RECEIPT);
+    });
+  });
+
+  describe('probes and the probe end (C2)', function () {
+    it('probes about 1 s after a lost first send, and settles (UC20)', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR_500 : ACCEPTED,
+        receipt: t => (t >= 2_000 ? RECEIPT : NOT_FOUND)
+      });
+      const settled = await runSettle(
+        AUTHORIZED,
+        'clean',
+        {},
+        f.deps
+      );
+
+      expect(settled.receipt).to.deep.equal(RECEIPT);
+      expect(f.sends).to.deep.equal([0, 1_000]);
+    });
+
+    it('probes after a 2xx when the lookup misses, and settles (C3, UC21)', async function () {
+      const f = fakeDeps({
+        send: () => ACCEPTED,
+        receipt: t => (t >= 2_000 ? RECEIPT : NOT_FOUND)
+      });
+      await runSettle(AUTHORIZED, 'clean', {}, f.deps);
+
+      expect(f.sends).to.deep.equal([0, 1_000]);
+      expect(f.lookups[0]).to.equal(0);
+    });
+
+    it('ends unknown about 10 s after the first send when no node has it (UC22)', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR_500 : STATE_REFUSAL
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(endReasonOf(error)).to.equal(
+        'not_found_after_probes'
+      );
+      expect(f.sends).to.deep.equal([
+        0, 1_000, 3_000, 7_000
+      ]);
+      expect(f.lookups[f.lookups.length - 1]).to.equal(
+        10_000
+      );
+      const messages = observationsOf(error)
+        .filter(o => o.request === 'send')
+        .map(o => o.message);
+      expect(messages[1]).to.include(
+        'insufficient balance in source account'
+      );
+    });
+
+    it('ends unknown after the probes when a 2xx is never found', async function () {
+      const f = fakeDeps({ send: () => ACCEPTED });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(endReasonOf(error)).to.equal(
+        'not_found_after_probes'
+      );
+      expect(f.sends).to.have.length(4);
+    });
+
+    it('does not probe or end early while lookups fail, and keeps the gate schedule (UC24)', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR_500 : STATE_REFUSAL,
+        lookup: () => READ_FAILED
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(endReasonOf(error)).to.equal('deadline');
+      expect(f.sends).to.deep.equal([
+        0, 70_000, 210_000, 420_000, 700_000
+      ]);
+    });
+
+    it('starts the miss count again after a failed lookup', async function () {
+      // Probes at 1, 3, 7 s; one failed lookup at 9 s.
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR_500 : STATE_REFUSAL,
+        lookup: t => (t === 9_000 ? READ_FAILED : NOT_FOUND)
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(endReasonOf(error)).to.equal(
+        'not_found_after_probes'
+      );
+      expect(f.lookups[f.lookups.length - 1]).to.be.above(
+        10_000
+      );
+    });
+
+    it('becomes locked when a lookup finds it after the probes, and does not end early (UC25)', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR_500 : STATE_REFUSAL,
+        lookup: t => (t >= 8_000 ? FOUND : NOT_FOUND)
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(TransactionLockedError);
+      expect(endReasonOf(error)).to.equal('deadline');
+      // The gate schedule starts again when locked (8 s).
+      expect(f.sends.slice(4, 6)).to.deep.equal([
+        78_000, 218_000
+      ]);
+    });
+
+    it('never probes once locked by the first send', async function () {
+      const f = fakeDeps({ send: () => LOCKED });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(TransactionLockedError);
+      expect(f.lookups).to.deep.equal([]);
+      expect(f.sends).to.deep.equal([
+        0, 70_000, 210_000, 420_000, 700_000
+      ]);
+    });
+
+    it('settle resends at once, then probes', async function () {
+      const f = fakeDeps({ send: () => STATE_REFUSAL });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'sent', {}, f.deps)
+      );
+
+      expect(endReasonOf(error)).to.equal(
+        'not_found_after_probes'
+      );
+      expect(f.sends).to.deep.equal([
+        0, 1_000, 3_000, 7_000
+      ]);
+    });
+  });
+
+  describe('nonce end: the receipt alone decides (R1, UC23)', function () {
+    for (const [name, nonceAnswer] of [
+      ['the nonce_too_low type', NONCE_TOO_LOW],
+      ['a legacy nonce text', LEGACY_NONCE_USED]
+    ] as const) {
+      it(`ends unknown after 3 receipt 404s for ${name}`, async function () {
+        const f = fakeDeps({
+          send: index =>
+            index === 0 ? SERVER_ERROR_500 : nonceAnswer
+        });
+        const error = await caught(
+          runSettle(AUTHORIZED, 'clean', {}, f.deps)
+        );
+
+        expect(error).to.be.instanceOf(
+          TransactionOutcomeUnknownError
+        );
+        expect(endReasonOf(error)).to.equal('nonce_used');
+        expect(f.sends).to.deep.equal([0, 1_000]);
+        // No lookup after the nonce answer.
+        expect(
+          f.lookups.filter(t => t > 1_000)
+        ).to.deep.equal([]);
+        expect(f.receipts.slice(-3)).to.deep.equal([
+          2_000, 3_000, 4_000
+        ]);
+      });
+    }
+
+    it('resolves when the receipt appears', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR_500 : NONCE_TOO_LOW,
+        receipt: t => (t >= 3_000 ? RECEIPT : NOT_FOUND)
+      });
+      const settled = await runSettle(
+        AUTHORIZED,
+        'clean',
+        {},
+        f.deps
+      );
+      expect(settled.receipt).to.deep.equal(RECEIPT);
+    });
+
+    it('ends at nonceUsedGraceMs when the receipt reads keep failing', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR_500 : NONCE_TOO_LOW,
+        receipt: () => READ_FAILED
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(endReasonOf(error)).to.equal('nonce_used');
+      expect(f.receipts[f.receipts.length - 1]).to.equal(
+        1_000 + SETTLE_DEFAULTS.nonceUsedGraceMs
+      );
+    });
+
+    it('ends locked with nonce_used when the first send was locked', async function () {
+      const f = fakeDeps({
+        send: index => (index === 0 ? LOCKED : NONCE_TOO_LOW)
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(TransactionLockedError);
+      expect(endReasonOf(error)).to.equal('nonce_used');
+      expect(f.sends).to.deep.equal([0, 70_000]);
+    });
+  });
+
+  describe('endReason', function () {
+    it('is deadline for a locked run, and aborted for an abort', async function () {
+      const locked = fakeDeps({});
+      expect(
+        endReasonOf(
+          await caught(
+            runSettle(AUTHORIZED, 'clean', {}, locked.deps)
+          )
+        )
+      ).to.equal('deadline');
+
+      const controller = new AbortController();
+      const aborted = fakeDeps({
+        send: index => {
+          if (index === 0) controller.abort();
+          return LOCKED;
+        }
+      });
+      expect(
+        endReasonOf(
+          await caught(
+            runSettle(
+              AUTHORIZED,
+              'clean',
+              { signal: controller.signal },
+              aborted.deps
+            )
+          )
+        )
+      ).to.equal('aborted');
+    });
+
+    it('logs the node message of each send', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR_500 : STATE_REFUSAL
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+      const sends = observationsOf(error).filter(
+        o => o.request === 'send'
+      );
+
+      expect(sends[0].message).to.equal('system error');
+      expect(sends[1].message).to.include(
+        'Transaction processing failed:'
+      );
+    });
+  });
+
+  describe('review r1 cases', function () {
+    it('counts 404s toward the early end only after the last send', async function () {
+      const f = fakeDeps({
+        send: index => (index < 4 ? SERVER_ERROR_500 : ACCEPTED),
+        lookup: t =>
+          t < 8_000 || t >= 69_000 ? NOT_FOUND : READ_FAILED
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(endReasonOf(error)).to.equal(
+        'not_found_after_probes'
+      );
+      expect(f.sends).to.deep.equal([
+        0, 1_000, 3_000, 7_000, 70_000
+      ]);
+      // Three 404s after the 2xx at 70 s, the first 1 s
+      // after it.
+      expect(f.lookups.slice(-3)).to.deep.equal([
+        71_000, 72_000, 73_000
+      ]);
+    });
+
+    it('sends again 70 s after a gate send answered locked', async function () {
+      const f = fakeDeps({
+        send: index => (index === 0 ? ACCEPTED : LOCKED),
+        lookup: () => READ_FAILED
+      });
+      await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(f.sends.slice(0, 3)).to.deep.equal([
+        0, 70_000, 140_000
+      ]);
+    });
+
+    it('sends once when a probe and a gate send are due together', async function () {
+      const f = fakeDeps({
+        send: () => SERVER_ERROR_500
+      });
+      await caught(
+        runSettle(
+          AUTHORIZED,
+          'clean',
+          { resendIntervalMs: 1_000 },
+          f.deps
+        )
+      );
+
+      expect(new Set(f.sends).size).to.equal(
+        f.sends.length
+      );
+    });
+
+    it('does not probe when a lookup ends at or after the deadline', async function () {
+      const f = fakeDeps({
+        send: () => SERVER_ERROR_500,
+        lookupLatencyMs: 200
+      });
+      const error = await caught(
+        runSettle(
+          AUTHORIZED,
+          'clean',
+          { pollIntervalMs: 400, deadlineMs: 1_300 },
+          f.deps
+        )
+      );
+
+      expect(endReasonOf(error)).to.equal('deadline');
+      expect(f.sends).to.deep.equal([0]);
+    });
+
+    it('does not probe once aborted during a lookup', async function () {
+      const controller = new AbortController();
+      const f = fakeDeps({
+        send: () => SERVER_ERROR_500,
+        lookup: t => {
+          if (t >= 1_000) controller.abort();
+          return NOT_FOUND;
+        }
+      });
+      const error = await caught(
+        runSettle(
+          AUTHORIZED,
+          'clean',
+          { signal: controller.signal },
+          f.deps
+        )
+      );
+
+      expect(endReasonOf(error)).to.equal('aborted');
+      expect(f.sends).to.deep.equal([0]);
+    });
+
+    it('starts the receipt count again after a failed receipt read in the nonce end', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR_500 : NONCE_TOO_LOW,
+        receipt: t => (t === 3_000 ? READ_FAILED : NOT_FOUND)
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(endReasonOf(error)).to.equal('nonce_used');
+      expect(f.receipts.slice(-3)).to.deep.equal([
+        4_000, 5_000, 6_000
+      ]);
+    });
+
+    it('starts the miss count again after a throttled lookup', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? SERVER_ERROR_500 : STATE_REFUSAL,
+        lookup: t =>
+          t === 9_000
+            ? readError(429, '<html>Too Many Requests</html>')
+            : NOT_FOUND
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(endReasonOf(error)).to.equal(
+        'not_found_after_probes'
+      );
+      expect(f.lookups[f.lookups.length - 1]).to.be.above(
+        69_000
+      );
+    });
+
+    it('keeps the gate schedule after a 2xx when lookups keep failing, and ends unknown', async function () {
+      const f = fakeDeps({
+        send: () => ACCEPTED,
+        lookup: () => READ_FAILED
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(endReasonOf(error)).to.equal('deadline');
+      expect(f.sends).to.deep.equal([
+        0, 70_000, 210_000, 420_000, 700_000
+      ]);
+    });
+
+    it('ends nothing on a refusal of the bytes after a 2xx: nodes disagree', async function () {
+      const f = fakeDeps({
+        send: index => (index === 0 ? ACCEPTED : BYTES_REFUSAL),
+        lookup: () => READ_FAILED
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(endReasonOf(error)).to.equal('deadline');
+    });
   });
 });

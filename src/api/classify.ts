@@ -1,5 +1,8 @@
 import { errorCodeOf } from './errors';
+import { matchLegacyReason } from './legacyText';
 import {
+  bodyMessage,
+  BYTES_REFUSAL_TYPES,
   hasOwn,
   NO_EFFECT_ACTIONS,
   ownMember,
@@ -30,6 +33,10 @@ export type SubmitOutcome =
       status: number;
       data: unknown;
       nodeMessage: string;
+      // 'bytes': the node refused the signed bytes
+      // themselves, so no send of them was ever admitted.
+      // 'request': this request only.
+      refusal: 'bytes' | 'request';
       action?: ClientAction;
       problemType?: string;
     }
@@ -38,6 +45,8 @@ export type SubmitOutcome =
       status?: number;
       data: unknown;
       problemType?: string;
+      // Proven by a released node's text, not by `action`.
+      legacyText?: true;
     }
   | {
       kind: 'unknown';
@@ -46,6 +55,8 @@ export type SubmitOutcome =
       cause?: unknown;
       action?: unknown;
       problemType?: string;
+      // A released node's text says the nonce is used.
+      nonceUsed?: true;
     };
 
 // A REST-layer 408 can follow a successful admission:
@@ -113,6 +124,22 @@ function messageOf(
   return typeof text === 'string' ? text : fallback;
 }
 
+// The node's text when the body has one; the transport
+// text ("Request failed with status code 422") otherwise.
+function nodeMessageOf(
+  response: unknown,
+  body: unknown
+): string {
+  return (
+    bodyMessage(body) ??
+    messageOf(
+      response,
+      'message',
+      'the node rejected the request'
+    )
+  );
+}
+
 function statusOf(value: unknown): number | undefined {
   const status = ownMember(value, 'status');
   return typeof status === 'number'
@@ -132,7 +159,11 @@ function unknownOutcome(
   response: unknown,
   status: number | undefined,
   data: unknown,
-  extra: { action?: unknown; problemType?: string }
+  extra: {
+    action?: unknown;
+    problemType?: string;
+    nonceUsed?: true;
+  }
 ): SubmitOutcome {
   const outcome: SubmitOutcome = { kind: 'unknown' };
   if (status !== undefined) outcome.status = status;
@@ -153,11 +184,49 @@ function isLockedForThisTransaction(
   );
 }
 
+// Rules 5a to 5c: a released node's 422
+// business_transaction_failed whose reason is pinned.
+function legacyOutcome(
+  response: ParsedErrorShape
+): SubmitOutcome | undefined {
+  const message = ownMember(response.data, 'message');
+  if (typeof message !== 'string') return undefined;
+  const cls = matchLegacyReason(message);
+  if (cls === 'in_flight') {
+    return {
+      kind: 'locked',
+      status: response.status,
+      data: response.data,
+      legacyText: true
+    };
+  }
+  if (cls === 'bytes') {
+    return {
+      kind: 'rejected',
+      status: response.status,
+      data: response.data,
+      nodeMessage: message,
+      refusal: 'bytes'
+    };
+  }
+  if (cls === 'nonce_used') {
+    return unknownOutcome(
+      response,
+      response.status,
+      response.data,
+      { nonceUsed: true }
+    );
+  }
+  return undefined;
+}
+
 // Classifies the value `post()` gave (resolved or
 // rejected). Rules apply in order; the first match wins.
 // The node's `action` decides when the body has one;
-// the status rules apply only to a body without it. No
-// rule reads message text. Never throws.
+// the status rules apply only to a body without it. Only
+// rules 5a to 5c read message text: the fixed reasons of a
+// released node, which sends no action
+// (src/api/legacyText.ts). Never throws.
 export function classifySubmitResponse(
   response: unknown,
   localHash: string
@@ -186,11 +255,10 @@ export function classifySubmitResponse(
       kind: 'rejected',
       status: status ?? 0,
       data: body,
-      nodeMessage: messageOf(
-        response,
-        'message',
-        'the node rejected the request'
-      ),
+      nodeMessage: nodeMessageOf(response, body),
+      refusal: BYTES_REFUSAL_TYPES.has(p.problemType)
+        ? 'bytes'
+        : 'request',
       action: p.action,
       ...problemTypeOf(p)
     };
@@ -217,6 +285,10 @@ export function classifySubmitResponse(
       response.status === 422 &&
       errorCodeOf(response) ===
         LEGACY_AMBIGUOUS_ERROR_CODE;
+    if (legacyAmbiguous) {
+      const legacy = legacyOutcome(response);
+      if (legacy !== undefined) return legacy;
+    }
     if (
       !legacyAmbiguous &&
       response.status !==
@@ -229,11 +301,11 @@ export function classifySubmitResponse(
         kind: 'rejected',
         status: response.status,
         data: response.data,
-        nodeMessage: messageOf(
+        nodeMessage: nodeMessageOf(
           response,
-          'message',
-          'the node rejected the request'
-        )
+          response.data
+        ),
+        refusal: 'request'
       };
     }
     return unknownOutcome(
@@ -253,7 +325,8 @@ export function classifySubmitResponse(
         response,
         'msg',
         'the node returned a 401 (unauthorized) response'
-      )
+      ),
+      refusal: 'request'
     };
   }
 

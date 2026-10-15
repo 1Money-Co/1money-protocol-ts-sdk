@@ -10,6 +10,7 @@ export type { ApiProblem, ClientAction } from './api/problem';
 export { settle, submitAndSettle } from './api/settle';
 export type {
   SettledTransaction,
+  SettleEndReason,
   SettleObservation,
   SettleOptions
 } from './api/settle';

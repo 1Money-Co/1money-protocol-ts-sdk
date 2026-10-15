@@ -98,7 +98,9 @@ export const transactionsApi = {
   /**
    * Resume after an earlier send of the same signed v2
    * transaction: find its state and resend the same signed
-   * bytes until its receipt appears. Never signs.
+   * bytes until its receipt appears. Never signs. Throws
+   * TransactionSubmissionError only for a refusal of the
+   * signed bytes.
    */
   settle,
 

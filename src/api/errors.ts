@@ -1,7 +1,10 @@
 import { parseProblem } from './problem';
 
 import type { ApiProblem, ClientAction } from './problem';
-import type { SettleObservation } from './settle';
+import type {
+  SettleEndReason,
+  SettleObservation
+} from './settle';
 
 // Error codes specific to the /v2 domain-separated
 // write surface.
@@ -104,7 +107,9 @@ export function errorCodeOf(
 // the body's `action` proves no effect (fix_request,
 // retry_later, use_other_node), or, on a node without
 // the `action` member, the status is a 4xx that cannot
-// follow admission (see src/api/classify.ts). This
+// follow admission, or the message is a released node's
+// refusal of the signed bytes (see src/api/classify.ts).
+// This
 // request did not lock the transaction or use its
 // nonce. `submitted` is `false` for this request only:
 // it says nothing about an earlier send of the same
@@ -155,8 +160,9 @@ export class TransactionSubmissionError extends
 // The node holds this exact transaction: it is admitted
 // and locked (it holds the sender's nonce), but not
 // executed yet. The node answers `action: in_progress`
-// to a resend that comes before its retry gate allows
-// one. The node does not broadcast a locked transaction
+// (a released node: "already inflight; please retry
+// later") to a resend that comes before its retry gate
+// allows one. The node does not broadcast a locked transaction
 // again by itself: resend the same signed bytes until
 // the transaction executes. Never sign a new transaction
 // for the same intent while it is locked.
@@ -172,6 +178,8 @@ export class TransactionLockedError extends Error {
   readonly problem?: ApiProblem;
   /** Every request and answer of a settle run, oldest first. */
   readonly observations?: readonly SettleObservation[];
+  /** Why a settle run ended; set only by settle. */
+  readonly endReason?: SettleEndReason;
 
   constructor(
     transactionHash: string,
@@ -180,6 +188,7 @@ export class TransactionLockedError extends Error {
       data?: unknown;
       problemType?: string;
       observations?: readonly SettleObservation[];
+      endReason?: SettleEndReason;
     } = {}
   ) {
     super(
@@ -192,6 +201,7 @@ export class TransactionLockedError extends Error {
     this.problemType = diagnostic.problemType;
     this.problem = parseProblem(diagnostic.data);
     this.observations = diagnostic.observations;
+    this.endReason = diagnostic.endReason;
   }
 }
 
@@ -236,6 +246,8 @@ export class TransactionOutcomeUnknownError extends
   public readonly problem?: ApiProblem;
   /** Every request and answer of a settle run, oldest first. */
   public readonly observations?: readonly SettleObservation[];
+  /** Why a settle run ended; set only by settle. */
+  public readonly endReason?: SettleEndReason;
 
   constructor(
     transactionHash: string,
@@ -246,6 +258,7 @@ export class TransactionOutcomeUnknownError extends
       action?: unknown;
       problemType?: string;
       observations?: readonly SettleObservation[];
+      endReason?: SettleEndReason;
     } = {}
   ) {
     super(
@@ -260,6 +273,7 @@ export class TransactionOutcomeUnknownError extends
     this.problemType = diagnostic.problemType;
     this.problem = parseProblem(diagnostic.data);
     this.observations = diagnostic.observations;
+    this.endReason = diagnostic.endReason;
   }
 }
 

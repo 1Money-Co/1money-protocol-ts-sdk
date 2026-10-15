@@ -141,7 +141,9 @@ resends the same signed bytes and resolves with the receipt; send a new write wi
 `apiClient.transactions.submitAndSettle(authorized)` to do both in one call (see
 `src/api/transactions/README.md`). The SDK decides by the `action`
 member of the node's error body; on a node without it, a `422`
-`business_transaction_failed` and a `408` are unknown. See
+`business_transaction_failed` and a `408` are unknown, except a few fixed texts
+of a released node: "already inflight" means locked, and a refusal of the
+signed bytes (for example a bad signature or a wrong chain id) means rejected. See
 `skills/1money-protocol-sdk/references/client-and-errors.md` for the full rules.
 
 #### Problem details

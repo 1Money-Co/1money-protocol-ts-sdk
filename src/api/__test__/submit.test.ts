@@ -503,7 +503,9 @@ describe('submitAuthorized', function () {
       );
     });
 
-    it('throws TransactionOutcomeUnknownError for the legacy 422 without an action', async function () {
+    // D18: a released node (no action) states the class only
+    // in its fixed message text.
+    it('throws TransactionLockedError for the legacy in-flight text', async function () {
       respondWithProblem(422, {
         error_code: 'business_transaction_failed',
         message:
@@ -512,12 +514,50 @@ describe('submitAuthorized', function () {
       const caught = await caughtFrom();
 
       expect(caught).to.be.instanceOf(
-        TransactionOutcomeUnknownError
+        TransactionLockedError
       );
       expect(
-        (caught as TransactionOutcomeUnknownError)
-          .status
+        (caught as TransactionLockedError).status
       ).to.equal(422);
+    });
+
+    it('throws TransactionSubmissionError with the node text for a legacy refusal of the bytes', async function () {
+      const message =
+        'Transaction processing failed: Invalid chain id: expected 21210, actual 1212101';
+      respondWithProblem(422, {
+        error_code: 'business_transaction_failed',
+        message
+      });
+      const caught = await caughtFrom();
+
+      expect(caught).to.be.instanceOf(
+        TransactionSubmissionError
+      );
+      expect(
+        (caught as TransactionSubmissionError).message
+      ).to.include(message);
+    });
+
+    it('throws TransactionOutcomeUnknownError for any other legacy 422', async function () {
+      for (const reason of [
+        'nonce already used; state advanced',
+        'Execution admission denied: token process error: TokenProcessError: mint_address: 0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed, error: Transfer failed: insufficient balance in source account',
+        'Input size is too large: 40000'
+      ]) {
+        respondWithProblem(422, {
+          error_code: 'business_transaction_failed',
+          message: `Transaction processing failed: ${reason}`
+        });
+        const caught = await caughtFrom();
+
+        expect(caught, reason).to.be.instanceOf(
+          TransactionOutcomeUnknownError
+        );
+        expect(
+          (caught as TransactionOutcomeUnknownError)
+            .status
+        ).to.equal(422);
+      }
     });
 
     it('throws TransactionOutcomeUnknownError with the action for check_status', async function () {

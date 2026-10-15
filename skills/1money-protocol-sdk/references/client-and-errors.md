@@ -184,19 +184,27 @@ first matching rule wins:
 | 2 | `action` is `fix_request`, `retry_later`, or `use_other_node` (any status, also a 5xx such as `node_syncing`) | `TransactionSubmissionError` |
 | 3 | `action` is `in_progress`, and `tx_hash` is absent or equals the local hash | `TransactionLockedError` |
 | 4 | Any other `action` value (`check_status`, an unknown value, `in_progress` with another hash or a `tx_hash` that is not a string) | `TransactionOutcomeUnknownError` |
-| 5 | No `action`; `422` with `error_code: business_transaction_failed` | `TransactionOutcomeUnknownError` |
+| 5a | No `action`; `422 business_transaction_failed`; message `Transaction processing failed: already inflight; please retry later` | `TransactionLockedError` |
+| 5b | No `action`; `422 business_transaction_failed`; message is a pinned refusal of the signed bytes (for example `Transaction processing failed: Failed to recover REST envelope: invalid signature bytes`, `... Invalid chain id: expected ...`, `... Invalid transaction memo: ...`) | `TransactionSubmissionError` |
+| 5 | No `action`; `422` with `error_code: business_transaction_failed`, any other message | `TransactionOutcomeUnknownError` |
 | 6 | No `action`; `408` | `TransactionOutcomeUnknownError` |
 | 7 | No `action`; any other `4xx` with a body, or the body-only `401` shape | `TransactionSubmissionError` |
 | 8 | Anything else: `5xx`, timeout, network error, no body, 2xx without `hash` | `TransactionOutcomeUnknownError` |
 
 Why the rules for a body without `action` are this narrow:
 
-- **`422 business_transaction_failed` is unknown (rule 5).** On a node
-  without `action`, this one code covers "already inflight" (the node holds
-  this exact transaction), the nonce-lock answers, and real refusals alike.
-  A resend of a held transaction gets it, so it can follow admission. Some
-  real refusals (for example a nonce gap) therefore read as unknown on such a
-  node; that errs on the safe side.
+- **`422 business_transaction_failed` is unknown (rule 5), except for a few
+  fixed texts (rules 5a, 5b).** On a released node (l1client v0.8.x, no
+  `action`), this one code covers "already inflight" (the node holds this
+  exact transaction), the nonce answers, and real refusals alike, so it can
+  follow admission. The node's fixed message tells some of them apart: the
+  in-flight text means locked, and a refusal of the signed bytes themselves
+  (signature recovery, zero or reserved sender, chain id, memo, an empty batch,
+  a batch total overflow) means rejected, because the same bytes fail on every
+  node. A text counts only when its check exists unchanged in every release
+  that accepts v2 submits (v0.8.3 on), so bytes that an older release admitted
+  never read as rejected. Every other text, including insufficient balance,
+  stays unknown on such a node; that errs on the safe side.
 - **`408` is unknown (rule 6).** l1client's REST layer wraps every handler —
   including the pool-admission call — in a `tokio::time::timeout` (10s) that
   answers `408` and discards whatever the handler was doing if the clock wins
@@ -218,7 +226,9 @@ Why the rules for a body without `action` are this narrow:
   discarding the numeric status. `submitAuthorized` recognizes this shape — a
   body with `code == 401` (the same loose equality `isLogin` itself uses) —
   and throws `TransactionSubmissionError` with `status: 401`.
-- **No rule reads message text.**
+- **Only rules 5a and 5b read message text,** and only for a body without
+  `action`: the pinned list is `src/api/legacyText.ts`. A node with problem
+  details is classified by `action` alone.
 
 ```typescript
 import {
@@ -262,30 +272,46 @@ transaction. Read `receipt.success`: a hold debit can execute and still fail.
 They copy `authorized` when they start, so a later change to that object does
 not change what they send. No send starts after the deadline.
 
-- Resends follow the node's retry gate: send k+1 goes out `resendIntervalMs ×
-  k` after send k (default 70 000 ms, so 70, 140, 210, 280 s apart). A resend
-  of the same bytes can never execute twice.
-- Receipt polls start at `pollIntervalMs` (1 000 ms) and double to
-  `maxPollIntervalMs` (10 000 ms). In the unknown state each poll also looks
-  up the transaction; a 200 there means locked.
-- A lookup answered `429` or `retry_later` changes nothing and waits
-  `throttleBackoffMs` (60 000 ms): a firewall in front of the node blocks an IP
-  address above about 120 reads per minute, and that block also stops the
-  caller's other reads.
-- A send answered with the problem type `nonce_too_low` means the nonce is
-  used. The helper stops resending, polls the receipt for `nonceUsedGraceMs`
-  (70 000 ms, cut at `deadlineMs`), and without a receipt throws the error for
-  the last known state. It never says "rejected": a missing receipt can be a
+- **First send of `submitAndSettle`:** any `4xx` except `408` and
+  `in_progress` throws `TransactionSubmissionError` at once, with the node's
+  message: the bytes were never sent, so no node holds them. Never pass
+  `submitAndSettle` bytes that may have been sent; use `settle`.
+- **A refusal of the signed bytes** (rule 2 with a bytes problem type, or rule
+  5b) throws `TransactionSubmissionError` on any send of either helper, while
+  no node is known to have admitted the transaction. After a `2xx` or a lookup
+  that found it, such a refusal means the nodes disagree, and it ends nothing.
+  Any other refusal of a later send says nothing about an earlier send.
+- **States:** a `2xx` means accepted; locked needs a lookup that finds the
+  transaction, or a node that says it holds it. Locked never goes back.
+- **Probes:** while no node is known to hold it, a lookup that answers `404`
+  starts a resend at once, at most three (about 1, 3 and 7 s after the first
+  send): the node's retry gate forwards a hash it does not hold. After the
+  probes, three `404` lookups in a row end the run with
+  `TransactionOutcomeUnknownError` and `endReason: 'not_found_after_probes'`,
+  about 10 s after the first send. A failed or rate-limited read never counts.
+- **Resends** follow the node's retry gate in every state: send k+1 goes out
+  `resendIntervalMs × k` after send k (default 70 000 ms); the count starts
+  again once the transaction is locked. A resend of the same bytes can never
+  execute twice.
+- **Polls** start at `pollIntervalMs` (1 000 ms) and double to
+  `maxPollIntervalMs` (10 000 ms); right after a `404` read the next poll
+  comes after `pollIntervalMs`. A read answered `429` or `retry_later` waits
+  `throttleBackoffMs` (60 000 ms), and for the rest of the run `404`s no
+  longer shorten the wait: a firewall in front of the node blocks an IP address
+  above about 120 reads per minute.
+- **`nonce_too_low`** (the problem type, or a released node's fixed nonce text)
+  means the nonce is used, so no send can help: the helper stops sending and
+  reads only the receipt. Three receipt `404`s in a row end the run with
+  `endReason: 'nonce_used'`; `nonceUsedGraceMs` (70 000 ms) is the limit when
+  the reads keep failing. It never says "rejected": a missing receipt can be a
   node that is behind. Do not sign the intent again until you know whether
-  this hash executed. A node that sends no problem `type` keeps the full
-  resend schedule.
-- Proof only gets stronger: locked never goes back to unknown. Only the first
-  send of `submitAndSettle` can end as `TransactionSubmissionError`.
-- At `deadlineMs` (900 000 ms) or on `signal` abort, it throws
-  `TransactionLockedError` or `TransactionOutcomeUnknownError` with
-  `observations` (at most 200, numbered by `seq`). Exception: when the signal
-  is already aborted, `submitAndSettle` throws a plain `Error` and sends
-  nothing.
+  this hash executed.
+- **Other ends:** at `deadlineMs` (900 000 ms) or on `signal` abort, it throws
+  `TransactionLockedError` or `TransactionOutcomeUnknownError`. Both carry
+  `endReason` (`deadline`, `nonce_used`, `not_found_after_probes`, `aborted`)
+  and `observations` (at most 200, numbered by `seq`; send entries carry the
+  node's `message`). Exception: when the signal is already aborted,
+  `submitAndSettle` throws a plain `Error` and sends nothing.
 
 > **A falsy `submitted` never means "not submitted" — only `submitted ===
 > false` does, and only for that one request.** `TransactionOutcomeUnknownError.submitted` is the literal string

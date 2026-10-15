@@ -6,7 +6,11 @@ import {
   TransactionOutcomeUnknownError,
   TransactionSubmissionError
 } from './errors';
-import { ownMember, readProblem } from './problem';
+import {
+  bodyMessage,
+  ownMember,
+  readProblem
+} from './problem';
 import { sendAuthorized } from './submit';
 
 import type { SubmitOutcome } from './classify';
@@ -23,9 +27,10 @@ export interface SettleOptions {
   deadlineMs?: number;
   // The wait after a lookup answered 429 or retry_later.
   throttleBackoffMs?: number;
-  // How long to poll the receipt after a send answered
-  // nonce_too_low. No send can execute after it, but the
-  // receipt read can reach a node that is behind.
+  // The longest wait for the receipt after a send answered
+  // nonce_too_low, when the receipt reads keep failing. No
+  // send can execute after it; three receipt 404s in a row
+  // end the run sooner.
   nonceUsedGraceMs?: number;
   signal?: AbortSignal;
 }
@@ -56,7 +61,22 @@ export interface SettleObservation {
   // The body's `action` value as sent.
   action?: unknown;
   problemType?: string;
+  // The node's text of a send answer, for people to read.
+  message?: string;
 }
+
+// Why a settle run ended without a receipt:
+// - deadline: `deadlineMs` passed.
+// - nonce_used: a send answered nonce_too_low, and the
+//   receipt did not appear.
+// - not_found_after_probes: no node that the lookups
+//   reached held the transaction, after the probes.
+// - aborted: the caller's signal.
+export type SettleEndReason =
+  | 'deadline'
+  | 'nonce_used'
+  | 'not_found_after_probes'
+  | 'aborted';
 
 export const SETTLE_DEFAULTS = {
   resendIntervalMs: 70_000,
@@ -73,6 +93,17 @@ const NONCE_USED_TYPE =
   'https://developer.1moneynetwork.com/problem/nonce_too_low';
 
 const MAX_OBSERVATIONS = 200;
+
+// While no node is known to hold the transaction, a lookup
+// that answers 404 starts a resend at once: the node's
+// retry gate forwards a hash that it does not hold. Probe k
+// waits PROBE_GAPS_MS[k] after the last send; the first 1 s
+// covers the time between a 2xx and the node's shared lock.
+const MAX_PROBES = 3;
+const PROBE_GAPS_MS = [1_000, 2_000, 4_000];
+// 404 reads in a row that end a run early: from several
+// nodes behind the load balancer, most likely.
+const MISSES_TO_END = 3;
 
 // setTimeout fires at once for a longer delay.
 const MAX_TIMER_MS = 2_147_483_647;
@@ -181,6 +212,7 @@ class ObservationLog {
       status?: number;
       action?: unknown;
       problemType?: string;
+      message?: string;
     } = {}
   ): void {
     this.seq += 1;
@@ -199,6 +231,9 @@ class ObservationLog {
     if (detail.problemType !== undefined) {
       entry.problemType = detail.problemType;
     }
+    if (detail.message !== undefined) {
+      entry.message = detail.message;
+    }
     this.entries.push(entry);
     if (this.entries.length > MAX_OBSERVATIONS) {
       this.entries.shift();
@@ -211,17 +246,31 @@ class ObservationLog {
         this.add('send', 'accepted');
         return;
       case 'locked':
+        // A released node's text proves locked without
+        // an `action` member: log none.
         this.add('send', 'locked', {
           status: outcome.status,
-          action: 'in_progress',
-          problemType: outcome.problemType
+          action: outcome.legacyText
+            ? undefined
+            : 'in_progress',
+          problemType: outcome.problemType,
+          message: bodyMessage(outcome.data)
+        });
+        return;
+      case 'rejected':
+        this.add('send', 'rejected', {
+          status: outcome.status,
+          action: outcome.action,
+          problemType: outcome.problemType,
+          message: outcome.nodeMessage
         });
         return;
       default:
         this.add('send', outcome.kind, {
           status: outcome.status,
           action: outcome.action,
-          problemType: outcome.problemType
+          problemType: outcome.problemType,
+          message: bodyMessage(outcome.data)
         });
     }
   }
@@ -237,7 +286,7 @@ class ObservationLog {
     }
     const status = ownMember(value, 'status');
     const p = readProblem(bodyOf(value));
-    this.add(request, readResult(value, status), {
+    this.add(request, readResult(value), {
       status:
         typeof status === 'number' ? status : undefined,
       action: p.actionRaw,
@@ -246,36 +295,24 @@ class ObservationLog {
   }
 }
 
-// A read that is not found proves nothing either way; the
-// result only tells the caller why: rate-limited, not
-// found (404), or failed (any other answer with a status,
-// such as a 5xx or a network error).
+// A read that is not found: rate-limited, a 404 (the node
+// that answered does not have it), or failed (anything
+// else, such as a 5xx or a network error). Only a 404
+// counts toward an early end.
 function readResult(
-  value: unknown,
-  status: unknown
-): SettleObservation['result'] {
+  value: unknown
+): 'not_found' | 'throttled' | 'failed' {
   if (isThrottled(value)) return 'throttled';
-  return typeof status === 'number' && status !== 404
-    ? 'failed'
-    : 'not_found';
+  return ownMember(value, 'status') === 404
+    ? 'not_found'
+    : 'failed';
 }
 
-type HeldState = 'locked' | 'unknown';
-
-// What a send proves. Proof only gets stronger: locked
-// never goes back to unknown, and a rejected resend says
-// nothing about the earlier sends.
-function stateAfterSend(
-  outcome: SubmitOutcome,
-  state: HeldState,
-  hash: string
-): HeldState {
-  if (outcome.kind === 'accepted') {
-    assertTransactionHash(hash, outcome.serverHash);
-    return 'locked';
-  }
-  return outcome.kind === 'locked' ? 'locked' : state;
-}
+// What the engine knows about H. Accepted: a node
+// answered 2xx, but its core can still drop H. Locked: a
+// lookup found H, or a node said it holds H. Locked never
+// goes back: a later answer does not undo that proof.
+type SettleState = 'accepted' | 'unknown' | 'locked';
 
 // The caller may change or reuse its object while the
 // engine waits, and every send must carry the same signed
@@ -294,17 +331,81 @@ function privateCopy(
 }
 
 function stateError(
-  state: HeldState,
+  state: SettleState,
   hash: string,
-  observations: readonly SettleObservation[]
+  observations: readonly SettleObservation[],
+  endReason: SettleEndReason
 ): Error {
   return state === 'locked'
     ? new TransactionLockedError(hash, {
-        observations: [...observations]
+        observations: [...observations],
+        endReason
       })
     : new TransactionOutcomeUnknownError(hash, {
-        observations: [...observations]
+        observations: [...observations],
+        endReason
       });
+}
+
+function isNonceUsed(outcome: SubmitOutcome): boolean {
+  return (
+    outcome.kind !== 'accepted' &&
+    (outcome.problemType === NONCE_USED_TYPE ||
+      (outcome.kind === 'unknown' &&
+        outcome.nonceUsed === true))
+  );
+}
+
+function isClientError(status: number) {
+  return status >= 400 && status < 500 && status !== 408;
+}
+
+// A send answer that ends the run as rejected.
+// - The first send of bytes never sent before: any 4xx but
+//   408 and in_progress, because no node holds them yet.
+// - Any send while no node is known to have admitted H: a
+//   refusal of the signed bytes, which fail on every node.
+//   After a 2xx or a lookup that found H, such a refusal
+//   contradicts that proof (nodes that disagree), so it
+//   ends nothing.
+function refusalError(
+  outcome: SubmitOutcome,
+  first: boolean,
+  state: SettleState
+): TransactionSubmissionError | undefined {
+  if (outcome.kind === 'rejected') {
+    return first ||
+      (outcome.refusal === 'bytes' && state === 'unknown')
+      ? new TransactionSubmissionError(
+          outcome.status,
+          outcome.data,
+          outcome.nodeMessage,
+          {
+            action: outcome.action,
+            problemType: outcome.problemType
+          }
+        )
+      : undefined;
+  }
+  if (
+    first &&
+    outcome.kind === 'unknown' &&
+    outcome.status !== undefined &&
+    isClientError(outcome.status) &&
+    outcome.action !== 'in_progress'
+  ) {
+    return new TransactionSubmissionError(
+      outcome.status,
+      outcome.data,
+      bodyMessage(outcome.data) ??
+        'the node refused the first send',
+      {
+        action: readProblem(outcome.data).action,
+        problemType: outcome.problemType
+      }
+    );
+  }
+  return undefined;
 }
 
 // The settle engine. `start` is 'clean' when H was never
@@ -323,40 +424,75 @@ export async function runSettle(
   const hash = signed.transactionHash;
   const t0 = deps.now();
   const log = new ObservationLog(t0, deps.now);
-  let state: HeldState = 'unknown';
-  let sends = 0;
+  // Changed by the closures below, so not narrowed here.
+  let state = 'unknown' as SettleState;
   let lastSend = t0;
   let poll = options.pollIntervalMs;
-
-  const aborted = () => options.signal?.aborted === true;
-  // Set by a send answered nonce_too_low: the nonce is
-  // used, so no later send can help.
-  let resendsStopped = false;
   let endAt = t0 + options.deadlineMs;
   // The node's retry gate: send k+1 is due
-  // `resendIntervalMs * k` after send k.
-  const nextSendAt = () =>
-    resendsStopped
+  // `resendIntervalMs * k` after send k. Probes do not
+  // count, and the count starts again once H is locked.
+  let gateSends = 0;
+  let lastGateSend = t0;
+  let probes = 0;
+  // 404 reads in a row since the last send, for an early
+  // end: lookups after the probes, receipts after a nonce
+  // answer.
+  let misses = 0;
+  // Set by a nonce_too_low answer: no send can help, and
+  // only the receipt can tell whether H used the nonce.
+  let nonceUsed = false;
+  // After a 429 the client's address stays near the
+  // firewall's read limit, so 404s no longer speed up the
+  // polls.
+  let throttledOnce = false;
+
+  const aborted = () => options.signal?.aborted === true;
+  const end = (reason: SettleEndReason) =>
+    stateError(state, hash, log.entries, reason);
+  const lock = () => {
+    if (state === 'locked') return;
+    state = 'locked';
+    // `settle` keeps its send at once (gateSends 0).
+    if (gateSends > 0) {
+      gateSends = 1;
+      lastGateSend = deps.now();
+    }
+  };
+  const nextGateSendAt = () =>
+    nonceUsed
       ? Number.POSITIVE_INFINITY
-      : sends === 0
-      ? t0
-      : lastSend + options.resendIntervalMs * sends;
-  const send = async (): Promise<SubmitOutcome> => {
+      : lastGateSend + options.resendIntervalMs * gateSends;
+
+  const send = async (kind: 'first' | 'gate' | 'probe') => {
     const outcome = await deps.send(signed);
-    sends += 1;
     lastSend = deps.now();
+    misses = 0;
+    if (kind !== 'probe') {
+      gateSends += 1;
+      lastGateSend = lastSend;
+    }
     log.addSend(outcome);
-    if (
-      outcome.kind !== 'accepted' &&
-      outcome.problemType === NONCE_USED_TYPE
-    ) {
-      resendsStopped = true;
+    const refusal = refusalError(
+      outcome,
+      kind === 'first',
+      state
+    );
+    if (refusal !== undefined) throw refusal;
+    if (outcome.kind === 'accepted') {
+      assertTransactionHash(hash, outcome.serverHash);
+      if (state === 'unknown') state = 'accepted';
+    } else if (outcome.kind === 'locked') {
+      lock();
+    }
+    if (isNonceUsed(outcome) && !nonceUsed) {
+      nonceUsed = true;
+      poll = options.pollIntervalMs;
       endAt = Math.min(
         endAt,
         lastSend + options.nonceUsedGraceMs
       );
     }
-    return outcome;
   };
 
   if (start === 'clean') {
@@ -365,63 +501,83 @@ export async function runSettle(
         '[1Money SDK]: submitAndSettle was aborted before its first send; the transaction was not sent.'
       );
     }
-    const outcome = await send();
-    // The only send of H: a rejection proves no effect.
-    if (outcome.kind === 'rejected') {
-      throw new TransactionSubmissionError(
-        outcome.status,
-        outcome.data,
-        outcome.nodeMessage,
-        {
-          action: outcome.action,
-          problemType: outcome.problemType
-        }
-      );
-    }
-    state = stateAfterSend(outcome, state, hash);
+    await send('first');
   }
 
   for (;;) {
-    if (aborted()) {
-      throw stateError(state, hash, log.entries);
-    }
+    if (aborted()) throw end('aborted');
 
     const receipt = await deps.receipt(hash);
-    if (isReceiptFor(receipt, hash)) {
-      log.addRead('receipt', receipt, true);
-      return { transactionHash: hash, receipt };
-    }
-    log.addRead('receipt', receipt, false);
+    const settled = isReceiptFor(receipt, hash);
+    log.addRead('receipt', receipt, settled);
+    if (settled) return { transactionHash: hash, receipt };
     // The last poll runs at the end time itself: the
-    // deadline, or the end of the nonce grace window.
+    // deadline, or the nonce cap.
     if (deps.now() >= endAt) {
-      throw stateError(state, hash, log.entries);
+      throw end(nonceUsed ? 'nonce_used' : 'deadline');
     }
     let throttled = isThrottled(receipt);
+    // A 404 read in this pass: the next wait stays short.
+    let missed = false;
+    let probeDue = false;
 
-    if (state === 'unknown' && !throttled) {
-      const transaction = await deps.lookup(hash);
-      const found = isTransactionFor(transaction, hash);
-      log.addRead('lookup', transaction, found);
-      if (found) state = 'locked';
-      throttled = isThrottled(transaction);
+    if (nonceUsed) {
+      missed = readResult(receipt) === 'not_found';
+      misses = missed ? misses + 1 : 0;
+      if (misses >= MISSES_TO_END) throw end('nonce_used');
+    } else if (state !== 'locked') {
+      if (throttled) {
+        misses = 0;
+      } else {
+        const lookupStartedAt = deps.now();
+        const transaction = await deps.lookup(hash);
+        const found = isTransactionFor(transaction, hash);
+        log.addRead('lookup', transaction, found);
+        const result = found
+          ? 'found'
+          : readResult(transaction);
+        throttled = result === 'throttled';
+        missed = result === 'not_found';
+        const sinceSend = lookupStartedAt - lastSend;
+        if (found) {
+          lock();
+        } else if (!missed) {
+          misses = 0;
+        } else if (probes < MAX_PROBES) {
+          probeDue = sinceSend >= PROBE_GAPS_MS[probes];
+        } else if (sinceSend >= PROBE_GAPS_MS[0]) {
+          misses += 1;
+          if (misses >= MISSES_TO_END) {
+            throw end('not_found_after_probes');
+          }
+        }
+      }
     }
 
-    // The lookup can end after endAt: no send may start
-    // after it.
+    // One send per pass: a due probe and a due gate send
+    // are the same request. A read can end after endAt: no
+    // send may start after it.
     const sendCheckedAt = deps.now();
+    const gateDue = sendCheckedAt >= nextGateSendAt();
     if (
+      (probeDue || gateDue) &&
+      !nonceUsed &&
       !aborted() &&
-      sendCheckedAt < endAt &&
-      sendCheckedAt >= nextSendAt()
+      sendCheckedAt < endAt
     ) {
-      state = stateAfterSend(await send(), state, hash);
+      if (probeDue) probes += 1;
+      await send(gateDue ? 'gate' : 'probe');
     }
 
     let wait: number;
     if (throttled) {
+      throttledOnce = true;
       wait = options.throttleBackoffMs;
       poll = options.maxPollIntervalMs;
+    } else if (missed && !throttledOnce) {
+      // Probing, or counting 404s toward an early end:
+      // the probe gaps are whole poll intervals.
+      wait = options.pollIntervalMs;
     } else {
       wait = poll;
       poll = Math.min(
@@ -429,7 +585,7 @@ export async function runSettle(
         options.maxPollIntervalMs
       );
     }
-    // Wake for the next resend and for the deadline, so
+    // Wake for the next send and for the end time, so
     // that neither a long poll nor a back-off moves them.
     const now = deps.now();
     try {
@@ -438,14 +594,14 @@ export async function runSettle(
           0,
           Math.min(
             wait,
-            nextSendAt() - now,
+            nextGateSendAt() - now,
             endAt - now
           )
         ),
         options.signal
       );
     } catch {
-      throw stateError(state, hash, log.entries);
+      throw end('aborted');
     }
   }
 }
@@ -504,11 +660,15 @@ const defaultDeps: SettleDeps = {
 
 /**
  * Send a signed transaction that was never sent, and
- * resend the same signed bytes on the node's schedule until
- * its receipt appears. Throws TransactionSubmissionError
- * only when this first send is rejected before admission;
- * at the deadline or on abort, throws TransactionLockedError
- * or TransactionOutcomeUnknownError with every observation.
+ * resend the same signed bytes until its receipt appears.
+ * Throws TransactionSubmissionError when the first send
+ * gets any 4xx but 408 and in_progress, or when, before any
+ * node is known to have admitted it, a send is refused for
+ * its signed bytes. Otherwise ends with
+ * TransactionLockedError or TransactionOutcomeUnknownError,
+ * with `endReason` and every observation. Signed bytes that
+ * may have been sent before go to `settle`: this function
+ * trusts that they were not.
  */
 export function submitAndSettle(
   authorized: AuthorizedTxV2,
@@ -524,10 +684,12 @@ export function submitAndSettle(
 
 /**
  * Find the state of a signed transaction that was sent
- * before, and resend the same signed bytes on the node's
- * schedule until its receipt appears. Never throws
- * TransactionSubmissionError: a rejected resend says
- * nothing about the earlier send.
+ * before, and resend the same signed bytes until its
+ * receipt appears. Throws TransactionSubmissionError only
+ * when, before any node is known to have admitted it, a
+ * send is refused for its signed bytes: any other refusal
+ * says nothing about the earlier send. Otherwise ends like
+ * `submitAndSettle`.
  */
 export function settle(
   authorized: AuthorizedTxV2,

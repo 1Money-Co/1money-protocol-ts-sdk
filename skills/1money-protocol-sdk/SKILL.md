@@ -66,7 +66,8 @@ typed-data helpers, signer/types), the
 v2 write errors (`TransactionSubmissionError`, `TransactionLockedError`,
 `TransactionOutcomeUnknownError`, `TransactionHashMismatchError`), the settle
 helpers (`submitAndSettle`, `settle`, also on `client.transactions`) with their
-types (`SettleOptions`, `SettledTransaction`, `SettleObservation`), the
+types (`SettleOptions`, `SettledTransaction`, `SettleObservation`,
+`SettleEndReason`), the
 error-body types `ApiProblem` and `ClientAction`, and `client`.
 
 Enums (`AuthorityType`, `AuthorityAction`, `ManageListAction`, `PauseAction`)
