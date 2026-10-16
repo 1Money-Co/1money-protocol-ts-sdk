@@ -82,6 +82,12 @@ const RETRY_LATER: SubmitOutcome = {
   problemType: `${TYPE_PREFIX}submit_queue_full`
 };
 
+// A resend every 70 s until the 900 s deadline.
+const RESEND_TIMES = Array.from(
+  { length: 13 },
+  (_, k) => k * 70_000
+);
+
 // The value `get()` gives for a 404 (src/client/core.ts).
 function readError(status: number, data: unknown) {
   return {
@@ -369,15 +375,13 @@ describe('runSettle', function () {
   });
 
   describe('schedule', function () {
-    it('resends on the node retry gate: 70 s x k after send k, five times in the deadline', async function () {
+    it('resends every 70 s until the deadline', async function () {
       const f = fakeDeps({ send: () => LOCKED });
       await caught(
         runSettle(AUTHORIZED, 'clean', {}, f.deps)
       );
 
-      expect(f.sends).to.deep.equal([
-        0, 70_000, 210_000, 420_000, 700_000
-      ]);
+      expect(f.sends).to.deep.equal(RESEND_TIMES);
     });
 
     it('polls from 1 s, doubling to 10 s', async function () {
@@ -467,7 +471,7 @@ describe('runSettle', function () {
       ).to.equal(GRACE);
     });
 
-    it('ends locked when a lookup had found it', async function () {
+    it('ends unknown, not locked, after a nonce answer even when a lookup had found it', async function () {
       const f = fakeDeps({
         send: index =>
           index === 0 ? ACCEPTED : NONCE_TOO_LOW,
@@ -478,8 +482,9 @@ describe('runSettle', function () {
       );
 
       expect(error).to.be.instanceOf(
-        TransactionLockedError
+        TransactionOutcomeUnknownError
       );
+      expect(error).to.have.property('endReason', 'nonce_used');
       expect(f.sends).to.deep.equal([0, 70_000]);
       // Three receipt 404s after the nonce answer.
       expect(f.receipts.slice(-3)).to.deep.equal([
@@ -636,9 +641,7 @@ describe('runSettle', function () {
           runSettle(AUTHORIZED, 'sent', {}, f.deps)
         );
 
-        expect(f.sends).to.deep.equal([
-          0, 70_000, 210_000, 420_000, 700_000
-        ]);
+        expect(f.sends).to.deep.equal(RESEND_TIMES);
       });
     }
 
@@ -764,10 +767,25 @@ describe('runSettle', function () {
             if (used >= 0) {
               expect(f.sends).to.have.length(used + 1);
             }
-            // At most three probes: the gate allows no send
-            // between the first one and 70 s.
+            // A throttled send delivers nothing.
+            const delivered = f.sends.filter(
+              (_, index) =>
+                !(
+                  answer(index).kind === 'rejected' &&
+                  (answer(index) === RETRY_LATER ||
+                    (answer(index) as { status?: number })
+                      .status === 429)
+                )
+            );
+            // At most three delivered probes: no gate send
+            // is due within 70 s of the first delivered send.
+            const firstDelivered = delivered[0] ?? 0;
             expect(
-              f.sends.filter(t => t > 0 && t < 70_000)
+              delivered.filter(
+                t =>
+                  t > firstDelivered &&
+                  t < firstDelivered + 70_000
+              )
             ).to.have.length.at.most(3);
 
             const observations = observationsOf(error);
@@ -778,19 +796,22 @@ describe('runSettle', function () {
                 (o.request === 'send' &&
                   o.result === 'locked')
             );
+            const reason = (error as { endReason?: unknown })
+              .endReason;
             expect(error).to.be.instanceOf(
-              lockedSeen
+              lockedSeen && reason !== 'nonce_used'
                 ? TransactionLockedError
                 : TransactionOutcomeUnknownError
             );
-            const reason = (error as { endReason?: unknown })
-              .endReason;
             expect([
               'deadline',
               'nonce_used',
               'not_found_after_probes'
             ]).to.include(reason);
             if (reason === 'not_found_after_probes') {
+              // The first send and three probes reached a
+              // node.
+              expect(delivered).to.have.length.at.least(4);
               const lastLookups = observations
                 .filter(o => o.request === 'lookup')
                 .slice(-3);
@@ -807,7 +828,7 @@ describe('runSettle', function () {
             }
           }
         ),
-        { numRuns: 500 }
+        { numRuns: 2000 }
       );
     });
   });
@@ -927,9 +948,100 @@ describe('runSettle', function () {
       );
       // Every pass is throttled (60 s back-off), and the
       // resends still go out exactly on the gate.
-      expect(f.sends).to.deep.equal([
-        0, 70_000, 210_000, 420_000, 700_000
+      expect(f.sends).to.deep.equal(RESEND_TIMES);
+    });
+  });
+
+  describe('throttling (429 or retry_later on a send)', function () {
+    const FIREWALL_429: SubmitOutcome = {
+      kind: 'rejected',
+      refusal: 'request',
+      status: 429,
+      data: '<html>Too Many Requests</html>',
+      nodeMessage: 'Request failed with status code 429'
+    };
+
+    it('counts a throttled send as not delivered: no early end, a send every 60 s', async function () {
+      const f = fakeDeps({ send: () => RETRY_LATER });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'sent', {}, f.deps)
+      );
+
+      expect(error).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
+      expect(error).to.have.property('endReason', 'deadline');
+      expect(f.sends).to.deep.equal(
+        Array.from({ length: 15 }, (_, k) => k * 60_000)
+      );
+    });
+
+    it('holds a probe for 60 s after a throttled probe, then probes and ends early', async function () {
+      const f = fakeDeps({
+        send: index => (index === 1 ? FIREWALL_429 : ACCEPTED)
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.have.property(
+        'endReason',
+        'not_found_after_probes'
+      );
+      expect(f.sends.slice(0, 3)).to.deep.equal([
+        0, 1_000, 61_000
       ]);
+      // The first send and three delivered probes.
+      expect(f.sends).to.have.length(5);
+      // During the hold a 404 does not speed up the polls.
+      expect(
+        f.lookups.filter(t => t > 1_000 && t < 61_000)
+      ).to.have.length.at.most(10);
+    });
+
+    it('counts a 429 that asks to check the status as delivered', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 1
+            ? {
+                kind: 'unknown',
+                status: 429,
+                data: {},
+                action: 'check_status'
+              }
+            : ACCEPTED
+      });
+      const error = await caught(
+        runSettle(AUTHORIZED, 'clean', {}, f.deps)
+      );
+
+      expect(error).to.have.property(
+        'endReason',
+        'not_found_after_probes'
+      );
+      expect(f.sends).to.deep.equal([
+        0, 1_000, 3_000, 7_000
+      ]);
+    });
+
+    it('resends 60 s after a throttled gate send, and keeps polling the receipt', async function () {
+      const f = fakeDeps({
+        send: index => (index === 1 ? FIREWALL_429 : LOCKED),
+        receipt: t => (t >= 150_000 ? RECEIPT : NOT_FOUND)
+      });
+      const settled = await runSettle(
+        AUTHORIZED,
+        'clean',
+        {},
+        f.deps
+      );
+
+      expect(settled.receipt).to.deep.equal(RECEIPT);
+      expect(f.sends).to.deep.equal([0, 70_000, 130_000]);
+      const gaps = f.receipts
+        .slice(1)
+        .map((t, i) => t - f.receipts[i]);
+      expect(Math.max(...gaps)).to.be.at.most(10_000);
     });
   });
 
@@ -955,7 +1067,7 @@ describe('runSettle', function () {
         runSettle(authorized, 'clean', {}, f.deps)
       );
 
-      expect(f.sends).to.have.length(5);
+      expect(f.sends).to.have.length(13);
       expect(new Set(f.sentBodies)).to.have.lengthOf(1);
       expect(f.sentBodies[0]).to.equal(
         JSON.stringify([
@@ -990,7 +1102,7 @@ describe('runSettle', function () {
         runSettle(authorized, 'clean', {}, f.deps)
       );
 
-      expect(f.sends).to.have.length(5);
+      expect(f.sends).to.have.length(13);
       expect(new Set(f.sentBodies)).to.have.lengthOf(1);
       expect(f.sentBodies[0]).to.include('"r":"0x01"');
     });
@@ -1514,9 +1626,7 @@ describe('runSettle (R2)', function () {
       );
 
       expect(endReasonOf(error)).to.equal('deadline');
-      expect(f.sends).to.deep.equal([
-        0, 70_000, 210_000, 420_000, 700_000
-      ]);
+      expect(f.sends).to.deep.equal(RESEND_TIMES);
     });
 
     it('starts the miss count again after a failed lookup', async function () {
@@ -1552,7 +1662,7 @@ describe('runSettle (R2)', function () {
       expect(endReasonOf(error)).to.equal('deadline');
       // The gate schedule starts again when locked (8 s).
       expect(f.sends.slice(4, 6)).to.deep.equal([
-        78_000, 218_000
+        78_000, 148_000
       ]);
     });
 
@@ -1564,9 +1674,7 @@ describe('runSettle (R2)', function () {
 
       expect(error).to.be.instanceOf(TransactionLockedError);
       expect(f.lookups).to.deep.equal([]);
-      expect(f.sends).to.deep.equal([
-        0, 70_000, 210_000, 420_000, 700_000
-      ]);
+      expect(f.sends).to.deep.equal(RESEND_TIMES);
     });
 
     it('settle resends at once, then probes', async function () {
@@ -1644,7 +1752,7 @@ describe('runSettle (R2)', function () {
       );
     });
 
-    it('ends locked with nonce_used when the first send was locked', async function () {
+    it('ends unknown with nonce_used when the first send was locked', async function () {
       const f = fakeDeps({
         send: index => (index === 0 ? LOCKED : NONCE_TOO_LOW)
       });
@@ -1652,7 +1760,9 @@ describe('runSettle (R2)', function () {
         runSettle(AUTHORIZED, 'clean', {}, f.deps)
       );
 
-      expect(error).to.be.instanceOf(TransactionLockedError);
+      expect(error).to.be.instanceOf(
+        TransactionOutcomeUnknownError
+      );
       expect(endReasonOf(error)).to.equal('nonce_used');
       expect(f.sends).to.deep.equal([0, 70_000]);
     });
@@ -1855,9 +1965,7 @@ describe('runSettle (R2)', function () {
         TransactionOutcomeUnknownError
       );
       expect(endReasonOf(error)).to.equal('deadline');
-      expect(f.sends).to.deep.equal([
-        0, 70_000, 210_000, 420_000, 700_000
-      ]);
+      expect(f.sends).to.deep.equal(RESEND_TIMES);
     });
 
     it('ends nothing on a refusal of the bytes after a 2xx: nodes disagree', async function () {

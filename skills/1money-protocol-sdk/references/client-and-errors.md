@@ -302,10 +302,15 @@ not change what they send. No send starts after the deadline.
   probes, three `404` lookups in a row end the run with
   `TransactionOutcomeUnknownError` and `endReason: 'not_found_after_probes'`,
   about 10 s after the first send. A failed or rate-limited read never counts.
-- **Resends** follow the node's retry gate in every state: send k+1 goes out
-  `resendIntervalMs × k` after send k (default 70 000 ms); the count starts
-  again once the transaction is locked. A resend of the same bytes can never
-  execute twice.
+- **Resends** go out every `resendIntervalMs` (default 70 000 ms) in every
+  state, from the last delivered resend or from the moment the transaction
+  became locked: a rebroadcast helps only after peers forget the last one (60 s
+  gossip duplicate cache + 10 s publish queue). A resend of the same bytes can
+  never execute twice.
+- **Throttled sends:** a later send answered `429` or `retry_later` delivered
+  nothing. It does not count as a probe or a resend, and no send goes out for
+  `throttleBackoffMs` (60 000 ms); the receipt polls go on. A run whose sends
+  keep being throttled ends at the deadline, not after the probes.
 - **Polls** start at `pollIntervalMs` (1 000 ms) and double to
   `maxPollIntervalMs` (10 000 ms); right after a `404` read the next poll
   comes after `pollIntervalMs`. A read answered `429` or `retry_later` waits
@@ -317,10 +322,12 @@ not change what they send. No send starts after the deadline.
   reads only the receipt. Three receipt `404`s in a row end the run with
   `endReason: 'nonce_used'`; `nonceUsedGraceMs` (70 000 ms) is the limit when
   the reads keep failing. It never says "rejected": a missing receipt can be a
-  node that is behind. Do not sign the intent again until you know whether
-  this hash executed.
+  node that is behind. It ends with `TransactionOutcomeUnknownError` even when
+  a node held the transaction, because a resend can no longer help. Do not
+  sign the intent again until you know whether this hash executed.
 - **Other ends:** at `deadlineMs` (900 000 ms) or on `signal` abort, it throws
-  `TransactionLockedError` or `TransactionOutcomeUnknownError`. Both carry
+  `TransactionLockedError` (never for `nonce_used`) or
+  `TransactionOutcomeUnknownError`. Both carry
   `endReason` (`deadline`, `nonce_used`, `not_found_after_probes`, `aborted`)
   and `observations` (at most 200, numbered by `seq`; send entries carry the
   node's `message`). Exception: when the signal is already aborted,

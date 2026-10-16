@@ -77,11 +77,11 @@ not change what they send. No send starts after the deadline.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `resendIntervalMs` | 70 000 | Send k+1 goes out `resendIntervalMs × k` after send k (the node's retry gate: 70, 140, 210, 280 s apart) |
+| `resendIntervalMs` | 70 000 | Gap between resends: a rebroadcast helps only after peers forget the last one (60 s gossip duplicate cache + 10 s publish queue) |
 | `pollIntervalMs` | 1 000 | First receipt poll interval; it doubles each poll, except right after a `404` read (see below) |
 | `maxPollIntervalMs` | 10 000 | Upper bound of the poll interval |
 | `deadlineMs` | 900 000 | Stop and throw the error for the last known state |
-| `throttleBackoffMs` | 60 000 | Wait after a lookup answered `429` or `retry_later` (a firewall allows about 120 reads per minute per IP address) |
+| `throttleBackoffMs` | 60 000 | Wait after a read answered `429` or `retry_later` (a firewall allows about 120 reads per minute per IP address), and the hold on sends after a send answered `429` or `retry_later` |
 | `nonceUsedGraceMs` | 70 000 | After a send answered `nonce_too_low`: the longest wait for the receipt when the receipt reads keep failing |
 | `signal` | — | An `AbortSignal`; abort throws the error for the last known state |
 
@@ -119,13 +119,19 @@ Outcomes:
   means the nonce is used. No send can help, so the helper stops sending and
   reads only the receipt: three receipt `404`s in a row end the run with
   `endReason: 'nonce_used'` (about 3 s); `nonceUsedGraceMs` is the limit when
-  the reads keep failing. It never reports "rejected" here.
-- **Resends** follow the node's retry gate (`resendIntervalMs × k`) in every
-  state; the count starts again once the transaction is locked.
+  the reads keep failing. It never reports "rejected" here, and it ends with
+  `TransactionOutcomeUnknownError` even when a node held the transaction: once
+  the nonce is used, a resend cannot help.
+- **Resends** go out every `resendIntervalMs` in every state, from the last
+  delivered resend or from the moment the transaction became locked.
+- **Throttled sends:** a later send answered `429` or `retry_later` delivered
+  nothing. It does not count as a probe or a resend, and no send goes out for
+  `throttleBackoffMs`; the receipt polls go on. So a run whose sends keep being
+  throttled ends at the deadline, not after the probes.
 - If the signal is already aborted, `submitAndSettle` throws a plain `Error`
   and sends nothing.
-- **Other ends:** `TransactionLockedError` (a node holds the transaction) or
-  `TransactionOutcomeUnknownError`, each with `endReason` (`deadline`,
+- **Other ends:** `TransactionLockedError` (a node holds the transaction;
+  never for `nonce_used`) or `TransactionOutcomeUnknownError`, each with `endReason` (`deadline`,
   `nonce_used`, `not_found_after_probes`, `aborted`) and `observations`, the
   requests and answers of the run (at most 200, numbered by `seq`; a send
   entry carries the node's `message`). Neither error makes it safe to sign
