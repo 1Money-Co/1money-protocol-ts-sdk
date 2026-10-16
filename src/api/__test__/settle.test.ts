@@ -659,6 +659,10 @@ describe('runSettle', function () {
         ...REJECTED,
         refusal: 'bytes'
       };
+      const EMPTY_429: SubmitOutcome = {
+        kind: 'unknown',
+        status: 429
+      };
       const CHECK_STATUS_4XX: SubmitOutcome = {
         kind: 'unknown',
         status: 409,
@@ -675,7 +679,8 @@ describe('runSettle', function () {
         RETRY_LATER,
         LEGACY_STATE_REFUSAL,
         BYTES,
-        CHECK_STATUS_4XX
+        CHECK_STATUS_4XX,
+        EMPTY_429
       ];
       const FOUND = { hash: HASH };
       const reads = [
@@ -768,15 +773,13 @@ describe('runSettle', function () {
               expect(f.sends).to.have.length(used + 1);
             }
             // A throttled send delivers nothing.
-            const delivered = f.sends.filter(
-              (_, index) =>
-                !(
-                  answer(index).kind === 'rejected' &&
-                  (answer(index) === RETRY_LATER ||
-                    (answer(index) as { status?: number })
-                      .status === 429)
-                )
-            );
+            const delivered = f.sends.filter((_, index) => {
+              const o = answer(index);
+              return !(
+                (o.kind === 'rejected' || o.kind === 'unknown') &&
+                (o.status === 429 || o.action === 'retry_later')
+              );
+            });
             // At most three delivered probes: no gate send
             // is due within 70 s of the first delivered send.
             const firstDelivered = delivered[0] ?? 0;
@@ -999,29 +1002,115 @@ describe('runSettle', function () {
       ).to.have.length.at.most(10);
     });
 
-    it('counts a 429 that asks to check the status as delivered', async function () {
+    it('holds after any 429 on a send: with no body, or with check_status', async function () {
+      for (const throttled of [
+        { kind: 'unknown', status: 429 },
+        {
+          kind: 'unknown',
+          status: 429,
+          data: {},
+          action: 'check_status'
+        }
+      ] as SubmitOutcome[]) {
+        const f = fakeDeps({
+          send: index => (index === 1 ? throttled : ACCEPTED)
+        });
+        const error = await caught(
+          runSettle(AUTHORIZED, 'clean', {}, f.deps)
+        );
+
+        expect(error).to.have.property(
+          'endReason',
+          'not_found_after_probes'
+        );
+        expect(f.sends.slice(0, 3)).to.deep.equal([
+          0, 1_000, 61_000
+        ]);
+      }
+    });
+
+    it('holds a send for the node retry_after_secs when it sends one', async function () {
       const f = fakeDeps({
         send: index =>
           index === 1
-            ? {
-                kind: 'unknown',
-                status: 429,
-                data: {},
-                action: 'check_status'
-              }
+            ? { ...RETRY_LATER, data: { retry_after_secs: 5 } }
             : ACCEPTED
       });
-      const error = await caught(
+      await caught(
         runSettle(AUTHORIZED, 'clean', {}, f.deps)
       );
 
-      expect(error).to.have.property(
-        'endReason',
-        'not_found_after_probes'
-      );
-      expect(f.sends).to.deep.equal([
-        0, 1_000, 3_000, 7_000
+      expect(f.sends.slice(0, 3)).to.deep.equal([
+        0, 1_000, 6_000
       ]);
+    });
+
+    it('ignores a retry_after_secs that is not a positive number', async function () {
+      for (const value of [0, -5, '5', Number.NaN]) {
+        const f = fakeDeps({
+          send: index =>
+            index === 1
+              ? {
+                  ...RETRY_LATER,
+                  data: { retry_after_secs: value }
+                }
+              : ACCEPTED
+        });
+        await caught(
+          runSettle(AUTHORIZED, 'clean', {}, f.deps)
+        );
+
+        expect(f.sends[2]).to.equal(61_000);
+      }
+    });
+
+    it('locks on an in_progress answer even with a 429 status', async function () {
+      const f = fakeDeps({
+        send: index =>
+          index === 0 ? ACCEPTED : { ...LOCKED, status: 429 },
+        receipt: t => (t >= 75_000 ? RECEIPT : NOT_FOUND)
+      });
+      await runSettle(AUTHORIZED, 'clean', {}, f.deps);
+
+      // Locked by the probe at 1 s: no more probes, no hold.
+      expect(f.sends).to.deep.equal([0, 1_000, 71_000]);
+    });
+
+    it('waits the node retry_after_secs after a throttled lookup', async function () {
+      const f = fakeDeps({
+        send: () => ACCEPTED,
+        lookup: t =>
+          t === 0
+            ? readError(429, {
+                type: `${TYPE_PREFIX}rate_limited`,
+                action: 'retry_later',
+                retry_after_secs: 4
+              })
+            : { hash: HASH },
+        receipt: t => (t >= 5_000 ? RECEIPT : NOT_FOUND)
+      });
+      await runSettle(AUTHORIZED, 'clean', {}, f.deps);
+
+      expect(f.lookups.slice(0, 2)).to.deep.equal([0, 4_000]);
+    });
+
+    it('waits the node retry_after_secs after a throttled read', async function () {
+      const f = fakeDeps({
+        send: () => LOCKED,
+        receipt: t =>
+          t === 0
+            ? readError(429, {
+                type: `${TYPE_PREFIX}rate_limited`,
+                action: 'retry_later',
+                retry_after_secs: 7
+              })
+            : t >= 7_000
+              ? RECEIPT
+              : NOT_FOUND
+      });
+      await runSettle(AUTHORIZED, 'clean', {}, f.deps);
+
+      expect(f.receipts.slice(0, 2)).to.deep.equal([0, 7_000]);
     });
 
     it('resends 60 s after a throttled gate send, and keeps polling the receipt', async function () {

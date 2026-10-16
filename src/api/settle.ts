@@ -29,7 +29,7 @@ export interface SettleOptions {
   maxPollIntervalMs?: number;
   deadlineMs?: number;
   // The wait after a read or a send answered 429 or
-  // retry_later.
+  // retry_later, when the answer has no `retry_after_secs`.
   throttleBackoffMs?: number;
   // The longest wait for the receipt after a send answered
   // nonce_too_low, when the receipt reads keep failing. No
@@ -171,6 +171,20 @@ function isThrottled(value: unknown): boolean {
     ownMember(value, 'status') === 429 ||
     readProblem(bodyOf(value)).action === 'retry_later'
   );
+}
+
+// The wait after a throttled answer: the node's own
+// `retry_after_secs` when it sends one, else the fallback.
+function throttleWaitMs(
+  value: unknown,
+  fallbackMs: number
+): number {
+  const seconds = ownMember(bodyOf(value), 'retry_after_secs');
+  return typeof seconds === 'number' &&
+    Number.isFinite(seconds) &&
+    seconds > 0
+    ? Math.min(seconds * 1_000, MAX_TIMER_MS)
+    : fallbackMs;
 }
 
 function resolveOptions(
@@ -356,10 +370,20 @@ function stateError(
 }
 
 // A send that the node or the firewall turned away for
-// now: it had no effect, so it delivered nothing.
-function isThrottledSend(outcome: SubmitOutcome): boolean {
+// now: it delivered nothing. Any 429 counts, with or
+// without a body: counting a throttled send as delivered
+// could end a run early on false evidence, while the
+// reverse only delays a resend. A locked answer proves
+// that a node holds H, so it always counts.
+function isThrottledSend(
+  outcome: SubmitOutcome
+): outcome is Extract<
+  SubmitOutcome,
+  { kind: 'rejected' | 'unknown' }
+> {
   return (
-    outcome.kind === 'rejected' &&
+    (outcome.kind === 'rejected' ||
+      outcome.kind === 'unknown') &&
     (outcome.status === 429 ||
       outcome.action === 'retry_later')
   );
@@ -482,7 +506,12 @@ export async function runSettle(
     );
     if (refusal !== undefined) throw refusal;
     if (isThrottledSend(outcome)) {
-      sendHoldUntil = sentAt + options.throttleBackoffMs;
+      sendHoldUntil =
+        sentAt +
+        throttleWaitMs(
+          outcome.data,
+          options.throttleBackoffMs
+        );
       return false;
     }
     lastSend = sentAt;
@@ -530,6 +559,10 @@ export async function runSettle(
       throw end(nonceUsed ? 'nonce_used' : 'deadline');
     }
     let throttled = isThrottled(receipt);
+    let throttleWait = throttleWaitMs(
+      receipt,
+      options.throttleBackoffMs
+    );
     // A 404 read in this pass: the next wait stays short.
     let missed = false;
     let probeDue = false;
@@ -550,6 +583,10 @@ export async function runSettle(
           ? 'found'
           : readResult(transaction);
         throttled = result === 'throttled';
+        throttleWait = throttleWaitMs(
+          transaction,
+          options.throttleBackoffMs
+        );
         missed = result === 'not_found';
         const sinceSend = lookupStartedAt - lastSend;
         if (found) {
@@ -596,7 +633,7 @@ export async function runSettle(
     let wait: number;
     if (throttled) {
       throttledOnce = true;
-      wait = options.throttleBackoffMs;
+      wait = throttleWait;
       poll = options.maxPollIntervalMs;
     } else if (missed && !throttledOnce && !holding) {
       // Probing, or counting 404s toward an early end:

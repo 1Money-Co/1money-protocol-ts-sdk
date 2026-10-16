@@ -307,14 +307,16 @@ not change what they send. No send starts after the deadline.
   became locked: a rebroadcast helps only after peers forget the last one (60 s
   gossip duplicate cache + 10 s publish queue). A resend of the same bytes can
   never execute twice.
-- **Throttled sends:** a later send answered `429` or `retry_later` delivered
-  nothing. It does not count as a probe or a resend, and no send goes out for
-  `throttleBackoffMs` (60 000 ms); the receipt polls go on. A run whose sends
+- **Throttled sends:** a later send answered `429` (with or without a body)
+  or `retry_later` delivered nothing. It does not count as a probe or a resend,
+  and no send goes out for the node's `retry_after_secs`, or
+  `throttleBackoffMs` (60 000 ms) without it; the receipt polls go on. A run whose sends
   keep being throttled ends at the deadline, not after the probes.
 - **Polls** start at `pollIntervalMs` (1 000 ms) and double to
   `maxPollIntervalMs` (10 000 ms); right after a `404` read the next poll
   comes after `pollIntervalMs`. A read answered `429` or `retry_later` waits
-  `throttleBackoffMs` (60 000 ms), and for the rest of the run `404`s no
+  the node's `retry_after_secs`, or `throttleBackoffMs` (60 000 ms) without it,
+  and for the rest of the run `404`s no
   longer shorten the wait: a firewall in front of the node blocks an IP address
   above about 120 reads per minute.
 - **`nonce_too_low`** (the problem type, or a released node's fixed nonce text)
