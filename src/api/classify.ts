@@ -57,10 +57,6 @@ export type SubmitOutcome =
       problemType?: string;
       // A released node's text says the nonce is used.
       nonceUsed?: true;
-      // A released node's 422 business_transaction_failed
-      // whose reason is not pinned: most often a state
-      // refusal (balance, pause, limits).
-      legacyUnpinned?: true;
     };
 
 // A REST-layer 408 can follow a successful admission:
@@ -167,7 +163,6 @@ function unknownOutcome(
     action?: unknown;
     problemType?: string;
     nonceUsed?: true;
-    legacyUnpinned?: true;
   }
 ): SubmitOutcome {
   const outcome: SubmitOutcome = { kind: 'unknown' };
@@ -291,17 +286,11 @@ export function classifySubmitResponse(
       errorCodeOf(response) ===
         LEGACY_AMBIGUOUS_ERROR_CODE;
     if (legacyAmbiguous) {
-      return (
-        legacyOutcome(response) ??
-        unknownOutcome(
-          response,
-          response.status,
-          response.data,
-          { legacyUnpinned: true }
-        )
-      );
+      const legacy = legacyOutcome(response);
+      if (legacy !== undefined) return legacy;
     }
     if (
+      !legacyAmbiguous &&
       response.status !==
         AMBIGUOUS_CLIENT_ERROR_STATUS &&
       response.status >= 400 &&

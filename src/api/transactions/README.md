@@ -89,17 +89,17 @@ Outcomes:
 
 - Resolves when the receipt for the hash exists.
 - **First send of `submitAndSettle`:** classified like a single send
-  (`payment()` and the other submit methods). A rejection throws
-  `TransactionSubmissionError` at once, with the node's message, except
-  `retry_later`: the helper settles instead. Every other answer, `nonce_too_low`
-  and `check_status` included, goes on to settle from that answer, with no
-  resend at once. The SDK uses no history from before the call.
-- **Released nodes (no problem details):** a `422` `business_transaction_failed`
-  to the first send whose reason the SDK does not pin (most often a state
-  refusal, such as too little balance) also throws `TransactionSubmissionError`
-  at once. Only this rule trusts that the signed bytes were never sent: send
-  bytes that may have been sent with `settle`. It goes away once every node
-  sends problem details.
+  (`payment()` and the other submit methods). A rejected answer (`fix_request`,
+  `retry_later`, `use_other_node`, or a `4xx` such as a firewall `429`) throws
+  `TransactionSubmissionError` at once, with the node's message. Every other
+  answer, `nonce_too_low` and `check_status` included, goes on to settle from
+  that answer, with no resend at once. The helper uses no history from before
+  the call.
+- **Nodes without problem details** (released nodes): their state refusals
+  (`422` `business_transaction_failed`, for example too little balance) read as
+  unknown, so the helper settles and ends after about 10 s with
+  `TransactionOutcomeUnknownError`. Use the helpers with nodes that send
+  problem details.
 - **A refusal of the signed bytes** (bad signature, wrong chain id, bad memo,
   and other checks of the bytes alone) throws `TransactionSubmissionError` on
   any send of either helper, while no node is known to have admitted the

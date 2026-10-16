@@ -643,15 +643,14 @@ describe('runSettle', function () {
     }
 
     it('keeps the R2 rules for any answers and lookups (property)', async function () {
-      const LEGACY_UNPINNED: SubmitOutcome = {
+      const LEGACY_STATE_REFUSAL: SubmitOutcome = {
         kind: 'unknown',
         status: 422,
         data: {
           error_code: 'business_transaction_failed',
           message:
             'Transaction processing failed: insufficient balance'
-        },
-        legacyUnpinned: true
+        }
       };
       const BYTES: SubmitOutcome = {
         ...REJECTED,
@@ -671,7 +670,7 @@ describe('runSettle', function () {
         LEGACY_NONCE_TOO_LOW,
         REJECTED,
         RETRY_LATER,
-        LEGACY_UNPINNED,
+        LEGACY_STATE_REFUSAL,
         BYTES,
         CHECK_STATUS_4XX
       ];
@@ -733,24 +732,15 @@ describe('runSettle', function () {
                     lookupAnswer(k) === FOUND
                 ));
             // The only answers that end a run as rejected:
-            // (a) a rejection of the first send, except
-            // retry_later; (b) a released node's unpinned
-            // 422 to the first send; (c) a refusal of the
-            // bytes while no node is known to have
-            // admitted the transaction.
+            // (a) any rejection of the first send; (b) a
+            // refusal of the bytes while no node is known
+            // to have admitted the transaction.
             const endsRejected = (i: number) => {
               const o = answer(i);
-              const first = start === 'clean' && i === 0;
               return (
-                (first &&
-                  o.kind === 'rejected' &&
-                  o.action !== 'retry_later') ||
-                (first &&
-                  o.kind === 'unknown' &&
-                  o.legacyUnpinned === true) ||
-                (o.kind === 'rejected' &&
-                  o.refusal === 'bytes' &&
-                  !admittedBefore(i))
+                o.kind === 'rejected' &&
+                ((start === 'clean' && i === 0) ||
+                  (o.refusal === 'bytes' && !admittedBefore(i)))
               );
             };
 
@@ -1188,8 +1178,7 @@ describe('runSettle (R2)', function () {
       error_code: 'business_transaction_failed',
       message:
         'Transaction processing failed: Execution admission denied: token process error: TokenProcessError: mint_address: 0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed, error: Transfer failed: insufficient balance in source account'
-    },
-    legacyUnpinned: true
+    }
   };
   const BYTES_REFUSAL: SubmitOutcome = {
     kind: 'rejected',
@@ -1231,53 +1220,21 @@ describe('runSettle (R2)', function () {
   }
 
   describe('first send of submitAndSettle (#63)', function () {
-    it('throws TransactionSubmissionError at once for a legacy state refusal, with the node text (UC17)', async function () {
-      const f = fakeDeps({ send: () => STATE_REFUSAL });
-      const error = await caught(
-        runSettle(AUTHORIZED, 'clean', {}, f.deps)
-      );
-
-      expect(error).to.be.instanceOf(
-        TransactionSubmissionError
-      );
-      expect((error as Error).message).to.include(
-        'insufficient balance in source account'
-      );
-      expect(
-        (error as TransactionSubmissionError).status
-      ).to.equal(422);
-      expect(f.sends).to.deep.equal([0]);
-      expect(f.receipts).to.deep.equal([]);
-      expect(f.lookups).to.deep.equal([]);
-    });
-
-    it('names the refusal when a legacy unpinned 422 has no message', async function () {
-      const f = fakeDeps({
-        send: () => ({
-          ...STATE_REFUSAL,
-          data: { error_code: 'business_transaction_failed' }
-        })
-      });
-      const error = await caught(
-        runSettle(AUTHORIZED, 'clean', {}, f.deps)
-      );
-
-      expect(error).to.be.instanceOf(
-        TransactionSubmissionError
-      );
-      expect((error as Error).message).to.include(
-        'the node refused the first send'
-      );
-    });
-
-    it('throws TransactionSubmissionError at once for fix_request and use_other_node', async function () {
-      for (const action of [
-        'fix_request',
-        'use_other_node'
-      ] as const) {
-        const f = fakeDeps({
-          send: () => ({ ...REJECTED, action })
-        });
+    it('throws TransactionSubmissionError at once for every rejection, with the node text', async function () {
+      const FIREWALL_429: SubmitOutcome = {
+        kind: 'rejected',
+        refusal: 'request',
+        status: 429,
+        data: '<html>Too Many Requests</html>',
+        nodeMessage: 'Request failed with status code 429'
+      };
+      for (const outcome of [
+        REJECTED,
+        { ...REJECTED, action: 'use_other_node' },
+        RETRY_LATER,
+        FIREWALL_429
+      ] as SubmitOutcome[]) {
+        const f = fakeDeps({ send: () => outcome });
         const error = await caught(
           runSettle(AUTHORIZED, 'clean', {}, f.deps)
         );
@@ -1285,30 +1242,23 @@ describe('runSettle (R2)', function () {
         expect(error).to.be.instanceOf(
           TransactionSubmissionError
         );
-        expect(error).to.have.property('action', action);
+        if (outcome.kind !== 'rejected') {
+          throw new Error('fixture is not rejected');
+        }
+        expect(error).to.include({
+          status: outcome.status,
+          action: outcome.action
+        });
+        expect((error as Error).message).to.include(
+          outcome.nodeMessage
+        );
         expect(f.sends).to.deep.equal([0]);
         expect(f.receipts).to.deep.equal([]);
       }
     });
 
-    it('settles after retry_later: probes about 1 s later, and resolves', async function () {
-      const f = fakeDeps({
-        send: index => (index === 0 ? RETRY_LATER : ACCEPTED),
-        receipt: t => (t >= 2_000 ? RECEIPT : NOT_FOUND)
-      });
-      const settled = await runSettle(
-        AUTHORIZED,
-        'clean',
-        {},
-        f.deps
-      );
-
-      expect(settled.receipt).to.deep.equal(RECEIPT);
-      expect(f.sends).to.deep.equal([0, 1_000]);
-    });
-
-    it('ends unknown, not rejected, when every send answers retry_later', async function () {
-      const f = fakeDeps({ send: () => RETRY_LATER });
+    it('settles after a released node state refusal: it reads as unknown (UC17)', async function () {
+      const f = fakeDeps({ send: () => STATE_REFUSAL });
       const error = await caught(
         runSettle(AUTHORIZED, 'clean', {}, f.deps)
       );
@@ -1322,6 +1272,9 @@ describe('runSettle (R2)', function () {
       expect(f.sends).to.deep.equal([
         0, 1_000, 3_000, 7_000
       ]);
+      expect(observationsOf(error)[0].message).to.include(
+        'insufficient balance in source account'
+      );
     });
 
     it('reads only the receipt after a nonce answer of either node kind', async function () {
@@ -1373,7 +1326,7 @@ describe('runSettle (R2)', function () {
         ACCEPTED,
         LOCKED,
         SERVER_ERROR_500,
-        RETRY_LATER,
+        STATE_REFUSAL,
         NONCE_TOO_LOW,
         { kind: 'unknown', status: 408, data: {} },
         {

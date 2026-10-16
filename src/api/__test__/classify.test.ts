@@ -451,7 +451,7 @@ describe('classifySubmitResponse', function () {
   });
 
   describe('rules 5 to 8: no action (legacy node or gateway)', function () {
-    it('is unknown, marked unpinned, for a 422 business_transaction_failed (rule 5, UC7)', function () {
+    it('is unknown for a 422 business_transaction_failed (rule 5, UC7)', function () {
       const body = {
         error_code: 'business_transaction_failed',
         message:
@@ -466,22 +466,8 @@ describe('classifySubmitResponse', function () {
         kind: 'unknown',
         status: 422,
         data: body,
-        cause: parsedError(422, body),
-        legacyUnpinned: true
+        cause: parsedError(422, body)
       });
-    });
-
-    it('does not mark a 422 business_transaction_failed with an action as unpinned', function () {
-      const outcome = classifySubmitResponse(
-        parsedError(422, {
-          error_code: 'business_transaction_failed',
-          action: 'check_status',
-          message: 'Transaction processing failed: x'
-        }),
-        LOCAL
-      );
-      expect(outcome.kind).to.equal('unknown');
-      expect(outcome).to.not.have.property('legacyUnpinned');
     });
 
     it('is unknown for a 408 (rule 6)', function () {

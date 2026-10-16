@@ -357,14 +357,9 @@ function isNonceUsed(outcome: SubmitOutcome): boolean {
 }
 
 // A send answer that ends the run as rejected.
-// - The first send: a rejection, as for a single send
-//   (src/api/submit.ts), except retry_later: it asks for a
-//   later send, and later sends are the engine's job.
-// - The first send: a released node's unpinned 422. It has
-//   no unique error type, so only the caller's promise that
-//   the bytes were never sent makes it a rejection. Remove
-//   this case once every node sends problem details
-//   (1Money-Co/l1client#1541).
+// - The first send: any rejection, as for a single send
+//   (src/api/submit.ts). It proves that this request had
+//   no effect, whatever came before.
 // - Any send while no node is known to have admitted H: a
 //   refusal of the signed bytes, which fail on every node.
 //   After a 2xx or a lookup that found H, such a refusal
@@ -375,34 +370,21 @@ function refusalError(
   first: boolean,
   state: SettleState
 ): TransactionSubmissionError | undefined {
-  if (outcome.kind === 'rejected') {
-    return (first && outcome.action !== 'retry_later') ||
-      (outcome.refusal === 'bytes' && state === 'unknown')
-      ? new TransactionSubmissionError(
-          outcome.status,
-          outcome.data,
-          outcome.nodeMessage,
-          {
-            action: outcome.action,
-            problemType: outcome.problemType
-          }
-        )
-      : undefined;
-  }
-  if (
-    first &&
-    outcome.kind === 'unknown' &&
-    outcome.legacyUnpinned === true &&
-    outcome.status !== undefined
-  ) {
-    return new TransactionSubmissionError(
-      outcome.status,
-      outcome.data,
-      bodyMessage(outcome.data) ??
-        'the node refused the first send'
-    );
-  }
-  return undefined;
+  if (outcome.kind !== 'rejected') return undefined;
+  const ends =
+    first ||
+    (outcome.refusal === 'bytes' && state === 'unknown');
+  return ends
+    ? new TransactionSubmissionError(
+        outcome.status,
+        outcome.data,
+        outcome.nodeMessage,
+        {
+          action: outcome.action,
+          problemType: outcome.problemType
+        }
+      )
+    : undefined;
 }
 
 // The settle engine. `start` is 'clean' for
@@ -660,16 +642,13 @@ const defaultDeps: SettleDeps = {
  * Send a signed transaction, and resend the same signed
  * bytes until its receipt appears. Throws
  * TransactionSubmissionError when the node rejects the
- * first send (except `retry_later`: then it settles), when
- * a released node answers the first send with a 422
- * `business_transaction_failed` that the SDK cannot
- * classify, or when, before any node is known to have
+ * first send, or when, before any node is known to have
  * admitted it, a send is refused for its signed bytes.
  * Otherwise ends with TransactionLockedError or
  * TransactionOutcomeUnknownError, with `endReason` and
- * every observation. The released-node rule trusts that the
- * signed bytes were never sent: send bytes that may have
- * been sent with `settle`.
+ * every observation. It uses no history from before the
+ * call. It needs nodes that send problem details: a
+ * released node's state refusal reads as unknown.
  */
 export function submitAndSettle(
   authorized: AuthorizedTxV2,

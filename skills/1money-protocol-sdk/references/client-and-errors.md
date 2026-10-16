@@ -273,19 +273,17 @@ They copy `authorized` when they start, so a later change to that object does
 not change what they send. No send starts after the deadline.
 
 - **First send of `submitAndSettle`:** classified like a single send. A
-  rejection (rule 2, or rules 5b and 7) throws `TransactionSubmissionError` at
-  once, with the node's message, except `retry_later`: the helper settles
-  instead. Every other answer, `nonce_too_low` and `check_status` included,
-  goes on to settle from that answer, with no resend at once. The SDK uses no
-  history from before the call: a `nonce_too_low` can come from this
-  transaction's own earlier send.
-- **Released nodes (no `action`):** a rule 5 answer to the first send (a
-  `422` `business_transaction_failed` whose message the SDK does not pin, most
-  often a state refusal such as too little balance) also throws
-  `TransactionSubmissionError` at once (a fixed nonce text reads as
-  `nonce_too_low`, not rule 5). Only this rule trusts that the signed bytes were
-  never sent: send bytes that may have been sent with `settle`. It goes away
-  once every node sends problem details.
+  rejection (rules 2, 5b, 7: `fix_request`, `retry_later`, `use_other_node`, a
+  refusal of the bytes, or a `4xx` without `action` such as a firewall `429`)
+  throws `TransactionSubmissionError` at once, with the node's message. Every
+  other answer, `nonce_too_low` and `check_status` included, goes on to settle
+  from that answer, with no resend at once. The helper uses no history from
+  before the call: a `nonce_too_low` can come from this transaction's own
+  earlier send.
+- **Nodes without problem details** (released nodes): a state refusal is rule
+  5 (unknown), so the helper settles and ends after about 10 s with
+  `TransactionOutcomeUnknownError` (`not_found_after_probes`). Use the helpers
+  with nodes that send problem details.
 - **Your own history:** `observations` on `TransactionOutcomeUnknownError` hold
   the node's answer to each send. An application that knows the signed bytes
   were never sent before can read the first answer with that knowledge: for
