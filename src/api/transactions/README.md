@@ -66,7 +66,7 @@ codes 1:1.
 ## Settling a write
 
 `transactions.submitAndSettle(authorized, options?)` sends a signed transaction
-that was never sent; `transactions.settle(authorized, options?)` resumes after an
+and settles it; `transactions.settle(authorized, options?)` resumes after an
 earlier send (for example after a `TransactionLockedError` or a
 `TransactionOutcomeUnknownError`). Both resend the **same signed bytes** on the
 node's retry schedule until `getReceiptByHash` returns a receipt for the hash,
@@ -88,10 +88,18 @@ not change what they send. No send starts after the deadline.
 Outcomes:
 
 - Resolves when the receipt for the hash exists.
-- **First send of `submitAndSettle`:** any `4xx` except `408` and
-  `in_progress` throws `TransactionSubmissionError` at once, with the node's
-  message. The bytes were never sent, so no node holds them. Never pass
-  `submitAndSettle` signed bytes that may have been sent; use `settle`.
+- **First send of `submitAndSettle`:** classified like a single send
+  (`payment()` and the other submit methods). A rejection throws
+  `TransactionSubmissionError` at once, with the node's message, except
+  `retry_later`: the helper settles instead. Every other answer, `nonce_too_low`
+  and `check_status` included, goes on to settle from that answer, with no
+  resend at once. The SDK uses no history from before the call.
+- **Released nodes (no problem details):** a `422` `business_transaction_failed`
+  to the first send whose reason the SDK does not pin (most often a state
+  refusal, such as too little balance) also throws `TransactionSubmissionError`
+  at once. Only this rule trusts that the signed bytes were never sent: send
+  bytes that may have been sent with `settle`. It goes away once every node
+  sends problem details.
 - **A refusal of the signed bytes** (bad signature, wrong chain id, bad memo,
   and other checks of the bytes alone) throws `TransactionSubmissionError` on
   any send of either helper, while no node is known to have admitted the

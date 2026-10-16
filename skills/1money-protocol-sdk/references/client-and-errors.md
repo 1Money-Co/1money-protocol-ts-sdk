@@ -263,7 +263,7 @@ try {
 ### Settling a write: `submitAndSettle` and `settle`
 
 `transactions.submitAndSettle(authorized, options?)` sends a signed transaction
-that was never sent; `transactions.settle(authorized, options?)` resumes after an
+and settles it; `transactions.settle(authorized, options?)` resumes after an
 earlier send (for example after a `TransactionLockedError` or a
 `TransactionOutcomeUnknownError`). Both resend the **same signed bytes** on the
 node's retry schedule until `getReceiptByHash` returns a receipt for the hash,
@@ -272,10 +272,25 @@ transaction. Read `receipt.success`: a hold debit can execute and still fail.
 They copy `authorized` when they start, so a later change to that object does
 not change what they send. No send starts after the deadline.
 
-- **First send of `submitAndSettle`:** any `4xx` except `408` and
-  `in_progress` throws `TransactionSubmissionError` at once, with the node's
-  message: the bytes were never sent, so no node holds them. Never pass
-  `submitAndSettle` bytes that may have been sent; use `settle`.
+- **First send of `submitAndSettle`:** classified like a single send. A
+  rejection (rule 2, or rules 5b and 7) throws `TransactionSubmissionError` at
+  once, with the node's message, except `retry_later`: the helper settles
+  instead. Every other answer, `nonce_too_low` and `check_status` included,
+  goes on to settle from that answer, with no resend at once. The SDK uses no
+  history from before the call: a `nonce_too_low` can come from this
+  transaction's own earlier send.
+- **Released nodes (no `action`):** a rule 5 answer to the first send (a
+  `422` `business_transaction_failed` whose message the SDK does not pin, most
+  often a state refusal such as too little balance) also throws
+  `TransactionSubmissionError` at once (a fixed nonce text reads as
+  `nonce_too_low`, not rule 5). Only this rule trusts that the signed bytes were
+  never sent: send bytes that may have been sent with `settle`. It goes away
+  once every node sends problem details.
+- **Your own history:** `observations` on `TransactionOutcomeUnknownError` hold
+  the node's answer to each send. An application that knows the signed bytes
+  were never sent before can read the first answer with that knowledge: for
+  example, `nonce_too_low` there means that another transaction used the
+  nonce.
 - **A refusal of the signed bytes** (rule 2 with a bytes problem type, or rule
   5b) throws `TransactionSubmissionError` on any send of either helper, while
   no node is known to have admitted the transaction. After a `2xx` or a lookup

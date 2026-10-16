@@ -356,13 +356,15 @@ function isNonceUsed(outcome: SubmitOutcome): boolean {
   );
 }
 
-function isClientError(status: number) {
-  return status >= 400 && status < 500 && status !== 408;
-}
-
 // A send answer that ends the run as rejected.
-// - The first send of bytes never sent before: any 4xx but
-//   408 and in_progress, because no node holds them yet.
+// - The first send: a rejection, as for a single send
+//   (src/api/submit.ts), except retry_later: it asks for a
+//   later send, and later sends are the engine's job.
+// - The first send: a released node's unpinned 422. It has
+//   no unique error type, so only the caller's promise that
+//   the bytes were never sent makes it a rejection. Remove
+//   this case once every node sends problem details
+//   (1Money-Co/l1client#1541).
 // - Any send while no node is known to have admitted H: a
 //   refusal of the signed bytes, which fail on every node.
 //   After a 2xx or a lookup that found H, such a refusal
@@ -374,7 +376,7 @@ function refusalError(
   state: SettleState
 ): TransactionSubmissionError | undefined {
   if (outcome.kind === 'rejected') {
-    return first ||
+    return (first && outcome.action !== 'retry_later') ||
       (outcome.refusal === 'bytes' && state === 'unknown')
       ? new TransactionSubmissionError(
           outcome.status,
@@ -390,28 +392,24 @@ function refusalError(
   if (
     first &&
     outcome.kind === 'unknown' &&
-    outcome.status !== undefined &&
-    isClientError(outcome.status) &&
-    outcome.action !== 'in_progress'
+    outcome.legacyUnpinned === true &&
+    outcome.status !== undefined
   ) {
     return new TransactionSubmissionError(
       outcome.status,
       outcome.data,
       bodyMessage(outcome.data) ??
-        'the node refused the first send',
-      {
-        action: readProblem(outcome.data).action,
-        problemType: outcome.problemType
-      }
+        'the node refused the first send'
     );
   }
   return undefined;
 }
 
-// The settle engine. `start` is 'clean' when H was never
-// sent (submitAndSettle) and 'sent' when the caller sent it
-// before (settle). It only ever resends the caller's
-// signed bytes; it never builds or signs a transaction.
+// The settle engine. `start` is 'clean' for
+// submitAndSettle, which sends first, and 'sent' for
+// settle, which reads first. It only ever resends the
+// caller's signed bytes; it never builds or signs a
+// transaction.
 export async function runSettle(
   authorized: AuthorizedTxV2,
   start: 'clean' | 'sent',
@@ -659,16 +657,19 @@ const defaultDeps: SettleDeps = {
 };
 
 /**
- * Send a signed transaction that was never sent, and
- * resend the same signed bytes until its receipt appears.
- * Throws TransactionSubmissionError when the first send
- * gets any 4xx but 408 and in_progress, or when, before any
- * node is known to have admitted it, a send is refused for
- * its signed bytes. Otherwise ends with
- * TransactionLockedError or TransactionOutcomeUnknownError,
- * with `endReason` and every observation. Signed bytes that
- * may have been sent before go to `settle`: this function
- * trusts that they were not.
+ * Send a signed transaction, and resend the same signed
+ * bytes until its receipt appears. Throws
+ * TransactionSubmissionError when the node rejects the
+ * first send (except `retry_later`: then it settles), when
+ * a released node answers the first send with a 422
+ * `business_transaction_failed` that the SDK cannot
+ * classify, or when, before any node is known to have
+ * admitted it, a send is refused for its signed bytes.
+ * Otherwise ends with TransactionLockedError or
+ * TransactionOutcomeUnknownError, with `endReason` and
+ * every observation. The released-node rule trusts that the
+ * signed bytes were never sent: send bytes that may have
+ * been sent with `settle`.
  */
 export function submitAndSettle(
   authorized: AuthorizedTxV2,
