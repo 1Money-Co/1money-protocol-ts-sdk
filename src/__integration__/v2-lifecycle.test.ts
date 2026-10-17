@@ -2562,9 +2562,10 @@ describe('native v2 lifecycle integration', function () {
     expect(settled.receipt.success).to.equal(true);
   });
 
-  // UC17: a refused first send ends at once, with the node's
-  // reason, on a node with problem types and on a released
-  // node (legacy 422) alike.
+  // UC17: on a node with problem details, a refused first
+  // send ends at once, with the node's reason. A released
+  // node sends no action, so its refusal reads as unknown
+  // and the run ends after the probes.
   it('rejects a payment the node refuses on the first send of submitAndSettle', async function () {
     const nonce = (
       await context.client.accounts.getNonce(
@@ -2594,6 +2595,15 @@ describe('native v2 lifecycle integration', function () {
       error = caught;
     }
 
+    if (error instanceof TransactionOutcomeUnknownError) {
+      const first = error.observations?.[0];
+      expect(first).to.include({ request: 'send', status: 422 });
+      expect(first?.action).to.equal(undefined);
+      expect(first?.message?.toLowerCase()).to.include('balance');
+      expect(error.endReason).to.equal('not_found_after_probes');
+      expect(Date.now() - started).to.be.below(20_000);
+      return;
+    }
     expect(error).to.be.instanceOf(TransactionSubmissionError);
     expect(Date.now() - started).to.be.below(10_000);
     const message = (error as Error).message.toLowerCase();

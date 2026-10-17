@@ -263,7 +263,7 @@ try {
 ### Settling a write: `submitAndSettle` and `settle`
 
 `transactions.submitAndSettle(authorized, options?)` sends a signed transaction
-that was never sent; `transactions.settle(authorized, options?)` resumes after an
+and settles it; `transactions.settle(authorized, options?)` resumes after an
 earlier send (for example after a `TransactionLockedError` or a
 `TransactionOutcomeUnknownError`). Both resend the **same signed bytes** on the
 node's retry schedule until `getReceiptByHash` returns a receipt for the hash,
@@ -272,10 +272,23 @@ transaction. Read `receipt.success`: a hold debit can execute and still fail.
 They copy `authorized` when they start, so a later change to that object does
 not change what they send. No send starts after the deadline.
 
-- **First send of `submitAndSettle`:** any `4xx` except `408` and
-  `in_progress` throws `TransactionSubmissionError` at once, with the node's
-  message: the bytes were never sent, so no node holds them. Never pass
-  `submitAndSettle` bytes that may have been sent; use `settle`.
+- **First send of `submitAndSettle`:** classified like a single send. A
+  rejection (rules 2, 5b, 7: `fix_request`, `retry_later`, `use_other_node`, a
+  refusal of the bytes, or a `4xx` without `action` such as a firewall `429`)
+  throws `TransactionSubmissionError` at once, with the node's message. Every
+  other answer, `nonce_too_low` and `check_status` included, goes on to settle
+  from that answer, with no resend at once. The helper uses no history from
+  before the call: a `nonce_too_low` can come from this transaction's own
+  earlier send.
+- **Nodes without problem details** (released nodes): a state refusal is rule
+  5 (unknown), so the helper settles and ends after about 10 s with
+  `TransactionOutcomeUnknownError` (`not_found_after_probes`). Use the helpers
+  with nodes that send problem details.
+- **Your own history:** `observations` on `TransactionOutcomeUnknownError` hold
+  the node's answer to each send. An application that knows the signed bytes
+  were never sent before can read the first answer with that knowledge: for
+  example, `nonce_too_low` there means that another transaction used the
+  nonce.
 - **A refusal of the signed bytes** (rule 2 with a bytes problem type, or rule
   5b) throws `TransactionSubmissionError` on any send of either helper, while
   no node is known to have admitted the transaction. After a `2xx` or a lookup
@@ -289,14 +302,21 @@ not change what they send. No send starts after the deadline.
   probes, three `404` lookups in a row end the run with
   `TransactionOutcomeUnknownError` and `endReason: 'not_found_after_probes'`,
   about 10 s after the first send. A failed or rate-limited read never counts.
-- **Resends** follow the node's retry gate in every state: send k+1 goes out
-  `resendIntervalMs × k` after send k (default 70 000 ms); the count starts
-  again once the transaction is locked. A resend of the same bytes can never
-  execute twice.
+- **Resends** go out every `resendIntervalMs` (default 70 000 ms) in every
+  state, from the last delivered resend or from the moment the transaction
+  became locked: a rebroadcast helps only after peers forget the last one (60 s
+  gossip duplicate cache + 10 s publish queue). A resend of the same bytes can
+  never execute twice.
+- **Throttled sends:** a later send answered `429` (with or without a body)
+  or `retry_later` delivered nothing. It does not count as a probe or a resend,
+  and no send goes out for the node's `retry_after_secs`, or
+  `throttleBackoffMs` (60 000 ms) without it; the receipt polls go on. A run whose sends
+  keep being throttled ends at the deadline, not after the probes.
 - **Polls** start at `pollIntervalMs` (1 000 ms) and double to
   `maxPollIntervalMs` (10 000 ms); right after a `404` read the next poll
   comes after `pollIntervalMs`. A read answered `429` or `retry_later` waits
-  `throttleBackoffMs` (60 000 ms), and for the rest of the run `404`s no
+  the node's `retry_after_secs`, or `throttleBackoffMs` (60 000 ms) without it,
+  and for the rest of the run `404`s no
   longer shorten the wait: a firewall in front of the node blocks an IP address
   above about 120 reads per minute.
 - **`nonce_too_low`** (the problem type, or a released node's fixed nonce text)
@@ -304,10 +324,12 @@ not change what they send. No send starts after the deadline.
   reads only the receipt. Three receipt `404`s in a row end the run with
   `endReason: 'nonce_used'`; `nonceUsedGraceMs` (70 000 ms) is the limit when
   the reads keep failing. It never says "rejected": a missing receipt can be a
-  node that is behind. Do not sign the intent again until you know whether
-  this hash executed.
+  node that is behind. It ends with `TransactionOutcomeUnknownError` even when
+  a node held the transaction, because a resend can no longer help. Do not
+  sign the intent again until you know whether this hash executed.
 - **Other ends:** at `deadlineMs` (900 000 ms) or on `signal` abort, it throws
-  `TransactionLockedError` or `TransactionOutcomeUnknownError`. Both carry
+  `TransactionLockedError` (never for `nonce_used`) or
+  `TransactionOutcomeUnknownError`. Both carry
   `endReason` (`deadline`, `nonce_used`, `not_found_after_probes`, `aborted`)
   and `observations` (at most 200, numbered by `seq`; send entries carry the
   node's `message`). Exception: when the signal is already aborted,

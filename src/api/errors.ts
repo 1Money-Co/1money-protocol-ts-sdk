@@ -244,7 +244,14 @@ export class TransactionOutcomeUnknownError extends
   /** The problem `type` URI, when the body had one. */
   public readonly problemType?: string;
   public readonly problem?: ApiProblem;
-  /** Every request and answer of a settle run, oldest first. */
+  /**
+   * Every request and answer of a settle run, oldest first.
+   * The SDK knows nothing from before the run. An
+   * application that knows the signed bytes were never sent
+   * before can read the first send's answer with that
+   * knowledge: for example, `nonce_too_low` there means that
+   * another transaction used the nonce.
+   */
   public readonly observations?: readonly SettleObservation[];
   /** Why a settle run ended; set only by settle. */
   public readonly endReason?: SettleEndReason;

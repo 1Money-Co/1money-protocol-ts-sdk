@@ -18,14 +18,18 @@ import type { TransactionReceipt } from './transactions/types';
 import type { AuthorizedTxV2 } from '@/signing/v2';
 
 export interface SettleOptions {
-  // Send k+1 goes out `resendIntervalMs * k` after send k:
-  // the node's own retry gate (70 s = 60 s duplicate cache
-  // + 10 s publish queue).
+  // The gap between resends: a rebroadcast is useful only
+  // after peers forget the last one (70 s = 60 s gossip
+  // duplicate cache + 10 s publish queue). A node also
+  // limits how often it forwards one hash; behind a load
+  // balancer each node keeps its own count, so the client
+  // does not copy that limit.
   resendIntervalMs?: number;
   pollIntervalMs?: number;
   maxPollIntervalMs?: number;
   deadlineMs?: number;
-  // The wait after a lookup answered 429 or retry_later.
+  // The wait after a read or a send answered 429 or
+  // retry_later, when the answer has no `retry_after_secs`.
   throttleBackoffMs?: number;
   // The longest wait for the receipt after a send answered
   // nonce_too_low, when the receipt reads keep failing. No
@@ -97,8 +101,9 @@ const MAX_OBSERVATIONS = 200;
 // While no node is known to hold the transaction, a lookup
 // that answers 404 starts a resend at once: the node's
 // retry gate forwards a hash that it does not hold. Probe k
-// waits PROBE_GAPS_MS[k] after the last send; the first 1 s
-// covers the time between a 2xx and the node's shared lock.
+// waits PROBE_GAPS_MS[k] after the last delivered send;
+// the first 1 s covers the time between a 2xx and the
+// node's shared lock.
 const MAX_PROBES = 3;
 const PROBE_GAPS_MS = [1_000, 2_000, 4_000];
 // 404 reads in a row that end a run early: from several
@@ -166,6 +171,20 @@ function isThrottled(value: unknown): boolean {
     ownMember(value, 'status') === 429 ||
     readProblem(bodyOf(value)).action === 'retry_later'
   );
+}
+
+// The wait after a throttled answer: the node's own
+// `retry_after_secs` when it sends one, else the fallback.
+function throttleWaitMs(
+  value: unknown,
+  fallbackMs: number
+): number {
+  const seconds = ownMember(bodyOf(value), 'retry_after_secs');
+  return typeof seconds === 'number' &&
+    Number.isFinite(seconds) &&
+    seconds > 0
+    ? Math.min(seconds * 1_000, MAX_TIMER_MS)
+    : fallbackMs;
 }
 
 function resolveOptions(
@@ -330,13 +349,16 @@ function privateCopy(
   };
 }
 
+// A nonce_used end is never locked: once the nonce is
+// used, H either executed or can never execute, so "a node
+// holds H, resend it" is no longer true.
 function stateError(
   state: SettleState,
   hash: string,
   observations: readonly SettleObservation[],
   endReason: SettleEndReason
 ): Error {
-  return state === 'locked'
+  return state === 'locked' && endReason !== 'nonce_used'
     ? new TransactionLockedError(hash, {
         observations: [...observations],
         endReason
@@ -345,6 +367,26 @@ function stateError(
         observations: [...observations],
         endReason
       });
+}
+
+// A send that the node or the firewall turned away for
+// now: it delivered nothing. Any 429 counts, with or
+// without a body: counting a throttled send as delivered
+// could end a run early on false evidence, while the
+// reverse only delays a resend. A locked answer proves
+// that a node holds H, so it always counts.
+function isThrottledSend(
+  outcome: SubmitOutcome
+): outcome is Extract<
+  SubmitOutcome,
+  { kind: 'rejected' | 'unknown' }
+> {
+  return (
+    (outcome.kind === 'rejected' ||
+      outcome.kind === 'unknown') &&
+    (outcome.status === 429 ||
+      outcome.action === 'retry_later')
+  );
 }
 
 function isNonceUsed(outcome: SubmitOutcome): boolean {
@@ -356,13 +398,10 @@ function isNonceUsed(outcome: SubmitOutcome): boolean {
   );
 }
 
-function isClientError(status: number) {
-  return status >= 400 && status < 500 && status !== 408;
-}
-
 // A send answer that ends the run as rejected.
-// - The first send of bytes never sent before: any 4xx but
-//   408 and in_progress, because no node holds them yet.
+// - The first send: any rejection, as for a single send
+//   (src/api/submit.ts). It proves that this request had
+//   no effect, whatever came before.
 // - Any send while no node is known to have admitted H: a
 //   refusal of the signed bytes, which fail on every node.
 //   After a 2xx or a lookup that found H, such a refusal
@@ -373,45 +412,28 @@ function refusalError(
   first: boolean,
   state: SettleState
 ): TransactionSubmissionError | undefined {
-  if (outcome.kind === 'rejected') {
-    return first ||
-      (outcome.refusal === 'bytes' && state === 'unknown')
-      ? new TransactionSubmissionError(
-          outcome.status,
-          outcome.data,
-          outcome.nodeMessage,
-          {
-            action: outcome.action,
-            problemType: outcome.problemType
-          }
-        )
-      : undefined;
-  }
-  if (
-    first &&
-    outcome.kind === 'unknown' &&
-    outcome.status !== undefined &&
-    isClientError(outcome.status) &&
-    outcome.action !== 'in_progress'
-  ) {
-    return new TransactionSubmissionError(
-      outcome.status,
-      outcome.data,
-      bodyMessage(outcome.data) ??
-        'the node refused the first send',
-      {
-        action: readProblem(outcome.data).action,
-        problemType: outcome.problemType
-      }
-    );
-  }
-  return undefined;
+  if (outcome.kind !== 'rejected') return undefined;
+  const ends =
+    first ||
+    (outcome.refusal === 'bytes' && state === 'unknown');
+  return ends
+    ? new TransactionSubmissionError(
+        outcome.status,
+        outcome.data,
+        outcome.nodeMessage,
+        {
+          action: outcome.action,
+          problemType: outcome.problemType
+        }
+      )
+    : undefined;
 }
 
-// The settle engine. `start` is 'clean' when H was never
-// sent (submitAndSettle) and 'sent' when the caller sent it
-// before (settle). It only ever resends the caller's
-// signed bytes; it never builds or signs a transaction.
+// The settle engine. `start` is 'clean' for
+// submitAndSettle, which sends first, and 'sent' for
+// settle, which reads first. It only ever resends the
+// caller's signed bytes; it never builds or signs a
+// transaction.
 export async function runSettle(
   authorized: AuthorizedTxV2,
   start: 'clean' | 'sent',
@@ -426,14 +448,19 @@ export async function runSettle(
   const log = new ObservationLog(t0, deps.now);
   // Changed by the closures below, so not narrowed here.
   let state = 'unknown' as SettleState;
+  // The last delivered send: a send that was throttled
+  // delivered nothing and does not count.
   let lastSend = t0;
   let poll = options.pollIntervalMs;
   let endAt = t0 + options.deadlineMs;
-  // The node's retry gate: send k+1 is due
-  // `resendIntervalMs * k` after send k. Probes do not
-  // count, and the count starts again once H is locked.
-  let gateSends = 0;
+  // A resend is due `resendIntervalMs` after the last
+  // delivered gate send, or after H became locked (a node
+  // broadcast it then). Probes do not count. `settle` has
+  // sent nothing yet, so its first send is due at once.
+  let gateSent = false;
   let lastGateSend = t0;
+  // No send before this time: a send was throttled.
+  let sendHoldUntil = t0;
   let probes = 0;
   // 404 reads in a row since the last send, for an early
   // end: lookups after the probes, receipts after a nonce
@@ -453,25 +480,24 @@ export async function runSettle(
   const lock = () => {
     if (state === 'locked') return;
     state = 'locked';
-    // `settle` keeps its send at once (gateSends 0).
-    if (gateSends > 0) {
-      gateSends = 1;
-      lastGateSend = deps.now();
-    }
+    // Before any send, `settle`'s first send stays due at
+    // once: an unsent gate is due at lastGateSend.
+    lastGateSend = deps.now();
   };
-  const nextGateSendAt = () =>
-    nonceUsed
-      ? Number.POSITIVE_INFINITY
-      : lastGateSend + options.resendIntervalMs * gateSends;
+  const nextGateSendAt = () => {
+    if (nonceUsed) return Number.POSITIVE_INFINITY;
+    const due = gateSent
+      ? lastGateSend + options.resendIntervalMs
+      : lastGateSend;
+    return Math.max(due, sendHoldUntil);
+  };
 
-  const send = async (kind: 'first' | 'gate' | 'probe') => {
+  // Returns whether the send was delivered.
+  const send = async (
+    kind: 'first' | 'gate' | 'probe'
+  ): Promise<boolean> => {
     const outcome = await deps.send(signed);
-    lastSend = deps.now();
-    misses = 0;
-    if (kind !== 'probe') {
-      gateSends += 1;
-      lastGateSend = lastSend;
-    }
+    const sentAt = deps.now();
     log.addSend(outcome);
     const refusal = refusalError(
       outcome,
@@ -479,6 +505,21 @@ export async function runSettle(
       state
     );
     if (refusal !== undefined) throw refusal;
+    if (isThrottledSend(outcome)) {
+      sendHoldUntil =
+        sentAt +
+        throttleWaitMs(
+          outcome.data,
+          options.throttleBackoffMs
+        );
+      return false;
+    }
+    lastSend = sentAt;
+    misses = 0;
+    if (kind !== 'probe') {
+      gateSent = true;
+      lastGateSend = sentAt;
+    }
     if (outcome.kind === 'accepted') {
       assertTransactionHash(hash, outcome.serverHash);
       if (state === 'unknown') state = 'accepted';
@@ -493,6 +534,7 @@ export async function runSettle(
         lastSend + options.nonceUsedGraceMs
       );
     }
+    return true;
   };
 
   if (start === 'clean') {
@@ -517,6 +559,10 @@ export async function runSettle(
       throw end(nonceUsed ? 'nonce_used' : 'deadline');
     }
     let throttled = isThrottled(receipt);
+    let throttleWait = throttleWaitMs(
+      receipt,
+      options.throttleBackoffMs
+    );
     // A 404 read in this pass: the next wait stays short.
     let missed = false;
     let probeDue = false;
@@ -537,6 +583,10 @@ export async function runSettle(
           ? 'found'
           : readResult(transaction);
         throttled = result === 'throttled';
+        throttleWait = throttleWaitMs(
+          transaction,
+          options.throttleBackoffMs
+        );
         missed = result === 'not_found';
         const sinceSend = lookupStartedAt - lastSend;
         if (found) {
@@ -561,20 +611,31 @@ export async function runSettle(
     const gateDue = sendCheckedAt >= nextGateSendAt();
     if (
       (probeDue || gateDue) &&
+      sendCheckedAt >= sendHoldUntil &&
       !nonceUsed &&
       !aborted() &&
       sendCheckedAt < endAt
     ) {
-      if (probeDue) probes += 1;
-      await send(gateDue ? 'gate' : 'probe');
+      // A probe resends after a delivered send; the first
+      // delivered send is never a probe.
+      const deliveredBefore = gateSent;
+      const delivered = await send(
+        gateDue ? 'gate' : 'probe'
+      );
+      if (delivered && probeDue && deliveredBefore) {
+        probes += 1;
+      }
     }
 
+    // While sends are on hold, a 404 cannot start a probe,
+    // so it does not speed up the polls.
+    const holding = deps.now() < sendHoldUntil;
     let wait: number;
     if (throttled) {
       throttledOnce = true;
-      wait = options.throttleBackoffMs;
+      wait = throttleWait;
       poll = options.maxPollIntervalMs;
-    } else if (missed && !throttledOnce) {
+    } else if (missed && !throttledOnce && !holding) {
       // Probing, or counting 404s toward an early end:
       // the probe gaps are whole poll intervals.
       wait = options.pollIntervalMs;
@@ -585,8 +646,9 @@ export async function runSettle(
         options.maxPollIntervalMs
       );
     }
-    // Wake for the next send and for the end time, so
-    // that neither a long poll nor a back-off moves them.
+    // Wake for the next send, the end of a send hold (a
+    // probe may be waiting) and the end time, so that
+    // neither a long poll nor a back-off moves them.
     const now = deps.now();
     try {
       await deps.sleep(
@@ -595,6 +657,7 @@ export async function runSettle(
           Math.min(
             wait,
             nextGateSendAt() - now,
+            holding ? sendHoldUntil - now : wait,
             endAt - now
           )
         ),
@@ -659,16 +722,16 @@ const defaultDeps: SettleDeps = {
 };
 
 /**
- * Send a signed transaction that was never sent, and
- * resend the same signed bytes until its receipt appears.
- * Throws TransactionSubmissionError when the first send
- * gets any 4xx but 408 and in_progress, or when, before any
- * node is known to have admitted it, a send is refused for
- * its signed bytes. Otherwise ends with
- * TransactionLockedError or TransactionOutcomeUnknownError,
- * with `endReason` and every observation. Signed bytes that
- * may have been sent before go to `settle`: this function
- * trusts that they were not.
+ * Send a signed transaction, and resend the same signed
+ * bytes until its receipt appears. Throws
+ * TransactionSubmissionError when the node rejects the
+ * first send, or when, before any node is known to have
+ * admitted it, a send is refused for its signed bytes.
+ * Otherwise ends with TransactionLockedError or
+ * TransactionOutcomeUnknownError, with `endReason` and
+ * every observation. It uses no history from before the
+ * call. It needs nodes that send problem details: a
+ * released node's state refusal reads as unknown.
  */
 export function submitAndSettle(
   authorized: AuthorizedTxV2,
