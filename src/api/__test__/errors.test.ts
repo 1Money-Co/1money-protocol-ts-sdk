@@ -16,6 +16,45 @@ const LOCAL = `0x${'ab'.repeat(32)}`;
 const OTHER = `0x${'cd'.repeat(32)}`;
 
 describe('v2 errors', function () {
+  it('defaults to no nonce-use evidence on each submit error', function () {
+    for (const error of [
+      new TransactionHashMismatchError(
+        LOCAL,
+        OTHER
+      ),
+      new TransactionSubmissionError(
+        422,
+        {},
+        'refused'
+      ),
+      new TransactionLockedError(LOCAL),
+      new TransactionOutcomeUnknownError(LOCAL)
+    ]) {
+      expect(error.nonceUsed).to.equal(false);
+    }
+  });
+
+  it('preserves explicit nonce-use evidence on submit errors', function () {
+    const errors = [
+      new TransactionSubmissionError(422, {}, 'refused', {
+        nonceUsed: true
+      }),
+      new TransactionLockedError(LOCAL, { nonceUsed: true }),
+      new TransactionOutcomeUnknownError(LOCAL, { nonceUsed: true })
+    ];
+    for (const error of errors) {
+      expect(error.nonceUsed).to.equal(true);
+    }
+  });
+
+  it('sets nonceUsed for a nonce_used settle end', function () {
+    const error =
+      new TransactionOutcomeUnknownError(LOCAL, {
+        endReason: 'nonce_used'
+      });
+    expect(error.nonceUsed).to.equal(true);
+  });
+
   it('exposes the five v2 error codes', function () {
     expect(
       Object.values(V2_ERROR_CODES)

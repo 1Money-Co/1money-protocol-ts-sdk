@@ -56,6 +56,14 @@ node admits the transaction, and otherwise throws one of these errors
 | `TransactionOutcomeUnknownError` | `'unknown'` | The SDK cannot tell. Look up `err.transactionHash` and resend the same `authorized` until you know the state. |
 | `TransactionHashMismatchError` | `true` | The node admitted the transaction, but returned a different hash. Do not send again. |
 
+Every submit error exposes `nonceUsed`. It is `true` when a response to the call
+confirms that an earlier transaction, possibly this one, used the nonce. Never
+sign again at this nonce; look up the transaction hash first. It is `false` when
+the call has no such evidence. This does not prove that the nonce is unused.
+Settle errors also set it when `endReason` is `nonce_used` and retain it if the
+run is aborted after a nonce-use response. See the
+[error contracts](../../skills/1money-protocol-sdk/references/client-and-errors.md).
+
 Never sign a new transaction for the same intent, at any nonce, after a locked or
 unknown outcome: the payment can execute twice. `transactions.settle(authorized)`
 resends the same signed bytes until the receipt appears, and

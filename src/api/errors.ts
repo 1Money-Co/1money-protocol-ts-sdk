@@ -67,6 +67,7 @@ export type TransactionSubmittedState =
 export class TransactionHashMismatchError extends
   Error {
   readonly submitted = true;
+  public readonly nonceUsed = false;
   readonly serverHash: string;
   readonly localHash: string;
 
@@ -118,6 +119,12 @@ export function errorCodeOf(
 export class TransactionSubmissionError extends
   Error {
   readonly submitted = false;
+  /**
+   * A response confirmed nonce use by an earlier transaction,
+   * possibly this one. Never sign again at this nonce; look up
+   * this transaction's hash first. False means no such evidence.
+   */
+  public readonly nonceUsed: boolean;
   readonly status: number;
   readonly errorCode?: string;
   // The node's raw response body (not just the extracted
@@ -141,6 +148,7 @@ export class TransactionSubmissionError extends
     problem: {
       action?: ClientAction;
       problemType?: string;
+      nonceUsed?: boolean;
     } = {}
   ) {
     const errorCode = errorCodeOf({ data });
@@ -148,6 +156,7 @@ export class TransactionSubmissionError extends
       `[1Money SDK]: Transaction rejected before admission (HTTP ${status}${errorCode ? `, ${errorCode}` : ''}): ${nodeMessage}. This request did not lock the transaction or use its nonce. Fix the cause before you send again. Sign a new transaction for the same intent only if no other transaction for it is locked, executed, or in an unknown state.`
     );
     this.name = 'TransactionSubmissionError';
+    this.nonceUsed = problem.nonceUsed ?? false;
     this.status = status;
     this.errorCode = errorCode;
     this.data = data;
@@ -168,6 +177,12 @@ export class TransactionSubmissionError extends
 // for the same intent while it is locked.
 export class TransactionLockedError extends Error {
   readonly submitted = true;
+  /**
+   * A response confirmed nonce use by an earlier transaction,
+   * possibly this one. Never sign again at this nonce; look up
+   * this transaction's hash first. False means no such evidence.
+   */
+  public readonly nonceUsed: boolean;
   readonly action = 'in_progress' as const;
   readonly transactionHash: string;
   readonly problemType?: string;
@@ -189,12 +204,14 @@ export class TransactionLockedError extends Error {
       problemType?: string;
       observations?: readonly SettleObservation[];
       endReason?: SettleEndReason;
+      nonceUsed?: boolean;
     } = {}
   ) {
     super(
       `[1Money SDK]: The node holds transaction ${transactionHash}: it is admitted and locked, but not executed yet. Resend the same signed transaction until it executes (settle() does this). Do not sign a new transaction for the same intent, at any nonce, while it is locked.`
     );
     this.name = 'TransactionLockedError';
+    this.nonceUsed = diagnostic.nonceUsed ?? false;
     this.transactionHash = transactionHash;
     this.status = diagnostic.status;
     this.data = diagnostic.data;
@@ -229,6 +246,12 @@ export class TransactionLockedError extends Error {
 export class TransactionOutcomeUnknownError extends
   Error {
   readonly submitted = 'unknown' as const;
+  /**
+   * A response confirmed nonce use by an earlier transaction,
+   * possibly this one. Never sign again at this nonce; look up
+   * this transaction's hash first. False means no such evidence.
+   */
+  public readonly nonceUsed: boolean;
   readonly transactionHash: string;
   /** Raw transport metadata, when the client received it. */
   public readonly status?: number;
@@ -266,12 +289,16 @@ export class TransactionOutcomeUnknownError extends
       problemType?: string;
       observations?: readonly SettleObservation[];
       endReason?: SettleEndReason;
+      nonceUsed?: boolean;
     } = {}
   ) {
     super(
       `[1Money SDK]: Transaction outcome unknown: the SDK cannot confirm whether the node admitted transaction ${transactionHash}. Find its state first: look up the hash and resend the same signed transaction (settle() does both). Do not sign a new transaction for the same intent, at any nonce, until you know its state.`
     );
     this.name = 'TransactionOutcomeUnknownError';
+    this.nonceUsed =
+      diagnostic.nonceUsed === true ||
+      diagnostic.endReason === 'nonce_used';
     this.transactionHash = transactionHash;
     this.status = diagnostic.status;
     this.data = diagnostic.data;
