@@ -118,10 +118,13 @@ Outcomes:
 - **`nonce_too_low`** (the problem type, or the fixed text of a released node)
   means the nonce is used. No send can help, so the helper stops sending and
   reads only the receipt: three receipt `404`s in a row end the run with
-  `endReason: 'nonce_used'` (about 3 s); `nonceUsedGraceMs` is the limit when
+  `endReason: 'nonce_used'` and `nonceUsed: true` (about 3 s); `nonceUsedGraceMs` is the limit when
   the reads keep failing. It never reports "rejected" here, and it ends with
   `TransactionOutcomeUnknownError` even when a node held the transaction: once
-  the nonce is used, a resend cannot help.
+  the nonce is used, a resend cannot help. An earlier transaction, possibly
+  this one, used the nonce. Never sign again at this nonce; look up this hash
+  first. The flag stays true if the run is aborted after that response.
+  See the [error contracts](../../../skills/1money-protocol-sdk/references/client-and-errors.md).
 - **Resends** go out every `resendIntervalMs` in every state, from the last
   delivered resend or from the moment the transaction became locked.
 - **Throttled sends:** a later send answered `429` (with or without a body)

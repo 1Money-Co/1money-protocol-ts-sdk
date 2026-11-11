@@ -160,6 +160,18 @@ package root), and only the two strict-equality checks `submitted === true` /
 | `TransactionSubmissionError` | `false` | **Only** after you fix the cause, and only if no other transaction for the intent is locked, executed, or unknown | The node rejected this request before admission. |
 | `TransactionOutcomeUnknownError` | `'unknown'` | **No** — find the state first: look up the hash, resend the same `authorized` | The answer does not tell whether the node admitted the transaction. |
 
+All four submit errors expose the boolean `nonceUsed`. It is `true` when a
+response to the call reports the exact `nonce_too_low` problem type, or one of
+the pinned legacy nonce texts. An earlier transaction, possibly this one, used
+the nonce. Never sign again at this nonce; look up this transaction's hash
+first. `false` means the call has no such evidence; it does not prove that the
+nonce is unused. The flag does not change the `submitted` contract.
+
+Errors from `settle` and `submitAndSettle` set `nonceUsed: true` when
+`endReason` is `nonce_used`. They retain the flag if the run is aborted after
+such a response, even if its earlier state was locked. The end reason is then
+`aborted`, and the error is `TransactionOutcomeUnknownError`.
+
 `TransactionSubmissionError` and `TransactionOutcomeUnknownError` carry
 `action` (the body's `action`; on the unknown error it can be a value this SDK
 does not know) and `problemType` (the problem `type` URI), when the node sent

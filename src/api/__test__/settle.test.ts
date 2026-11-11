@@ -434,6 +434,61 @@ describe('runSettle', function () {
   describe('nonce used (nonce_too_low)', function () {
     const GRACE = SETTLE_DEFAULTS.nonceUsedGraceMs;
 
+    for (const start of ['clean', 'sent'] as const) {
+      for (const locked of [false, true]) {
+        it(`preserves nonce use when aborted (${start}, locked: ${locked})`, async function () {
+          const controller = new AbortController();
+          const f = fakeDeps({
+            send: index => {
+              if (locked && index === 0)
+                return LOCKED;
+              controller.abort();
+              return NONCE_TOO_LOW;
+            }
+          });
+          const error = await caught(
+            runSettle(
+              AUTHORIZED,
+              start,
+              {
+                signal: controller.signal
+              },
+              f.deps
+            )
+          );
+          expect(error).to.be.instanceOf(
+            TransactionOutcomeUnknownError
+          );
+          expect(error).to.have.property(
+            'endReason',
+            'aborted'
+          );
+          expect(error).to.have.property(
+            'nonceUsed',
+            true
+          );
+        });
+      }
+    }
+
+    it('reports no nonce evidence for an unrelated unknown outcome', async function () {
+      const f = fakeDeps({
+        send: () => SERVER_ERROR
+      });
+      const error = await caught(
+        runSettle(
+          AUTHORIZED,
+          'clean',
+          { deadlineMs: 1 },
+          f.deps
+        )
+      );
+      expect(error).to.have.property(
+        'nonceUsed',
+        false
+      );
+    });
+
     it('stops resending and resolves when the receipt appears', async function () {
       const f = fakeDeps({
         send: () => NONCE_TOO_LOW,
@@ -1492,6 +1547,7 @@ describe('runSettle (R2)', function () {
           TransactionOutcomeUnknownError
         );
         expect(endReasonOf(error)).to.equal('nonce_used');
+        expect(error).to.have.property('nonceUsed', true);
         expect(f.sends).to.deep.equal([0]);
         expect(f.lookups).to.deep.equal([]);
       }
@@ -1799,6 +1855,7 @@ describe('runSettle (R2)', function () {
           TransactionOutcomeUnknownError
         );
         expect(endReasonOf(error)).to.equal('nonce_used');
+        expect(error).to.have.property('nonceUsed', true);
         expect(f.sends).to.deep.equal([0, 1_000]);
         // No lookup after the nonce answer.
         expect(
@@ -1836,6 +1893,7 @@ describe('runSettle (R2)', function () {
       );
 
       expect(endReasonOf(error)).to.equal('nonce_used');
+        expect(error).to.have.property('nonceUsed', true);
       expect(f.receipts[f.receipts.length - 1]).to.equal(
         1_000 + SETTLE_DEFAULTS.nonceUsedGraceMs
       );
@@ -1853,6 +1911,7 @@ describe('runSettle (R2)', function () {
         TransactionOutcomeUnknownError
       );
       expect(endReasonOf(error)).to.equal('nonce_used');
+        expect(error).to.have.property('nonceUsed', true);
       expect(f.sends).to.deep.equal([0, 70_000]);
     });
   });
@@ -2015,6 +2074,7 @@ describe('runSettle (R2)', function () {
       );
 
       expect(endReasonOf(error)).to.equal('nonce_used');
+        expect(error).to.have.property('nonceUsed', true);
       expect(f.receipts.slice(-3)).to.deep.equal([
         4_000, 5_000, 6_000
       ]);

@@ -59,6 +59,20 @@ export type SubmitOutcome =
       nonceUsed?: true;
     };
 
+const NONCE_USED_TYPE =
+  'https://developer.1moneynetwork.com/problem/nonce_too_low';
+
+export function isNonceUsed(
+  outcome: SubmitOutcome
+): boolean {
+  return (
+    outcome.kind !== 'accepted' &&
+    (outcome.problemType === NONCE_USED_TYPE ||
+      (outcome.kind === 'unknown' &&
+        outcome.nonceUsed === true))
+  );
+}
+
 // A REST-layer 408 can follow a successful admission:
 // the node's request timeout races the whole handler,
 // pool admission included, and answers 408 even when

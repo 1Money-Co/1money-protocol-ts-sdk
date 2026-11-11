@@ -1,5 +1,6 @@
 import { API_VERSION } from '@/api/constants';
 import { get } from '@/client';
+import { isNonceUsed } from './classify';
 import {
   assertTransactionHash,
   TransactionLockedError,
@@ -90,11 +91,6 @@ export const SETTLE_DEFAULTS = {
   throttleBackoffMs: 60_000,
   nonceUsedGraceMs: 70_000
 } as const;
-
-// Matched exactly, as the node matches its own type URIs.
-// A legacy node sends no type, so it never matches.
-const NONCE_USED_TYPE =
-  'https://developer.1moneynetwork.com/problem/nonce_too_low';
 
 const MAX_OBSERVATIONS = 200;
 
@@ -331,7 +327,10 @@ function readResult(
 // answered 2xx, but its core can still drop H. Locked: a
 // lookup found H, or a node said it holds H. Locked never
 // goes back: a later answer does not undo that proof.
-type SettleState = 'accepted' | 'unknown' | 'locked';
+type SettleState =
+  | 'accepted'
+  | 'unknown'
+  | 'locked';
 
 // The caller may change or reuse its object while the
 // engine waits, and every send must carry the same signed
@@ -349,23 +348,25 @@ function privateCopy(
   };
 }
 
-// A nonce_used end is never locked: once the nonce is
-// used, H either executed or can never execute, so "a node
+// After a nonce-use response, the error is never locked:
+// H either executed or can never execute, so "a node
 // holds H, resend it" is no longer true.
 function stateError(
   state: SettleState,
   hash: string,
   observations: readonly SettleObservation[],
-  endReason: SettleEndReason
+  endReason: SettleEndReason,
+  nonceUsed: boolean
 ): Error {
-  return state === 'locked' && endReason !== 'nonce_used'
+  return state === 'locked' && !nonceUsed
     ? new TransactionLockedError(hash, {
         observations: [...observations],
         endReason
       })
     : new TransactionOutcomeUnknownError(hash, {
         observations: [...observations],
-        endReason
+        endReason,
+        nonceUsed
       });
 }
 
@@ -386,15 +387,6 @@ function isThrottledSend(
       outcome.kind === 'unknown') &&
     (outcome.status === 429 ||
       outcome.action === 'retry_later')
-  );
-}
-
-function isNonceUsed(outcome: SubmitOutcome): boolean {
-  return (
-    outcome.kind !== 'accepted' &&
-    (outcome.problemType === NONCE_USED_TYPE ||
-      (outcome.kind === 'unknown' &&
-        outcome.nonceUsed === true))
   );
 }
 
@@ -423,7 +415,8 @@ function refusalError(
         outcome.nodeMessage,
         {
           action: outcome.action,
-          problemType: outcome.problemType
+          problemType: outcome.problemType,
+          nonceUsed: isNonceUsed(outcome)
         }
       )
     : undefined;
@@ -476,7 +469,13 @@ export async function runSettle(
 
   const aborted = () => options.signal?.aborted === true;
   const end = (reason: SettleEndReason) =>
-    stateError(state, hash, log.entries, reason);
+    stateError(
+      state,
+      hash,
+      log.entries,
+      reason,
+      nonceUsed
+    );
   const lock = () => {
     if (state === 'locked') return;
     state = 'locked';

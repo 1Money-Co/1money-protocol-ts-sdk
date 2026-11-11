@@ -1,5 +1,8 @@
 import { post } from '@/client';
-import { classifySubmitResponse } from './classify';
+import {
+  classifySubmitResponse,
+  isNonceUsed
+} from './classify';
 import {
   assertTransactionHash,
   TransactionLockedError,
@@ -79,7 +82,8 @@ export async function submitAuthorized<
         outcome.nodeMessage,
         {
           action: outcome.action,
-          problemType: outcome.problemType
+          problemType: outcome.problemType,
+          nonceUsed: isNonceUsed(outcome)
         }
       );
     case 'locked':
@@ -88,7 +92,8 @@ export async function submitAuthorized<
         {
           status: outcome.status,
           data: outcome.data,
-          problemType: outcome.problemType
+          problemType: outcome.problemType,
+          nonceUsed: isNonceUsed(outcome)
         }
       );
     case 'unknown':
@@ -99,7 +104,8 @@ export async function submitAuthorized<
           data: outcome.data,
           cause: outcome.cause,
           action: outcome.action,
-          problemType: outcome.problemType
+          problemType: outcome.problemType,
+          nonceUsed: isNonceUsed(outcome)
         }
       );
   }

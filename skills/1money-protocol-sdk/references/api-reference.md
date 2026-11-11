@@ -313,3 +313,12 @@ const { chain_id } = await client.chain.getChainId();
 
 If you genuinely need a hardcoded id for an offline/test path, define your own
 constant rather than relying on an unexported one.
+
+### Submit nonce evidence
+
+All submit errors expose `nonceUsed`. A value of `true` means a response to the
+call confirms that an earlier transaction, possibly this one, used the nonce.
+Never sign again at this nonce; look up this hash first. A value of `false`
+means there is no such evidence. Settle errors also set the flag for
+`endReason: 'nonce_used'` and retain it on a later abort. See the
+[error contracts](client-and-errors.md) for details.

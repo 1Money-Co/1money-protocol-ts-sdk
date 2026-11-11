@@ -477,6 +477,114 @@ describe('submitAuthorized', function () {
         'Transaction processing failed: already inflight; please retry later'
     };
 
+    for (const [name, data, expected, errorClass] of [
+      [
+        'nonce problem',
+        {
+          type: `${TYPE_PREFIX}nonce_too_low`,
+          action: 'check_status'
+        },
+        true,
+        TransactionOutcomeUnknownError
+      ],
+      [
+        'nonce problem with a refusal action',
+        {
+          type: `${TYPE_PREFIX}nonce_too_low`,
+          action: 'fix_request'
+        },
+        true,
+        TransactionSubmissionError
+      ],
+      [
+        'legacy state advanced',
+        {
+          error_code: 'business_transaction_failed',
+          message:
+            'Transaction processing failed: nonce already used; state advanced'
+        },
+        true,
+        TransactionOutcomeUnknownError
+      ],
+      [
+        'legacy execution admission',
+        {
+          error_code: 'business_transaction_failed',
+          message:
+            'Transaction processing failed: Execution admission denied: nonce too low to execute: expected 8, actual 7'
+        },
+        true,
+        TransactionOutcomeUnknownError
+      ],
+      [
+        'unrelated legacy 422',
+        {
+          error_code: 'business_transaction_failed',
+          message: 'unrelated error'
+        },
+        false,
+        TransactionOutcomeUnknownError
+      ],
+      [
+        'unrelated refusal',
+        {
+          type: `${TYPE_PREFIX}invalid_signature`,
+          action: 'fix_request'
+        },
+        false,
+        TransactionSubmissionError
+      ],
+      [
+        'in-flight answer',
+        IN_FLIGHT,
+        false,
+        TransactionLockedError
+      ],
+      [
+        'another problem prefix',
+        {
+          type: 'https://example.com/problem/nonce_too_low',
+          action: 'check_status'
+        },
+        false,
+        TransactionOutcomeUnknownError
+      ],
+      [
+        'problem type suffix',
+        {
+          type: `${TYPE_PREFIX}nonce_too_low_v2`,
+          action: 'check_status'
+        },
+        false,
+        TransactionOutcomeUnknownError
+      ]
+    ] as const) {
+      for (const resolved of [false, true]) {
+        it(`exposes nonceUsed=${expected} for ${name} (global handler: ${resolved})`, async function () {
+          setInitConfig({
+            baseURL: LOCAL_API_URL,
+            onError: resolved
+              ? (err: unknown) => err
+              : undefined
+          });
+          try {
+            respondWithProblem(422, data);
+            const err = await caughtFrom();
+            expect(err).to.be.instanceOf(errorClass);
+            expect(err).to.have.property(
+              'nonceUsed',
+              expected
+            );
+          } finally {
+            setInitConfig({
+              baseURL: LOCAL_API_URL,
+              onError: undefined
+            });
+          }
+        });
+      }
+    }
+
     it('throws TransactionLockedError, not TransactionSubmissionError, for a 422 in-flight answer', async function () {
       respondWithProblem(422, IN_FLIGHT);
       const caught = await caughtFrom();
