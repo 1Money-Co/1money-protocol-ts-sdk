@@ -39,10 +39,9 @@ export function validateLaneClawback(
   assertPositiveInteger('chain_id', unsigned.chain_id);
   assertAddress('token', unsigned.token);
   assertAddress('holder', unsigned.holder);
-  assertNonNegativeInteger(
-    'from_nonce',
-    unsigned.from_nonce
-  );
+  // A holder with no lane (next nonce 0) cannot be clawed back by
+  // a lane clawback: admission refuses it.
+  assertPositiveInteger('from_nonce', unsigned.from_nonce);
   assertNonNegativeInteger(
     'reference_checkpoint',
     unsigned.reference_checkpoint

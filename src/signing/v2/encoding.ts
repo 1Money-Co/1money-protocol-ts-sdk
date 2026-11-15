@@ -36,12 +36,19 @@ export function encodePayloadRlp(params: {
 }): Uint8Array {
   return encodeFieldsPayloadRlp(
     [
-      rlpValue.uint(params.chainId),
-      rlpValue.uint(params.nonce),
+      ...chainAndNonceHeader(params.chainId, params.nonce),
       ...params.payloadFields
     ],
     params.memo
   );
+}
+
+// The header of every operation that carries its signer's nonce.
+export function chainAndNonceHeader(
+  chainId: number,
+  nonce: number
+): PlpPayload[] {
+  return [rlpValue.uint(chainId), rlpValue.uint(nonce)];
 }
 
 // The memo wrapper over a complete business field list, header

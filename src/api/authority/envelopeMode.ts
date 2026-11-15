@@ -1,6 +1,10 @@
-import { get } from '@/client';
 import { isVerifyToken } from '@/signing/builders/laneClawback';
 import { ownMember } from '../problem';
+import {
+  answeredStatus,
+  isReadError,
+  readAnswer
+} from './answer';
 
 import type { NodeEnvelopeMode } from '../status/types';
 
@@ -72,22 +76,6 @@ export class UnrecognizedEnvelopeModeError extends Error {
   }
 }
 
-function isReadError(value: unknown): boolean {
-  return (
-    typeof ownMember(value, 'status') === 'number' &&
-    typeof ownMember(value, 'name') === 'string' &&
-    ownMember(value, ENVELOPE_MODE_MEMBER) === undefined
-  );
-}
-
-function isHttpStatus(value: unknown): value is number {
-  return (
-    Number.isInteger(value) &&
-    (value as number) >= 100 &&
-    (value as number) <= 599
-  );
-}
-
 /** The envelope mode of a `GET /api/status` answer, or of its read error. */
 export function envelopeModeOf(answer: unknown): EnvelopeMode {
   if (answer instanceof Error && !isReadError(answer)) {
@@ -97,15 +85,16 @@ export function envelopeModeOf(answer: unknown): EnvelopeMode {
     };
   }
   if (isReadError(answer)) {
-    const status = ownMember(answer, 'status');
+    const status = answeredStatus(answer);
     return {
       mode: 'legacy',
-      reason: isHttpStatus(status)
-        ? { kind: 'status_answered', status }
-        : {
-            kind: 'no_answer',
-            message: String(ownMember(answer, 'message'))
-          }
+      reason:
+        status !== undefined
+          ? { kind: 'status_answered', status }
+          : {
+              kind: 'no_answer',
+              message: String(ownMember(answer, 'message'))
+            }
     };
   }
   if (
@@ -127,18 +116,11 @@ export function envelopeModeOf(answer: unknown): EnvelopeMode {
 /**
  * Read the node's envelope mode. Never throws for a node answer:
  * a missing or null member, an HTTP error, no answer, or a body
- * that does not decode all read as `legacy`, with the reason.
+ * that does not decode all read as `legacy`, with the reason; a
+ * mode this SDK does not know reads as `unrecognized`.
  */
 export async function readEnvelopeMode(): Promise<EnvelopeMode> {
-  let answer: unknown;
-  try {
-    answer = await get<'custom', unknown>(STATUS_PATH, {
-      withCredentials: false
-    });
-  } catch (caught) {
-    answer = caught;
-  }
-  return envelopeModeOf(answer);
+  return envelopeModeOf(await readAnswer(STATUS_PATH));
 }
 
 /**

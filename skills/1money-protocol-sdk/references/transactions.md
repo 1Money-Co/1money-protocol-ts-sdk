@@ -234,7 +234,12 @@ const fate = await laneClawbackFate(authorized);  // also after a restart, from 
 
 `buildLaneClawback(intent)` reads the holder's nonce and `r`; it throws for
 VERIFY and for a holder with no lane yet (next nonce 0). `signLaneClawback`
-signs without a network call.
+signs without a network call. `issueLaneClawback` signs exactly one clawback:
+on a refusal that `authorityRefusalOf` names (no effect), discard the stored
+one and call again.
+
+`submitAndSettle` and `settle` refuse a settled authority envelope: its receipt
+appears only at its checkpoint. Poll `authorityOperationState` instead.
 
 ### Reading the result: positive evidence only
 

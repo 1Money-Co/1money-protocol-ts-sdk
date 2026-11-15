@@ -104,6 +104,21 @@ describe('submitAndSettle and settle (real dependencies)', function () {
     receiptReads = 0;
   });
 
+  it('refuses a settled authority envelope before any request', async function () {
+    node([200, { hash: HASH }], 1);
+    let caught: unknown;
+    try {
+      await submitAndSettle(
+        { ...AUTHORIZED, operation: 'settledAuthority' },
+        FAST
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(String(caught)).to.include('authorityOperationState');
+    expect(receiptReads).to.equal(0);
+  });
+
   it('submitAndSettle sends once and resolves with the receipt', async function () {
     node([200, { hash: HASH }], 3);
     const settled = await submitAndSettle(

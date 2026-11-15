@@ -1,6 +1,10 @@
 import { API_VERSION } from '@/api/constants';
-import { get } from '@/client';
 import { ownMember } from '../problem';
+import {
+  answeredStatus,
+  readAnswer,
+  wholeNumber
+} from './answer';
 
 import type {
   TransactionReceipt,
@@ -14,25 +18,13 @@ export class AuthorityReadError extends Error {
   public readonly status?: number;
 
   public constructor(what: string, answer: unknown) {
-    const status = ownMember(answer, 'status');
+    const status = answeredStatus(answer);
     const message = ownMember(answer, 'message');
     super(
-      `[1Money SDK]: The ${what} did not answer${typeof status === 'number' ? ` (HTTP ${status})` : ''}: ${typeof message === 'string' ? message : 'unexpected body'}`
+      `[1Money SDK]: The ${what} did not answer${status !== undefined ? ` (HTTP ${status})` : ''}: ${typeof message === 'string' ? message : 'unexpected body'}`
     );
     this.name = 'AuthorityReadError';
-    if (typeof status === 'number') this.status = status;
-  }
-}
-
-// `get` resolves instead of rejecting when a global onError is
-// configured, so both arrive here as the answer.
-async function readAnswer(url: string): Promise<unknown> {
-  try {
-    return await get<'custom', unknown>(url, {
-      withCredentials: false
-    });
-  } catch (caught) {
-    return caught;
+    if (status !== undefined) this.status = status;
   }
 }
 
@@ -88,20 +80,13 @@ export function readStatus(
   );
 }
 
-function wholeNumberMember(answer: unknown, key: string) {
-  const value = ownMember(answer, key);
-  return Number.isSafeInteger(value) && (value as number) >= 0
-    ? (value as number)
-    : undefined;
-}
-
 async function readWholeNumber(
   what: string,
   url: string,
   key: string
 ): Promise<number> {
   const answer = await readAnswer(url);
-  const value = wholeNumberMember(answer, key);
+  const value = wholeNumber(ownMember(answer, key));
   if (value === undefined) {
     throw new AuthorityReadError(what, answer);
   }

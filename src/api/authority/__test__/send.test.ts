@@ -326,6 +326,29 @@ describe('lane clawback build and issue', function () {
     expect(node.posts[0].body).to.not.have.property('nonce');
   });
 
+  it('never signs a second clawback after a no-effect refusal', async function () {
+    node = new MockNode(
+      {
+        [NONCE]: ok({ nonce: 4 }),
+        [CHECKPOINT]: ok({ number: 126 })
+      },
+      [refusal('reference_checkpoint_not_committed')]
+    ).install();
+    const stored: AuthorizedTxV2[] = [];
+    const error = await rejection(
+      issueLaneClawback(intent, SIGNER, {
+        onSigned: authorized => {
+          stored.push(authorized);
+        }
+      })
+    );
+    expect(authorityRefusalOf(error)?.kind).to.equal(
+      'reference_checkpoint_not_committed'
+    );
+    expect(stored).to.have.length(1);
+    expect(node.posts).to.have.length(1);
+  });
+
   it('sends nothing when storing fails', async function () {
     node = new MockNode({
       [NONCE]: ok({ nonce: 4 }),

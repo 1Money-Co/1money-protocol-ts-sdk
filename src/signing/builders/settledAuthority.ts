@@ -59,6 +59,26 @@ const LIST_ACTION_NAMES: Record<
   remove: 'Remove'
 };
 
+// The members each operation signs. The REST body carries the
+// operation as given, so a member outside this set would reach the
+// node without being signed.
+const OPERATION_MEMBERS: Record<
+  AuthorityOperation['type'],
+  readonly string[]
+> = {
+  pause: [],
+  unpause: [],
+  revoke_master_mint_burn: [],
+  list: ['list', 'action', 'account'],
+  update_metadata: ['name', 'uri', 'additional_metadata'],
+  grant_role: ['role', 'account'],
+  revoke_role: ['role', 'account'],
+  set_minter_allowance: ['minter', 'allowance'],
+  revoke_minter: ['minter'],
+  rotate_master_mint_burn: ['account'],
+  mint: ['recipient', 'value']
+};
+
 function fail(field: string, value: unknown): never {
   throw new Error(
     `[1Money SDK]: Invalid ${field}: ${String(value)}`
@@ -85,6 +105,12 @@ function validateOperation(
     fail('operation', operation);
   }
   assertKey('operation.type', OPERATION_NAMES, operation.type);
+  const allowed = OPERATION_MEMBERS[operation.type];
+  for (const member of Object.keys(operation)) {
+    if (member !== 'type' && !allowed.includes(member)) {
+      fail(`operation member for ${operation.type}`, member);
+    }
+  }
   switch (operation.type) {
     case 'pause':
     case 'unpause':
@@ -106,6 +132,17 @@ function validateOperation(
         !Array.isArray(operation.additional_metadata)
       ) {
         fail('operation', JSON.stringify(operation));
+      }
+      for (const pair of operation.additional_metadata) {
+        if (
+          typeof pair?.key !== 'string' ||
+          typeof pair?.value !== 'string'
+        ) {
+          fail(
+            'operation.additional_metadata',
+            JSON.stringify(pair)
+          );
+        }
       }
       return;
     case 'grant_role':

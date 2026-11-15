@@ -233,7 +233,15 @@ describe('settled authority envelope encoding', function () {
         action: 'add',
         account: repeatAddr('02')
       },
-      { type: 'mint', recipient: repeatAddr('02'), value: '-1' }
+      { type: 'mint', recipient: repeatAddr('02'), value: '-1' },
+      // A member the operation does not sign must not reach the body.
+      { type: 'revoke_master_mint_burn', account: repeatAddr('02') },
+      {
+        type: 'update_metadata',
+        name: 'n',
+        uri: 'u',
+        additional_metadata: [{ key: 'k' }]
+      }
     ];
     for (const operation of bad) {
       expect(() =>
@@ -279,6 +287,15 @@ describe('lane clawback encoding', function () {
       memo: { type: '', format: '', data: '' }
     });
     expect(authorized.request).to.not.have.property('nonce');
+  });
+
+  it('refuses a holder with no lane (from_nonce 0)', function () {
+    expect(() =>
+      prepareTransactionV2(
+        'laneClawback',
+        laneClawback({ from_nonce: 0 })
+      )
+    ).to.throw('[1Money SDK]: Invalid from_nonce');
   });
 
   it('refuses a lane clawback of VERIFY', function () {

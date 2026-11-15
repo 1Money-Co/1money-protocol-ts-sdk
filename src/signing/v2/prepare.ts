@@ -1,8 +1,8 @@
 import { validateMemo } from '@/utils';
 import { assertLowS } from '../core';
 import { singleSecp256k1 } from './authorization';
-import { rlpValue } from '@/utils';
 import {
+  chainAndNonceHeader,
   encodeFieldsPayloadRlp,
   signingHashV2,
   singleDescriptor,
@@ -79,16 +79,6 @@ function assertNoBatchPaymentMaxFee(
   }
 }
 
-function chainAndNonceHeader(unsigned: {
-  chain_id: number;
-  nonce: number;
-}): PlpPayload[] {
-  return [
-    rlpValue.uint(unsigned.chain_id),
-    rlpValue.uint(unsigned.nonce)
-  ];
-}
-
 export function prepareTransactionV2<
   K extends OperationName
 >(
@@ -148,10 +138,8 @@ export function prepareTransactionV2<
   const headerFields: PlpPayload[] = spec.headerFields
     ? spec.headerFields(canonicalUnsigned)
     : chainAndNonceHeader(
-        canonicalUnsigned as {
-          chain_id: number;
-          nonce: number;
-        }
+        (canonicalUnsigned as { chain_id: number }).chain_id,
+        (canonicalUnsigned as { nonce: number }).nonce
       );
   const payloadRlp = encodeFieldsPayloadRlp(
     [

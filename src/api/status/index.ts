@@ -28,8 +28,9 @@ export const statusApi = {
 
   /**
    * Read the node's token authority envelope mode. Never throws
-   * for a node answer: anything but a reported `upgrade_gap` or
-   * `settled` reads as `legacy`, with the reason.
+   * for a node answer: a missing mode, an HTTP error or no answer
+   * reads as `legacy`, with the reason; a mode this SDK does not
+   * know reads as `unrecognized` (send nothing of the class).
    */
   getEnvelopeMode: readEnvelopeMode,
 

@@ -121,18 +121,20 @@ type Evidence =
   | { kind: 'no_receipt'; observed: UnknownOutcome };
 
 // The nonce is read first, so a transaction that executes after
-// that read is never "not passed": its receipt or status is read
-// after it. The status is read before the nonce decides anything,
-// so a certificate wins over a nonce read from a node behind.
+// that read is never "not passed": its receipt and status are read
+// after it. A certificate wins over a nonce read from a node behind.
 async function readEvidence(
   account: string,
   nonce: number,
   hash: string
 ): Promise<Evidence> {
   const nextNonce = await readAccountNonce(account);
-  const receipt = await readReceipt(hash);
+  const [receipt, statusResponse] = await Promise.all([
+    readReceipt(hash),
+    readStatus(hash)
+  ]);
   if (receipt) return { kind: 'receipt', receipt };
-  const status = (await readStatus(hash))?.status;
+  const status = statusResponse?.status;
   if (status !== undefined && isCounterSigned(status)) {
     return { kind: 'certified', status };
   }

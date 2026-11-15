@@ -434,6 +434,11 @@ export async function runSettle(
   deps: SettleDeps
 ): Promise<SettledTransaction> {
   // Checked before any request.
+  if (authorized.operation === 'settledAuthority') {
+    throw new Error(
+      '[1Money SDK]: settle and submitAndSettle do not take a settled authority envelope: its receipt appears only when its checkpoint commits. Send it with tokens.authorityOperation and read authorityOperationState.'
+    );
+  }
   const options = resolveOptions(settleOptions);
   const signed = privateCopy(authorized);
   const hash = signed.transactionHash;

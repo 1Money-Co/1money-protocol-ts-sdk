@@ -1,5 +1,6 @@
 import { TransactionSubmissionError } from '../errors';
 import { PROBLEM_TYPE_PREFIX } from '../problem';
+import { wholeNumber } from './answer';
 
 const REFUSAL_IDS = [
   'legacy_envelope_retired',
@@ -58,12 +59,6 @@ export type AuthorityRefusal =
       mintAddress?: string;
       checkpointId?: number;
     };
-
-function wholeNumber(value: unknown): number | undefined {
-  return Number.isSafeInteger(value) && (value as number) >= 0
-    ? (value as number)
-    : undefined;
-}
 
 function text(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;

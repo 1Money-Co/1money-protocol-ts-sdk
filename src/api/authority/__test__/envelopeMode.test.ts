@@ -88,6 +88,17 @@ describe('envelope mode (the client switch point)', function () {
       mode: 'legacy',
       reason: { kind: 'undecodable' }
     });
+    // The client gives a network error status 500 and no body.
+    expect(
+      envelopeModeOf({
+        name: 'Error',
+        message: 'Network Error',
+        status: 500
+      })
+    ).to.deep.equal({
+      mode: 'legacy',
+      reason: { kind: 'no_answer', message: 'Network Error' }
+    });
     expect(envelopeModeOf(new Error('ECONNRESET'))).to.deep.equal({
       mode: 'legacy',
       reason: { kind: 'no_answer', message: 'ECONNRESET' }

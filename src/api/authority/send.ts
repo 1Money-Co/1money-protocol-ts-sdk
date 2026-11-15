@@ -285,34 +285,33 @@ export function signLaneClawback(
   return sign('laneClawback', payload, signer, memo);
 }
 
-export interface IssueLaneClawbackOptions
-  extends AuthoritySendOptions {
+export interface IssueLaneClawbackOptions {
+  memo?: Memo;
   /**
-   * Called with each signed clawback before it is sent. Store it
+   * Called with the signed clawback before it is sent. Store it
    * here. A rejection stops the send.
    */
   onSigned?: (authorized: AuthorizedTxV2) => Promise<void> | void;
 }
 
 /**
- * Build, sign and send a lane clawback once. A reference that the
- * node refuses as not ready gets one more clawback, built again
- * after a short wait; the refused one had no effect. After any other
- * error, read laneClawbackFate of the stored clawback; never sign a
- * new clawback because a send was refused.
+ * Build, sign and send one lane clawback. It never signs a second
+ * one by itself, so the caller's store holds exactly the clawback to
+ * track. On a refusal that authorityRefusalOf names (no effect, such
+ * as a reference not committed yet), discard the stored clawback and
+ * call again. After any other error, read laneClawbackFate of the
+ * stored clawback; never sign a new clawback because a send failed.
  */
-export function issueLaneClawback(
+export async function issueLaneClawback(
   intent: LaneClawbackIntent,
   signer: SignerAdapter,
   options: IssueLaneClawbackOptions = {}
 ): Promise<AuthorizedTxV2> {
-  return retryOnceOnReferenceNotReady(async () => {
-    const authorized = await signLaneClawback(
-      await buildLaneClawback(intent),
-      signer,
-      options.memo
-    );
-    await options.onSigned?.(authorized);
-    return submit(authorized);
-  }, options.referenceRetryDelayMs);
+  const authorized = await signLaneClawback(
+    await buildLaneClawback(intent),
+    signer,
+    options.memo
+  );
+  await options.onSigned?.(authorized);
+  return submit(authorized);
 }

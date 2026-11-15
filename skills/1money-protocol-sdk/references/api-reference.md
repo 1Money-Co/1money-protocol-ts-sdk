@@ -283,8 +283,9 @@ validator that stops broadcasting can still be counted for roughly 150
 seconds.
 
 Read `envelope_mode` only through `getEnvelopeMode()` / `readEnvelopeMode()`:
-anything but a reported `upgrade_gap` or `settled` must read as the legacy
-envelopes (see the [token authority model](transactions.md#token-authority-model-settled-envelope-and-lane-clawback)).
+a missing or null `envelope_mode`, an HTTP error or no answer reads as the
+legacy envelopes, and a value this SDK does not know reads as `unrecognized`
+(send nothing of the class; upgrade the SDK) (see the [token authority model](transactions.md#token-authority-model-settled-envelope-and-lane-clawback)).
 
 ## Write endpoints (index)
 
