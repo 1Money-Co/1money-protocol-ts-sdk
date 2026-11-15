@@ -337,6 +337,7 @@ import {
   readEnvelopeMode, authorityEnvelope, // token authority switch point
   buildSettledAuthority, authorityOperationByMode, issueLaneClawback,
   authorityOperationState, laneClawbackFate, authorityRefusalOf,
+  laneClawbackRecordOf,         // checks a stored lane clawback against its hash
 } from '@1money/protocol-ts-sdk';
 
 const client = api({ network: 'testnet' });

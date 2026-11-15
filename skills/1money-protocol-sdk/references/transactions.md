@@ -162,6 +162,13 @@ the chain. Source: [`src/api/authority/`](../../../src/api/authority/).
 `authorityEnvelope(mode)` turns the mode into `'legacy' | 'settled'` and throws
 `UpgradeGapError` or `UnrecognizedEnvelopeModeError` before anything is sent.
 
+`GET /api/status` is an operational endpoint, outside the partner API, so a
+gateway can hide it. The mode then reads as `{ mode: 'legacy', reason: { kind:
+'status_answered', status } }`. Once the node takes the new envelopes, every
+by-mode call (`authorityOperationByMode`) ends in a `legacy_envelope_retired`
+refusal with `retry_later`, and trying again does not help. If you know that the
+node is `settled`, name the envelope: `sendAuthorityOperation('settled', …)`.
+
 Two clawbacks stay legacy in every mode: the VERIFY master's clawback of VERIFY
 (token `VERIFY_TOKEN_ADDRESS`), and a Reserved Payment hold clawback
 (`clawbackStaysLegacy`, `clawbackEnvelope`). `laneClawback` refuses VERIFY
@@ -214,6 +221,17 @@ envelope, and returns `{ envelope, authorized, transactionHash }`:
   it signs once more with a fresh reference after a short wait.
 - A list operation reads the token's privacy: on a private token a freeze is a
   whitelist remove (`settledOperationOf`).
+- `onSigned(authorized, { replaces })` (an option) receives each signed
+  envelope before its send. Persist it before the hook returns. A new
+  signature after a refusal names the one it supersedes in `replaces`. The node
+  refused that one at admission, so it had no effect: never send it again. After
+  an error, read `authorityOperationState` of the last envelope the hook
+  received. Never call again for the same intent.
+
+`update_metadata` is checked against the node's limits before it is signed: a
+`name` of 1 to 120 bytes, a `uri` of 1 to 512 bytes that parses as a URL, and
+each `additional_metadata` key of 1 to 20 bytes and value of 1 to 100 bytes
+(UTF-8).
 
 ### laneClawback → tokens.laneClawback
 
@@ -234,9 +252,19 @@ const fate = await laneClawbackFate(authorized);  // also after a restart, from 
 
 `buildLaneClawback(intent)` reads the holder's nonce and `r`; it throws for
 VERIFY and for a holder with no lane yet (next nonce 0). `signLaneClawback`
-signs without a network call. `issueLaneClawback` signs exactly one clawback:
-on a refusal that `authorityRefusalOf` names (no effect), discard the stored
-one and call again.
+signs without a network call. On `reference_checkpoint_not_committed` or
+`token_not_at_reference_checkpoint`, `issueLaneClawback` builds and signs one
+more clawback after a short wait. `onSigned` receives it with the refused one in
+`replaces`, and the refused one had no effect. After any other error, read
+`laneClawbackFate` of the last clawback `onSigned` received. Never sign a new
+clawback because a send failed.
+
+`laneClawbackRecordOf(stored)` checks a stored lane clawback before it is used.
+It computes the hash again from the request (payload, memo and signature) and
+throws on a mismatch, another operation or an unknown member.
+`laneClawbackFate` runs this check before it reads anything. A record that
+pairs one clawback's hash with another's request would otherwise read the wrong
+clawback's fate.
 
 `submitAndSettle` and `settle` refuse a settled authority envelope: its receipt
 appears only at its checkpoint. Poll `authorityOperationState` instead.
@@ -265,6 +293,9 @@ receipt and `GET /v1/transactions/status/by_hash` once:
   the full history that no receipt exists for its hash.
 - A settled operation or a lane clawback can stay pending until stranded-lock
   eviction, up to three epoch transitions. A long pending is not a failure.
+- A receipt the SDK cannot read (`success` not a boolean, a `SoftFail` reason
+  outside the set, a malformed event or warning), or a status this SDK does not
+  know, throws `AuthorityReadError`. It never reads as `failed` or `pending`.
 
 ## Builder fields
 

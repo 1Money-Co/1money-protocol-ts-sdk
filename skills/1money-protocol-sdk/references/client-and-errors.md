@@ -409,7 +409,7 @@ refusal below took no nonce and no lock. The problem type URIs are in
 
 | `kind` | Members | What to do |
 | --- | --- | --- |
-| `legacy_envelope_retired` | none | Never send the legacy form again. Read the envelope mode; on `settled`, sign the operation again as the new envelope at the same nonce; otherwise try again later. `sendAuthorityOperation` does this |
+| `legacy_envelope_retired` | none | Never send the legacy form again. Read the envelope mode; on `settled`, sign the operation again as the new envelope at the same nonce; otherwise try again later. `sendAuthorityOperation` does this. If `GET /api/status` is hidden (`status_answered`), the mode stays legacy: name the envelope with `sendAuthorityOperation('settled', …)` |
 | `settled_envelope_not_active` | none | Try the same transaction again later |
 | `reference_checkpoint_not_committed` | `checkpointId`, `checkpointIdLatest` | Try again once the node commits `r` |
 | `reference_checkpoint_too_old` | `checkpointId`, `checkpointIdEarliest` | Sign again with a recent `r` only if the transaction was never sent: the node checks `r` before the nonce, so an executed one gets this answer too. Else read its state first |
@@ -424,8 +424,11 @@ Errors the token authority helpers throw before or around a send:
   Nothing was sent.
 - `UnrecognizedEnvelopeModeError` (`submitted: false`, `reported`): a mode this
   SDK does not know. Nothing was sent; upgrade the SDK.
-- `AuthorityReadError` (`status?`): a state read answered neither the value
-  nor a 404. It says nothing about the transaction.
+- `AuthorityReadError` (`status?`): a state read gave no answer this SDK can
+  read and no 404: an HTTP error, no answer, an unknown status, or a receipt
+  it cannot read. It says nothing about the transaction.
+- `laneClawbackRecordOf` (and `laneClawbackFate`) throws a plain `Error` for a
+  stored lane clawback whose hash does not match its request.
 
 A soft fail is not a refusal: it is certified, uses the nonce, and has a
 receipt with `success: false` and a `SoftFail` event (`receiptOutcomeOf`).

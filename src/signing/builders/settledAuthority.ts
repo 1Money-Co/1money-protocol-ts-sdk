@@ -98,6 +98,71 @@ function assertKey<T extends string>(
   }
 }
 
+// The node's field limits, in UTF-8 bytes, so that a payload the
+// node would refuse is never signed.
+// https://github.com/1Money-Co/l1client/blob/main/crates/types/om-primitives-types/src/transaction/validate.rs
+const NAME_MAX_BYTES = 120;
+const URI_MAX_BYTES = 512;
+const PAIR_KEY_MAX_BYTES = 20;
+const PAIR_VALUE_MAX_BYTES = 100;
+
+const utf8 = new TextEncoder();
+
+function assertBoundedString(
+  field: string,
+  value: unknown,
+  maxBytes: number
+): asserts value is string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    utf8.encode(value).length > maxBytes
+  ) {
+    fail(`${field} (1 to ${maxBytes} bytes)`, value);
+  }
+}
+
+function assertUri(value: unknown): void {
+  assertBoundedString('operation.uri', value, URI_MAX_BYTES);
+  try {
+    new URL(value);
+  } catch {
+    fail('operation.uri (not a URL)', value);
+  }
+}
+
+function validateMetadata(
+  operation: Extract<
+    AuthorityOperation,
+    { type: 'update_metadata' }
+  >
+): void {
+  assertBoundedString(
+    'operation.name',
+    operation.name,
+    NAME_MAX_BYTES
+  );
+  assertUri(operation.uri);
+  if (!Array.isArray(operation.additional_metadata)) {
+    fail(
+      'operation.additional_metadata',
+      JSON.stringify(operation.additional_metadata)
+    );
+  }
+  for (const pair of operation.additional_metadata) {
+    assertBoundedString(
+      'operation.additional_metadata key',
+      pair?.key,
+      PAIR_KEY_MAX_BYTES
+    );
+    assertBoundedString(
+      'operation.additional_metadata value',
+      pair?.value,
+      PAIR_VALUE_MAX_BYTES
+    );
+  }
+}
+
 function validateOperation(
   operation: AuthorityOperation
 ): void {
@@ -126,24 +191,7 @@ function validateOperation(
       assertAddress('operation.account', operation.account);
       return;
     case 'update_metadata':
-      if (
-        typeof operation.name !== 'string' ||
-        typeof operation.uri !== 'string' ||
-        !Array.isArray(operation.additional_metadata)
-      ) {
-        fail('operation', JSON.stringify(operation));
-      }
-      for (const pair of operation.additional_metadata) {
-        if (
-          typeof pair?.key !== 'string' ||
-          typeof pair?.value !== 'string'
-        ) {
-          fail(
-            'operation.additional_metadata',
-            JSON.stringify(pair)
-          );
-        }
-      }
+      validateMetadata(operation);
       return;
     case 'grant_role':
     case 'revoke_role':

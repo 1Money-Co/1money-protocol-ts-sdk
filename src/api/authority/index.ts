@@ -1,4 +1,5 @@
 export * from './envelopeMode';
+export * from './laneClawbackRecord';
 export * from './legacyMap';
 export * from './reads';
 export * from './refusals';

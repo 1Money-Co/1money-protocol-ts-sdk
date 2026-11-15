@@ -17,6 +17,7 @@ import { VERIFY_TOKEN_ADDRESS } from '@/signing/builders/laneClawback';
 import { MockNode, ok, refusal } from './helpers/mockNode';
 
 import type { LegacyAuthorityOperation } from '../legacyMap';
+import type { SignedContext } from '../send';
 import type { AuthorizedTxV2 } from '@/signing/v2';
 
 // A fixed test key with no value anywhere.
@@ -219,6 +220,54 @@ describe('sending authority operations by envelope', function () {
     expect(node.posts).to.have.length(1);
   });
 
+  it('hands each envelope to onSigned before its send, naming the one it replaces', async function () {
+    node = new MockNode(
+      {
+        [STATUS]: mode('settled'),
+        [CHECKPOINT]: [ok({ number: 41 }), ok({ number: 42 })]
+      },
+      [
+        refusal('legacy_envelope_retired'),
+        refusal('reference_checkpoint_not_committed')
+      ]
+    ).install();
+    const handed: [AuthorizedTxV2, SignedContext][] = [];
+    const sent = await sendAuthorityOperation('legacy', MINT, SIGNER, {
+      ...FAST,
+      onSigned: (authorized, context) => {
+        expect(node.posts).to.have.length(handed.length);
+        handed.push([authorized, context]);
+      }
+    });
+    expect(handed.map(([a]) => a.operation)).to.deep.equal([
+      'tokenMint',
+      'settledAuthority',
+      'settledAuthority'
+    ]);
+    expect(handed.map(([, c]) => c.replaces)).to.deep.equal([
+      undefined,
+      handed[0][0],
+      handed[1][0]
+    ]);
+    expect(handed[2][0]).to.equal(sent.authorized);
+  });
+
+  it('sends nothing when onSigned fails', async function () {
+    node = new MockNode({
+      [STATUS]: mode('settled'),
+      [CHECKPOINT]: ok({ number: 41 })
+    }).install();
+    await rejection(
+      authorityOperationByMode(MINT, SIGNER, {
+        ...FAST,
+        onSigned: () => {
+          throw new Error('disk full');
+        }
+      })
+    );
+    expect(node.posts).to.have.length(0);
+  });
+
   it('reads the token privacy for a list operation', async function () {
     node = new MockNode({
       [CHECKPOINT]: ok({ number: 60 }),
@@ -326,27 +375,52 @@ describe('lane clawback build and issue', function () {
     expect(node.posts[0].body).to.not.have.property('nonce');
   });
 
-  it('never signs a second clawback after a no-effect refusal', async function () {
+  it('builds one more clawback after a reference not ready, naming the refused one', async function () {
+    node = new MockNode(
+      {
+        [NONCE]: ok({ nonce: 4 }),
+        [CHECKPOINT]: [ok({ number: 126 }), ok({ number: 127 })]
+      },
+      [refusal('reference_checkpoint_not_committed')]
+    ).install();
+    const handed: [AuthorizedTxV2, SignedContext][] = [];
+    const sent = await issueLaneClawback(intent, SIGNER, {
+      ...FAST,
+      onSigned: (authorized, context) => {
+        handed.push([authorized, context]);
+      }
+    });
+    expect(
+      node.posts.map(p => p.body.reference_checkpoint)
+    ).to.deep.equal([126, 127]);
+    expect(handed).to.have.length(2);
+    expect(handed[0][1]).to.deep.equal({});
+    expect(handed[1]).to.deep.equal([
+      sent,
+      { replaces: handed[0][0] }
+    ]);
+  });
+
+  it('returns a second not-ready refusal, and a too-old one at once', async function () {
     node = new MockNode(
       {
         [NONCE]: ok({ nonce: 4 }),
         [CHECKPOINT]: ok({ number: 126 })
       },
-      [refusal('reference_checkpoint_not_committed')]
+      [
+        refusal('token_not_at_reference_checkpoint'),
+        refusal('token_not_at_reference_checkpoint'),
+        refusal('reference_checkpoint_too_old', {}, 'fix_request')
+      ]
     ).install();
-    const stored: AuthorizedTxV2[] = [];
-    const error = await rejection(
-      issueLaneClawback(intent, SIGNER, {
-        onSigned: authorized => {
-          stored.push(authorized);
-        }
-      })
-    );
-    expect(authorityRefusalOf(error)?.kind).to.equal(
-      'reference_checkpoint_not_committed'
-    );
-    expect(stored).to.have.length(1);
-    expect(node.posts).to.have.length(1);
+    expect(
+      authorityRefusalOf(
+        await rejection(issueLaneClawback(intent, SIGNER, FAST))
+      )?.kind
+    ).to.equal('token_not_at_reference_checkpoint');
+    expect(node.posts).to.have.length(2);
+    await rejection(issueLaneClawback(intent, SIGNER, FAST));
+    expect(node.posts).to.have.length(3);
   });
 
   it('sends nothing when storing fails', async function () {
