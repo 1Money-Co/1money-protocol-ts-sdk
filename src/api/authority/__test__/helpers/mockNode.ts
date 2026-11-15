@@ -26,8 +26,11 @@ export interface Post {
   body: Record<string, unknown>;
 }
 
-/** A GET answers with a fixed value, or one per call (the last repeats). */
-export type GetRoute = Answer | Answer[];
+/**
+ * A GET answers with a fixed value, one per call (the last repeats),
+ * or the answer a function gives for the full URL.
+ */
+export type GetRoute = Answer | Answer[] | ((url: string) => Answer);
 
 /** A POST answers `accept` (200 with the hash the node computes) or an answer. */
 export type PostAnswer = 'accept' | Answer;
@@ -154,6 +157,9 @@ export class MockNode {
     const path = url.split('?')[0];
     const route = this.getRoutes[path];
     if (!route) return respond(config, notFound());
+    if (typeof route === 'function') {
+      return respond(config, route(url));
+    }
     if (!Array.isArray(route)) return respond(config, route);
     const call = this.getCalls.get(path) ?? 0;
     this.getCalls.set(path, call + 1);

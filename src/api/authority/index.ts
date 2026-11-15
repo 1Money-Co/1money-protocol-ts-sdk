@@ -1,3 +1,4 @@
+export * from './clawback';
 export * from './envelopeMode';
 export * from './legacyMap';
 export * from './reads';
