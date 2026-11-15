@@ -399,6 +399,37 @@ not change what they send. No send starts after the deadline.
 > member, and treats `422 business_transaction_failed` without `action` as
 > unknown.
 
+### Token authority refusals
+
+`authorityRefusalOf(error)` returns the typed refusal of the
+[token authority model](transactions.md#token-authority-model-settled-envelope-and-lane-clawback), or `undefined`. It counts only a
+`TransactionSubmissionError`, which proves the request had no effect. Every
+refusal below took no nonce and no lock. The problem type URIs are in
+`AUTHORITY_REFUSAL_TYPES`.
+
+| `kind` | Members | What to do |
+| --- | --- | --- |
+| `legacy_envelope_retired` | none | Never send the legacy form again. Read the envelope mode; on `settled`, sign the operation again as the new envelope at the same nonce; otherwise try again later. `sendAuthorityOperation` does this |
+| `settled_envelope_not_active` | none | Try the same transaction again later |
+| `reference_checkpoint_not_committed` | `checkpointId`, `checkpointIdLatest` | Try again once the node commits `r` |
+| `reference_checkpoint_too_old` | `checkpointId`, `checkpointIdEarliest` | Sign again with a recent `r` only if the transaction was never sent: the node checks `r` before the nonce, so an executed one gets this answer too. Else read its state first |
+| `token_not_at_reference_checkpoint` | `mintAddress`, `checkpointId` | Not evidence that the token does not exist. Sign again later with a later `r` |
+
+A member is missing when an older node did not send it. A lane clawback of
+VERIFY gets `not_authorized`; the SDK refuses it before it signs.
+
+Errors the token authority helpers throw before or around a send:
+
+- `UpgradeGapError` (`submitted: false`): the node is in the upgrade gap.
+  Nothing was sent.
+- `UnrecognizedEnvelopeModeError` (`submitted: false`, `reported`): a mode this
+  SDK does not know. Nothing was sent; upgrade the SDK.
+- `AuthorityReadError` (`status?`): a state read answered neither the value
+  nor a 404. It says nothing about the transaction.
+
+A soft fail is not a refusal: it is certified, uses the nonce, and has a
+receipt with `success: false` and a `SoftFail` event (`receiptOutcomeOf`).
+
 ### The five error codes
 
 | Code | HTTP | Meaning |

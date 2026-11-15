@@ -7,7 +7,9 @@ description: >-
   pattern, and the native v2 prepare → sign → authorize → submit flow for
   transactions (payments, batch payments, token issue/mint/burn, authority
   grants, blacklist/whitelist, pause, metadata, bridge, clawback, multisig
-  account creation) via TransactionBuilder + createPrivateKeySigner. Also
+  account creation) via TransactionBuilder + createPrivateKeySigner, and the
+  token authority model (envelope_mode switch point, settled authority
+  envelope, lane clawback, settling/no-op/soft-fail results). Also
   covers the legacy pre-3.0 signing scheme, now namespaced under
   LegacyV1TransactionBuilder and api().<module>.legacyV1.*. Trigger whenever
   the user mentions 1Money / 1money / "protocol-ts-sdk", or asks to
@@ -194,7 +196,7 @@ console.log('tx hash:', hash);
 so it can cross a process boundary (sign on one machine, submit from another).
 
 The builder you call and the endpoint you submit to must match. Quick map (all
-fourteen native v2 operations):
+sixteen native v2 operations):
 
 | `TransactionBuilder.…` | Submit with `client.…` | `pathV2` |
 | --- | --- | --- |
@@ -212,6 +214,8 @@ fourteen native v2 operations):
 | `tokenBurnAndBridge` | `tokens.burnAndBridge` | `/v2/tokens/burn_and_bridge` |
 | `tokenClawback` | `tokens.clawbackToken` | `/v2/tokens/clawback` |
 | `createMultisig` | `accounts.createMultisig` | `/v2/accounts/multisig` |
+| `settledAuthority` | `tokens.authorityOperation` | `/v2/tokens/authority_operation` |
+| `laneClawback` | `tokens.laneClawback` | `/v2/tokens/lane_clawback` |
 
 `tokenManageList` no longer exists — it split into `tokenBlacklist` and
 `tokenWhitelist`, which are distinct operations with distinct signing hashes
@@ -330,6 +334,9 @@ import {
   createPrivateKeySigner,      // shared by both: signs a digest
   deriveMultisigAddress,       // pure, offline multisig address derivation
   calculateBatchPaymentOperationsHash, // BatchPayment operations oracle
+  readEnvelopeMode, authorityEnvelope, // token authority switch point
+  buildSettledAuthority, authorityOperationByMode, issueLaneClawback,
+  authorityOperationState, laneClawbackFate, authorityRefusalOf,
 } from '@1money/protocol-ts-sdk';
 
 const client = api({ network: 'testnet' });
@@ -341,6 +348,10 @@ client.tokens.manageBlacklist(authorizedTxV2);         // v2 write
 client.tokens.legacyV1.manageBlacklist(legacyPayload);  // legacy v1 write
 client.accounts.createMultisig(authorizedTxV2);        // v2-only, no legacyV1
 client.status.getNativeWriteStatus();                  // GET /api/status
+client.status.getEnvelopeMode();                       // GET /api/status → EnvelopeMode
+client.tokens.authorityOperation(authorizedTxV2);      // settled envelope, v2-only
+client.tokens.laneClawback(authorizedTxV2);            // lane clawback, v2-only
+client.transactions.getStatusByHash(hash);             // GET /v1/transactions/status/by_hash
 ```
 
 ## Non-negotiable conventions
@@ -374,5 +385,13 @@ violating them throws or silently produces a bad transaction.
   opt-in during a migration window — never as a fallback triggered by
   retrying a failed v2 submission (see `TransactionHashMismatchError` in
   `client-and-errors.md`).
+- **Token authority operations follow the node's `envelope_mode`.** Read it
+  with `readEnvelopeMode()` before each one: legacy envelopes unless the node
+  reports a mode, nothing during `upgrade_gap`, only `settledAuthority` /
+  `laneClawback` with `settled`. A VERIFY clawback by its master and a hold
+  clawback stay legacy. Conclude a result only from a receipt or a
+  counter-signed status: "nonce passed, no receipt" is unknown, never failed,
+  and an unknown clawback is never issued again by itself. Details in
+  `references/transactions.md` (token authority model).
 - **Prefer `TransactionBuilder`/`LegacyV1TransactionBuilder` over
   `signMessage`/`encodePayload`.** The latter are `@deprecated` legacy helpers.

@@ -107,7 +107,7 @@ its `memo`, cannot alter a later authorization or its hashes.
 with low-S. The same adapter works for both the v2 and legacy v1 flows — it
 only ever signs a 32-byte digest, and doesn't know which scheme produced it.
 
-## Builder ↔ endpoint map (all fourteen v2 operations)
+## Builder ↔ endpoint map (all sixteen v2 operations)
 
 | `TransactionBuilder.…` | Submit `client.…` | `pathV2` | Returns |
 | --- | --- | --- | --- |
@@ -125,8 +125,13 @@ only ever signs a 32-byte digest, and doesn't know which scheme produced it.
 | `tokenBurnAndBridge` | `tokens.burnAndBridge` | `/v2/tokens/burn_and_bridge` | `{ hash }` |
 | `tokenClawback` | `tokens.clawbackToken` | `/v2/tokens/clawback` | `{ hash }` |
 | `createMultisig` | `accounts.createMultisig` | `/v2/accounts/multisig` | `{ hash }` |
+| `settledAuthority` | `tokens.authorityOperation` | `/v2/tokens/authority_operation` | `{ hash }` |
+| `laneClawback` | `tokens.laneClawback` | `/v2/tokens/lane_clawback` | `{ hash }` |
 
-Two operations are **v2-only** — there is no legacy form:
+Four operations are **v2-only** — there is no legacy form. `settledAuthority`
+and `laneClawback` are the token authority model's envelopes (see
+[Token authority model](#token-authority-model-settled-envelope-and-lane-clawback)).
+The other two:
 
 - `createMultisig` — legacy clients used `POST /v1/transactions/raw`, which is
   retired and returns 410. `accounts` has no `legacyV1` namespace at all.
@@ -138,6 +143,123 @@ Two operations are **v2-only** — there is no legacy form:
 distinct `operationType` values and distinct signing hashes, so you cannot
 build once and submit to either endpoint (the pre-3.0 "build once" pattern for
 manage-list is gone).
+
+## Token authority model: settled envelope and lane clawback
+
+A node of the token authority release changes how authority operations reach
+the chain. Source: [`src/api/authority/`](../../../src/api/authority/).
+
+**Switch point.** Read `envelope_mode` with `readEnvelopeMode()` (or
+`client.status.getEnvelopeMode()`) before every authority operation:
+
+| `readEnvelopeMode()` returns | Send |
+| --- | --- |
+| `{ mode: 'legacy', reason }` (no `envelope_mode`, an HTTP error, no answer) | The legacy envelopes (`tokenMint`, `tokenAuthority`, `tokenBlacklist`, `tokenWhitelist`, `tokenPause`, `tokenMetadata`, `tokenClawback`) |
+| `{ mode: 'upgrade_gap' }` | Nothing of the class. Try again later |
+| `{ mode: 'settled' }` | Only `settledAuthority` and `laneClawback` |
+| `{ mode: 'unrecognized' }` | Nothing. Upgrade the SDK |
+
+`authorityEnvelope(mode)` turns the mode into `'legacy' | 'settled'` and throws
+`UpgradeGapError` or `UnrecognizedEnvelopeModeError` before anything is sent.
+
+Two clawbacks stay legacy in every mode: the VERIFY master's clawback of VERIFY
+(token `VERIFY_TOKEN_ADDRESS`), and a Reserved Payment hold clawback
+(`clawbackStaysLegacy`, `clawbackEnvelope`). `laneClawback` refuses VERIFY
+before it signs.
+
+### settledAuthority → tokens.authorityOperation
+
+The settled envelope carries the signer's nonce and a reference checkpoint `r`.
+Its result is decided at the next checkpoint.
+
+```typescript
+import {
+  api, TransactionBuilder, createPrivateKeySigner,
+  buildSettledAuthority, authorityOperationState,
+} from '@1money/protocol-ts-sdk';
+
+const client = api({ network: 'local' });
+// r defaults to the latest committed checkpoint (GET /v1/checkpoints/number)
+// of the node you submit to. Pass reference_checkpoint to name one.
+const payload = await buildSettledAuthority({
+  chain_id, nonce, token,
+  operation: { type: 'mint', recipient, value: '1000000' },
+});
+const prepared = TransactionBuilder.settledAuthority(payload, { memo });
+const authorized = prepared.authorize(
+  await createPrivateKeySigner(privateKey).signDigest(prepared.signingHash)
+);
+await client.tokens.authorityOperation(authorized);
+const state = await authorityOperationState(signer, nonce, authorized.transactionHash);
+```
+
+`operation` is a union tagged by `type`: `pause`, `unpause`, `list` (`list`,
+`action`, `account`), `update_metadata`, `grant_role` / `revoke_role` (`role`,
+`account`), `set_minter_allowance` (absolute `allowance`), `revoke_minter`,
+`rotate_master_mint_burn`, `revoke_master_mint_burn`, `mint`. See
+`AuthorityOperation` in [`src/api/tokens/types.ts`](../../../src/api/tokens/types.ts).
+`signSettledAuthority(payload, signer, memo)` does the prepare, sign and
+authorize steps in one call.
+
+To keep legacy payloads you already build, wrap them in a
+`LegacyAuthorityOperation` (`{ kind: 'mint' | 'authority' | 'blacklist' |
+'whitelist' | 'pause' | 'metadata', payload }`) and call
+`authorityOperationByMode(legacy, signer)`. It reads the mode, sends the matching
+envelope, and returns `{ envelope, authorized, transactionHash }`:
+
+- On `legacy_envelope_retired` (no nonce or lock taken) it never resends the
+  legacy form. It reads the mode again and, on `settled`, signs the operation
+  again as the new envelope at the same nonce.
+- On `reference_checkpoint_not_committed` or `token_not_at_reference_checkpoint`
+  it signs once more with a fresh reference after a short wait.
+- A list operation reads the token's privacy: on a private token a freeze is a
+  whitelist remove (`settledOperationOf`).
+
+### laneClawback → tokens.laneClawback
+
+The lane clawback takes a slot on the **holder's** nonce sequence
+(`from_nonce` = the holder's next nonce) and no nonce of the clawback authority.
+Its result arrives at certification, as for a payment.
+
+```typescript
+import { issueLaneClawback, laneClawbackFate } from '@1money/protocol-ts-sdk';
+
+const authorized = await issueLaneClawback(
+  { chain_id, token, holder, recipient, value: '9' },
+  createPrivateKeySigner(privateKey),
+  { onSigned: tx => store.save(tx) },   // store BEFORE the send
+);
+const fate = await laneClawbackFate(authorized);  // also after a restart, from the store
+```
+
+`buildLaneClawback(intent)` reads the holder's nonce and `r`; it throws for
+VERIFY and for a holder with no lane yet (next nonce 0). `signLaneClawback`
+signs without a network call.
+
+### Reading the result: positive evidence only
+
+`authorityOperationState` and `laneClawbackFate` read the account nonce, the
+receipt and `GET /v1/transactions/status/by_hash` once:
+
+| Evidence | Settled operation | Lane clawback |
+| --- | --- | --- |
+| A receipt | `decided`, with `outcome` | `executed`, with `outcome` |
+| Status `certified_pending_checkpoint`, `checkpointed` or `finalized` | `settling` (final; the checkpoint decides it) | `certified` (it executes) |
+| Nonce not passed | `pending` | `pending` |
+| Nonce passed, no receipt, no certificate | `unknown`, with what the reads showed | `unknown` |
+
+- `outcome` (`receiptOutcomeOf`) is `success`, `no_op` (a success that changed
+  only the nonce), `soft_fail` with its `reason`, or `failed`. Show `warnings`:
+  a `no_op_revoke` names an account that held no role, so another key can
+  still hold it.
+- Never report `unknown` as failed or dead. A node bootstrapped from a snapshot,
+  or one that pruned receipts, gives that answer for a transaction that
+  executed.
+- Never issue an unknown clawback again by itself. Issuing it again on the
+  holder's next slot is an explicit issuer action, after a check on a node with
+  the full history that no receipt exists for its hash.
+- A settled operation or a lane clawback can stay pending until stranded-lock
+  eviction, up to three epoch transitions. A long pending is not a failure.
 
 ## Builder fields
 

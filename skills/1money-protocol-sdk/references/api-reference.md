@@ -105,6 +105,7 @@ interface MintInfo {
 client.transactions.getByHash(hash: string)          // → Transaction
 client.transactions.getReceiptByHash(hash: string)   // → TransactionReceipt
 client.transactions.getFinalizedByHash(hash: string) // → FinalizedTransactionReceipt
+client.transactions.getStatusByHash(hash: string)    // → { hash, status, checkpoint_number? }
 client.transactions.estimateFee(from, to, value, token) // → { fee: string; plan?: string }
 client.transactions.estimateBatchPaymentFee({
   from, token, operations,
@@ -130,6 +131,12 @@ It returns the shared `EstimateFee` shape `{ fee: string; plan?: string }`.
 `plan` is optional for both this method and the existing `estimateFee()` method;
 it is not a Batch Payment-only response type. Both estimators are point-in-time
 quotes, not signed fee caps or admission guarantees.
+
+`getStatusByHash` reads `GET /v1/transactions/status/by_hash`. `status` is
+`'pending' | 'finalized' | 'certified_pending_checkpoint' | 'checkpointed'`;
+the last three report a certificate, which is final. A 404 does not prove the
+transaction never existed. Read it through `authorityOperationState` or
+`laneClawbackFate` (see the [token authority model](transactions.md#token-authority-model-settled-envelope-and-lane-clawback)).
 
 `TransactionReceipt`:
 
@@ -180,7 +187,10 @@ interface TransactionReceipt {
         recipient: string;
         amount: string;
       }
+    | { event_type: 'SoftFail'; reason: SoftFailReason }   // failed at its checkpoint
+    | { event_type: 'NoOp'; target: string | null }        // success that changed only the nonce
   >;
+  warnings?: Array<{ type: 'no_op_revoke'; target: string }>; // show to the user
 }
 // FinalizedTransactionReceipt extends it with:
 //   epoch: number; counter_signatures: { r; s; v }[]
@@ -192,7 +202,8 @@ callers of finalized reads must migrate `fee_used` from number to string and
 `success_info.receiver` is the zero-address sentinel because there is no
 singular recipient. Use `PaymentExecuted` entries in `execution_events` for
 actual recipient addresses and amounts. `batch_info.failure` is currently
-`null` in production-shaped responses and is not a terminal-failure signal.
+`null` in production-shaped responses and is not a terminal-failure signal. `execution_events` and `warnings` are
+omitted when empty; tolerate an `event_type` you do not know.
 
 `Transaction` is a **discriminated union** keyed by `transaction_type`
 (`'TokenCreate' | 'TokenTransfer' | 'TokenMint' | 'TokenGrantAuthority' |
@@ -200,7 +211,8 @@ actual recipient addresses and amounts. `batch_info.failure` is currently
 'TokenWhitelistAccount' |
 'TokenBridgeAndMint' | 'TokenBurn' | 'TokenBurnAndBridge' | 'TokenClawback' |
 'TokenCloseAccount' | 'TokenPause' | 'TokenUnpause' | 'TokenUpdateMetadata' |
-'CreateMultiSig' | 'Raw'`). All variants share `hash`, `chain_id`, `from`, `nonce`, `signature`,
+'CreateMultiSig' | 'TokenAuthorityOperation' | 'TokenLaneClawback' | 'Raw'`).
+A lane clawback also has `lane` (the holder), and its `nonce` is the holder's. All variants share `hash`, `chain_id`, `from`, `nonce`, `signature`,
 plus optional `checkpoint_*`/`transaction_index` and an optional `memo` (present
 only for V2/memo-bearing txs); each carries a `data` object specific to its type.
 Narrow on `transaction_type` before reading `data`.
@@ -252,7 +264,11 @@ client.status.getNativeWriteStatus()
 //     native_domain_separated_transactions: {
 //       support_count: number; required_count: number; full_support: boolean;
 //     };
+//     envelope_mode?: 'upgrade_gap' | 'settled' | null; // missing on an older release
 //   }
+
+client.status.getEnvelopeMode()
+// → GET /api/status, read as an EnvelopeMode. Never throws for a node answer.
 
 client.status.getHealth()
 // → GET /api/health — plain-text body (e.g. "UP"), not JSON.
@@ -266,10 +282,14 @@ capability counts are a recent observation, not an instantaneous one: a
 validator that stops broadcasting can still be counted for roughly 150
 seconds.
 
+Read `envelope_mode` only through `getEnvelopeMode()` / `readEnvelopeMode()`:
+anything but a reported `upgrade_gap` or `settled` must read as the legacy
+envelopes (see the [token authority model](transactions.md#token-authority-model-settled-envelope-and-lane-clawback)).
+
 ## Write endpoints (index)
 
 These take an **`AuthorizedTxV2`** built via `TransactionBuilder.<op>(...)
-.authorize(sig)` — see `transactions.md`. All fourteen native v2 operations,
+.authorize(sig)` — see `transactions.md`. All sixteen native v2 operations,
 listed here only so you pick the right one:
 
 ```typescript
@@ -287,10 +307,12 @@ client.tokens.bridgeAndMint(authorized)        // POST /v2/tokens/bridge_and_min
 client.tokens.burnAndBridge(authorized)        // POST /v2/tokens/burn_and_bridge       → { hash }
 client.tokens.clawbackToken(authorized)        // POST /v2/tokens/clawback              → { hash }
 client.accounts.createMultisig(authorized)     // POST /v2/accounts/multisig            → { hash }
+client.tokens.authorityOperation(authorized)   // POST /v2/tokens/authority_operation   → { hash }
+client.tokens.laneClawback(authorized)         // POST /v2/tokens/lane_clawback         → { hash }
 ```
 
-Each of the above (except `batchPayment` and `createMultisig`, which are
-v2-only) has a `legacyV1` counterpart that takes the old signed-payload shape
+Each of the above (except `batchPayment`, `createMultisig`,
+`authorityOperation` and `laneClawback`, which are v2-only) has a `legacyV1` counterpart that takes the old signed-payload shape
 directly and posts to the matching `/v1` path, e.g.
 `client.transactions.legacyV1.payment(payload)` →
 `POST /v1/transactions/payment`, `client.tokens.legacyV1.manageBlacklist(payload)`
