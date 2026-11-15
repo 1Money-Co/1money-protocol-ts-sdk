@@ -24,6 +24,13 @@ export const SECP256K1_N_DIV_2 = BigInt(
 
 export interface SignerAdapter {
   signDigest: (digest: ZeroXString) => Promise<Signature>;
+  /**
+   * The address of the key that signDigest signs with. Helpers that
+   * read the signer's nonce before they sign use it, and check it
+   * against the address recovered from the signature before the
+   * transaction is stored or sent.
+   */
+  getAddress?: () => Promise<ZeroXString>;
 }
 
 export interface SignedTx<TUnsigned, TRequest> {

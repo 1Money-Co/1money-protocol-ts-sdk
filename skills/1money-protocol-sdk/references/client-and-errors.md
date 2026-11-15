@@ -409,7 +409,7 @@ refusal below took no nonce and no lock. The problem type URIs are in
 
 | `kind` | Members | What to do |
 | --- | --- | --- |
-| `legacy_envelope_retired` | none | Never send the legacy form again. Read the envelope mode; on `settled`, sign the operation again as the new envelope at the same nonce; otherwise try again later. `sendAuthorityOperation` does this. If `GET /api/status` is hidden (`status_answered`), the mode stays legacy: name the envelope with `sendAuthorityOperation('settled', …)` |
+| `legacy_envelope_retired` | none | Never send the legacy form again. Read the envelope mode; on `settled`, sign the operation again as the new envelope at the same nonce; otherwise try again later. `sendAuthorityOperation` does this. If `GET /api/status` is hidden (`status_answered`), the mode stays legacy: name the envelope with `sendAuthorityOperation('settled', …)` or `sendClawback('settled', …)` |
 | `settled_envelope_not_active` | none | Try the same transaction again later |
 | `reference_checkpoint_not_committed` | `checkpointId`, `checkpointIdLatest` | Try again once the node commits `r` |
 | `reference_checkpoint_too_old` | `checkpointId`, `checkpointIdEarliest` | Sign again with a recent `r` only if the transaction was never sent: the node checks `r` before the nonce, so an executed one gets this answer too. Else read its state first |
@@ -434,6 +434,9 @@ Errors the token authority helpers throw before or around a send:
   `nextNonce`): the signer's nonce passed the clawback intent's nonce, so no
   lane clawback was signed. Read the legacy clawback's outcome by its hash
   before you claw back again.
+- `SignerAddressMismatchError` (`submitted: false`, `claimed`, `recovered`): the
+  signer adapter's `getAddress()` names another account than its signature
+  recovers to. Nothing was stored or sent.
 
 A soft fail is not a refusal: it is certified, uses the nonce, and has a
 receipt with `success: false` and a `SoftFail` event (`receiptOutcomeOf`).

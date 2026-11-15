@@ -103,8 +103,8 @@ independent request snapshot. Mutating a prior `authorized.request`, including
 its `memo`, cannot alter a later authorization or its hashes.
 
 `createPrivateKeySigner(privateKey: \`0x${string}\`)` produces a
-`SignerAdapter` (`{ signDigest(digest) => Promise<Signature> }`) that signs
-with low-S. The same adapter works for both the v2 and legacy v1 flows — it
+`SignerAdapter` (`{ signDigest(digest) => Promise<Signature>; getAddress?() }`)
+that signs with low-S and names its address. The same adapter works for both the v2 and legacy v1 flows — it
 only ever signs a 32-byte digest, and doesn't know which scheme produced it.
 
 ## Builder ↔ endpoint map (all sixteen v2 operations)
@@ -165,9 +165,10 @@ the chain. Source: [`src/api/authority/`](../../../src/api/authority/).
 `GET /api/status` is an operational endpoint, outside the partner API, so a
 gateway can hide it. The mode then reads as `{ mode: 'legacy', reason: { kind:
 'status_answered', status } }`. Once the node takes the new envelopes, every
-by-mode call (`authorityOperationByMode`) ends in a `legacy_envelope_retired`
-refusal with `retry_later`, and trying again does not help. If you know that the
-node is `settled`, name the envelope: `sendAuthorityOperation('settled', …)`.
+by-mode call (`authorityOperationByMode`, `clawbackByMode`) ends in a
+`legacy_envelope_retired` refusal with `retry_later`, and trying again does not
+help. If you know that the node is `settled`, name the envelope:
+`sendAuthorityOperation('settled', …)` or `sendClawback('settled', …)`.
 
 Two clawbacks stay legacy in every mode: the VERIFY master's clawback of VERIFY
 (token `VERIFY_TOKEN_ADDRESS`), and a Reserved Payment hold clawback
@@ -278,10 +279,21 @@ before the send). It returns `{ kind: 'legacy' | 'lane', authorized }`:
 - In the settled mode, or after a retired legacy clawback once the node reports
   `settled`, it issues the lane clawback of the same token, holder (`from`),
   recipient and value.
-- It signs that lane clawback only while the signer's nonce (the address
-  recovered from the signer's own signature) has not passed `clawback.nonce`.
-  Otherwise it throws `ClawbackIntentNonceUsedError` with nothing signed: a
-  legacy send may have executed, so read its outcome first.
+- It signs that lane clawback only while the signer's nonce has not passed
+  `clawback.nonce`. Otherwise it throws `ClawbackIntentNonceUsedError` with
+  nothing signed: a legacy send may have executed, so read its outcome first.
+- The signer's address comes from `signer.getAddress()`
+  (`createPrivateKeySigner` has it). The router checks that address against the
+  one recovered from the lane clawback's own signature, before the clawback is
+  stored or sent, and throws `SignerAddressMismatchError` on a mismatch. A
+  signer adapter without `getAddress` still works, but the router then signs a
+  legacy clawback only to recover the address: a second approval on a remote or
+  hardware signer. Add `getAddress` to your adapter to avoid it.
+- A lane clawback refused with `reference_checkpoint_not_committed` or
+  `token_not_at_reference_checkpoint` is built and signed once more.
+  `onSigned(authorized, { replaces })` receives each signed clawback. A new one
+  names the one it supersedes, which had no effect (a retired legacy clawback,
+  or a lane clawback refused at admission). Never send the superseded one again.
 - **Call it once per clawback intent.** The nonce check cannot see a lane
   clawback already issued for the intent, or a legacy one still in flight.
   After an error that `authorityRefusalOf` does not name, read the stored
@@ -289,7 +301,8 @@ before the send). It returns `{ kind: 'legacy' | 'lane', authorized }`:
   signed bytes; calling the router again would sign a second clawback.
 
 `sendClawback(envelope, params)` does the same for an envelope you already
-chose.
+chose. Use `sendClawback('settled', …)` when `GET /api/status` is hidden and
+the node is known to be `settled` (see the switch point above).
 
 ### Reading the result: positive evidence only
 
@@ -730,6 +743,11 @@ const walletSigner: SignerAdapter = {
     // digest === prepared.signingHash, a 0x-prefixed 32-byte hex string.
     // Produce a low-S secp256k1 signature however your key custody allows.
     return { r: '0x…', s: '0x…', v: 0 };
+  },
+  // Optional: the key's address. The clawback router reads the signer's
+  // nonce before it signs, and checks this against the signature.
+  async getAddress() {
+    return '0x…';
   },
 };
 

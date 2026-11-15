@@ -1,6 +1,8 @@
 import { signAsync } from '@noble/secp256k1';
 import { bytesToHex, hexToBytes } from 'viem';
 
+import { addressOfPrivateKey } from './address';
+
 import type { Signature, ZeroXString } from '@/utils';
 import type { SignerAdapter } from './core';
 
@@ -12,6 +14,7 @@ export function createPrivateKeySigner(
   const privateKeyBytes = hexToBytes(privateKey);
 
   return {
+    getAddress: async () => addressOfPrivateKey(privateKeyBytes),
     signDigest: async (
       digest: ZeroXString
     ): Promise<Signature> => {

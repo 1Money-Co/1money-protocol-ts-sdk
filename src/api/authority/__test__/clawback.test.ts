@@ -3,6 +3,7 @@ import 'mocha';
 
 import {
   ClawbackIntentNonceUsedError,
+  SignerAddressMismatchError,
   clawbackByMode,
   prepareLaneClawbackReissue,
   sendClawback
@@ -16,10 +17,14 @@ import { createPrivateKeySigner } from '@/signing/signer';
 import { VERIFY_TOKEN_ADDRESS } from '@/signing/builders/laneClawback';
 import { MockNode, notFound, ok, refusal } from './helpers/mockNode';
 
+import type { GetRoute } from './helpers/mockNode';
+
 import type {
   FullHistoryCheck,
   SendClawbackParams
 } from '../clawback';
+import type { SignedContext } from '../send';
+import type { SignerAdapter } from '@/signing/core';
 import type { AuthorizedTxV2 } from '@/signing/v2';
 
 // A fixed test key with no value anywhere.
@@ -36,6 +41,22 @@ const STATUS_BY_HASH = '/v1/transactions/status/by_hash';
 const CHECKED: FullHistoryCheck = { fullHistoryChecked: true };
 
 let stored: AuthorizedTxV2[] = [];
+let contexts: SignedContext[] = [];
+
+// Counts the digests a signer is asked to sign.
+function counting(signer: SignerAdapter) {
+  const counted = {
+    digests: 0,
+    signer: {
+      ...signer,
+      signDigest: (digest: `0x${string}`) => {
+        counted.digests += 1;
+        return signer.signDigest(digest);
+      }
+    } as SignerAdapter
+  };
+  return counted;
+}
 
 function params(
   overrides: Partial<SendClawbackParams['clawback']> = {},
@@ -53,8 +74,10 @@ function params(
     },
     source,
     signer: SIGNER,
-    onSigned: authorized => {
+    referenceRetryDelayMs: 0,
+    onSigned: (authorized, context) => {
       stored.push(authorized);
+      contexts.push(context);
     }
   };
 }
@@ -92,7 +115,7 @@ describe('the by-mode clawback router', function () {
   let node: MockNode;
 
   function install(
-    routes: Record<string, ReturnType<typeof ok>>,
+    routes: Record<string, GetRoute>,
     posts: ConstructorParameters<typeof MockNode>[1] = [],
     nonce = nonces(7, 4)
   ) {
@@ -108,6 +131,7 @@ describe('the by-mode clawback router', function () {
 
   beforeEach(function () {
     stored = [];
+    contexts = [];
   });
 
   afterEach(function () {
@@ -139,6 +163,64 @@ describe('the by-mode clawback router', function () {
         url.includes(`address=${SIGNER_ADDRESS}`)
       )
     ).to.equal(true);
+  });
+
+  it('signs only the lane clawback when the signer names its address', async function () {
+    install({ [STATUS]: mode('settled') });
+    const counted = counting(SIGNER);
+    await clawbackByMode({ ...params(), signer: counted.signer });
+    expect(counted.digests).to.equal(1);
+    expect(stored.map(a => a.operation)).to.deep.equal([
+      'laneClawback'
+    ]);
+  });
+
+  it('recovers the address from a legacy signature when the signer names none', async function () {
+    install({ [STATUS]: mode('settled') });
+    const counted = counting({ signDigest: SIGNER.signDigest });
+    const sent = await clawbackByMode({
+      ...params(),
+      signer: counted.signer
+    });
+    expect(sent.kind).to.equal('lane');
+    expect(counted.digests).to.equal(2);
+    expect(stored).to.deep.equal([sent.authorized]);
+    expect(
+      node.gets.some(url =>
+        url.includes(`address=${SIGNER_ADDRESS}`)
+      )
+    ).to.equal(true);
+  });
+
+  it('stores and sends nothing when the signer names another address', async function () {
+    install({ [STATUS]: mode('settled') }, [], nonces(7, 4));
+    const liar: SignerAdapter = {
+      ...SIGNER,
+      getAddress: async () => HOLDER as `0x${string}`
+    };
+    const error = await rejection(
+      clawbackByMode({ ...params(), signer: liar })
+    );
+    expect(error).to.be.instanceOf(SignerAddressMismatchError);
+    expect(stored).to.have.length(0);
+    expect(node.posts).to.have.length(0);
+  });
+
+  it('builds one more lane clawback after a reference not ready, naming the refused one', async function () {
+    install(
+      {
+        [STATUS]: mode('settled'),
+        [CHECKPOINT]: [ok({ number: 30 }), ok({ number: 31 })]
+      },
+      [refusal('token_not_at_reference_checkpoint')]
+    );
+    const sent = await clawbackByMode(params());
+    expect(
+      node.posts.map(p => p.body.reference_checkpoint)
+    ).to.deep.equal([30, 31]);
+    expect(stored).to.have.length(2);
+    expect(contexts).to.deep.equal([{}, { replaces: stored[0] }]);
+    expect(stored[1]).to.equal(sent.authorized);
   });
 
   it('stores the legacy clawback before it is sent', async function () {
@@ -192,6 +274,7 @@ describe('the by-mode clawback router', function () {
       '/v2/tokens/clawback',
       '/v2/tokens/lane_clawback'
     ]);
+    expect(contexts).to.deep.equal([{}, { replaces: stored[0] }]);
   });
 
   it('returns the retired refusal of a clawback that stays legacy', async function () {
@@ -336,7 +419,8 @@ describe('the explicit lane clawback re-issue', function () {
     for (const broken of [
       { ...dead, request: { ...dead.request, memo: null } },
       { ...dead, request: { ...dead.request, value: '-1' } },
-      { ...dead, operation: 'tokenClawback' as const }
+      { ...dead, operation: 'tokenClawback' as const },
+      { ...dead, request: { ...dead.request, from_nonce: 2 } }
     ]) {
       await rejection(
         prepareLaneClawbackReissue(broken, SIGNER, CHECKED)

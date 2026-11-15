@@ -1,3 +1,4 @@
+import { recoverSignerAddress } from '@/signing/address';
 import { prepareTransactionV2 } from '@/signing/v2';
 import { submitAuthorized } from '../submit';
 import {
@@ -62,6 +63,27 @@ export async function sign<K extends OperationName>(
   return prepared.authorize(
     await signer.signDigest(prepared.signingHash)
   );
+}
+
+// The signer's address comes from its own signature, never from a
+// value the caller passes.
+export async function signRecovering<K extends OperationName>(
+  operation: K,
+  unsigned: OperationUnsignedMap[K],
+  signer: SignerAdapter,
+  memo?: Memo
+): Promise<{ authorized: AuthorizedTxV2; signerAddress: string }> {
+  const prepared = prepareTransactionV2(operation, unsigned, {
+    memo
+  });
+  const signature = await signer.signDigest(prepared.signingHash);
+  // authorize() refuses any v but 0 or 1 before the recovery reads it.
+  const authorized = prepared.authorize(signature);
+  const signerAddress = recoverSignerAddress(
+    prepared.signingHash,
+    signature
+  );
+  return { authorized, signerAddress };
 }
 
 export async function submit(

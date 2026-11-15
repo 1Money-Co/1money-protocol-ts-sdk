@@ -1,23 +1,23 @@
-import { recoverAddress } from 'viem';
-
-import { validateLaneClawback } from '@/signing/builders/laneClawback';
-import { prepareTransactionV2 } from '@/signing/v2';
 import {
   authorityEnvelope,
   clawbackStaysLegacy,
   readEnvelopeMode
 } from './envelopeMode';
+import { laneClawbackRecordOf } from './laneClawbackRecord';
 import { readAccountNonce } from './reads';
 import { isAuthorityRefusal } from './refusals';
 import { buildLaneClawback, signLaneClawback } from './send';
 import {
+  retryOnceOnReferenceNotReady,
   settledAfterRetirement,
+  signRecovering,
+  signedRecorder,
   submit
 } from './sendCore';
 import { laneClawbackFate } from './state';
 
-import type { LaneClawbackPayload } from '../tokens/types';
 import type { AuthorityEnvelope, ClawbackSource } from './envelopeMode';
+import type { OnSigned } from './sendCore';
 import type { LaneClawbackFate } from './state';
 import type { SignerAdapter } from '@/signing/core';
 import type {
@@ -63,6 +63,25 @@ export class ClawbackIntentNonceUsedError extends Error {
   }
 }
 
+/**
+ * The signer adapter's getAddress() names another account than its
+ * signature recovers to. Nothing was stored or sent.
+ */
+export class SignerAddressMismatchError extends Error {
+  public readonly submitted = false;
+  public readonly claimed: string;
+  public readonly recovered: string;
+
+  public constructor(claimed: string, recovered: string) {
+    super(
+      `[1Money SDK]: The signer adapter's getAddress() gave ${claimed}, but its signature recovers to ${recovered}. Nothing was stored or sent.`
+    );
+    this.name = 'SignerAddressMismatchError';
+    this.claimed = claimed;
+    this.recovered = recovered;
+  }
+}
+
 export interface SendClawbackParams {
   /**
    * The legacy clawback. `nonce` names it on its signer's lane: the
@@ -72,38 +91,36 @@ export interface SendClawbackParams {
   source: ClawbackSource;
   signer: SignerAdapter;
   memo?: Memo;
+  /** The wait before the one retry of a reference not ready yet. */
+  referenceRetryDelayMs?: number;
   /**
-   * Called with the signed clawback, legacy or lane, before it is
-   * sent. Store it: after any error, read its outcome from the
-   * stored transaction, never by calling the router again.
+   * Called with each signed clawback, legacy or lane, before it is
+   * sent; a clawback that replaces a refused one names it in
+   * `replaces`. After any error, read the outcome of the last
+   * clawback it received, never by calling the router again.
    */
-  onSigned: (authorized: AuthorizedTxV2) => Promise<void> | void;
+  onSigned: OnSigned;
 }
 
-async function signLegacyClawback(
-  params: SendClawbackParams
-): Promise<{ authorized: AuthorizedTxV2; signerAddress: string }> {
-  const prepared = prepareTransactionV2(
+type Recorder = (authorized: AuthorizedTxV2) => Promise<void>;
+
+function signLegacyClawback(params: SendClawbackParams) {
+  return signRecovering(
     'tokenClawback',
     params.clawback,
-    { memo: params.memo }
+    params.signer,
+    params.memo
   );
-  const signature = await params.signer.signDigest(
-    prepared.signingHash
-  );
-  // authorize() refuses any v but 0 or 1 before the recovery reads it.
-  const authorized = prepared.authorize(signature);
-  // The signer's address comes from its own signature, so the nonce
-  // check reads the account that actually signs.
-  const signerAddress = await recoverAddress({
-    hash: prepared.signingHash,
-    signature: {
-      r: signature.r,
-      s: signature.s,
-      yParity: Number(signature.v)
-    }
-  });
-  return { authorized, signerAddress };
+}
+
+// The adapter's own address. From an adapter without getAddress,
+// the address recovered from a legacy clawback signed only for it,
+// which costs a remote or hardware signer a second approval.
+async function signerAddressOf(
+  params: SendClawbackParams
+): Promise<string> {
+  if (params.signer.getAddress) return params.signer.getAddress();
+  return (await signLegacyClawback(params)).signerAddress;
 }
 
 // A lane clawback of the intent is signed only while the signer's
@@ -113,10 +130,11 @@ async function signLegacyClawback(
 // nonce would no longer stop a second debit. The check cannot see a
 // lane clawback already issued for the intent, or a legacy one still
 // in flight: that is why the router runs once per intent.
-async function laneClawbackOfIntent(
+async function laneAttempt(
   params: SendClawbackParams,
-  signerAddress: string
-): Promise<ClawbackSubmission> {
+  signerAddress: string,
+  record: Recorder
+): Promise<AuthorizedTxV2> {
   const { clawback } = params;
   const [nextNonce, payload] = await Promise.all([
     readAccountNonce(signerAddress),
@@ -135,13 +153,35 @@ async function laneClawbackOfIntent(
       nextNonce
     );
   }
-  const authorized = await signLaneClawback(
+  const signed = await signRecovering(
+    'laneClawback',
     payload,
     params.signer,
     params.memo
   );
-  await params.onSigned(authorized);
-  return { kind: 'lane', authorized: await submit(authorized) };
+  if (
+    signed.signerAddress.toLowerCase() !==
+    signerAddress.toLowerCase()
+  ) {
+    throw new SignerAddressMismatchError(
+      signerAddress,
+      signed.signerAddress
+    );
+  }
+  await record(signed.authorized);
+  return submit(signed.authorized);
+}
+
+async function laneClawbackOfIntent(
+  params: SendClawbackParams,
+  signerAddress: string,
+  record: Recorder
+): Promise<ClawbackSubmission> {
+  const authorized = await retryOnceOnReferenceNotReady(
+    () => laneAttempt(params, signerAddress, record),
+    params.referenceRetryDelayMs
+  );
+  return { kind: 'lane', authorized };
 }
 
 async function route(
@@ -149,11 +189,16 @@ async function route(
   staysLegacy: boolean,
   params: SendClawbackParams
 ): Promise<ClawbackSubmission> {
-  const legacy = await signLegacyClawback(params);
+  const record = signedRecorder(params.onSigned);
   if (envelope === 'settled' && !staysLegacy) {
-    return laneClawbackOfIntent(params, legacy.signerAddress);
+    return laneClawbackOfIntent(
+      params,
+      await signerAddressOf(params),
+      record
+    );
   }
-  await params.onSigned(legacy.authorized);
+  const legacy = await signLegacyClawback(params);
+  await record(legacy.authorized);
   try {
     await submit(legacy.authorized);
   } catch (error) {
@@ -164,7 +209,11 @@ async function route(
       throw error;
     }
     await settledAfterRetirement(error);
-    return laneClawbackOfIntent(params, legacy.signerAddress);
+    return laneClawbackOfIntent(
+      params,
+      legacy.signerAddress,
+      record
+    );
   }
   return { kind: 'legacy', authorized: legacy.authorized };
 }
@@ -176,7 +225,8 @@ async function route(
  * whatever `envelope` says, and its retired refusal is returned. On
  * a retired legacy clawback of an ordinary account (no nonce or lock
  * taken), once the node reports `settled`, the clawback is issued as
- * the lane clawback.
+ * the lane clawback. A lane clawback whose reference was not ready
+ * is built and signed once more.
  *
  * Call it once per clawback intent. After an error that
  * authorityRefusalOf does not name, the stored transaction may be in
@@ -185,8 +235,9 @@ async function route(
  * would sign a second clawback.
  *
  * Throws as the single send; ClawbackIntentNonceUsedError before a
- * lane clawback is signed; after a retired refusal, the refusal,
- * UpgradeGapError or UnrecognizedEnvelopeModeError.
+ * lane clawback is signed; SignerAddressMismatchError before one is
+ * stored; after a retired refusal, the refusal, UpgradeGapError or
+ * UnrecognizedEnvelopeModeError.
  */
 export function sendClawback(
   envelope: AuthorityEnvelope,
@@ -247,42 +298,6 @@ export interface FullHistoryCheck {
   fullHistoryChecked: true;
 }
 
-function isMemo(value: unknown): value is Memo {
-  const memo = value as Record<string, unknown> | null;
-  return (
-    typeof memo === 'object' &&
-    memo !== null &&
-    ['type', 'format', 'data'].every(
-      key => typeof memo[key] === 'string'
-    )
-  );
-}
-
-// A stored record crossed a JSON boundary: check every field that
-// the replacement copies before it is signed again.
-function deadClawbackOf(dead: AuthorizedTxV2): {
-  payload: LaneClawbackPayload;
-  memo: Memo;
-} {
-  const request = dead.request as Record<string, unknown>;
-  if (dead.operation !== 'laneClawback' || !isMemo(request.memo)) {
-    throw new Error(
-      '[1Money SDK]: prepareLaneClawbackReissue needs a stored signed lane clawback with its memo'
-    );
-  }
-  const payload = {
-    chain_id: request.chain_id,
-    token: request.token,
-    holder: request.holder,
-    from_nonce: request.from_nonce,
-    reference_checkpoint: request.reference_checkpoint,
-    recipient: request.recipient,
-    value: request.value
-  } as LaneClawbackPayload;
-  validateLaneClawback(payload);
-  return { payload, memo: request.memo };
-}
-
 /**
  * Sign the replacement of a lane clawback that did not execute, on
  * the holder's next slot with a new reference checkpoint, and do not
@@ -297,9 +312,9 @@ function deadClawbackOf(dead: AuthorizedTxV2): {
  *   sign two replacements, and both can execute.
  * - Never send `dead` again.
  *
- * Throws for a stored record that is not a valid lane clawback,
- * AuthorityReadError when a read does not answer, and as
- * buildLaneClawback.
+ * Throws as laneClawbackRecordOf for a stored record that is not a
+ * valid lane clawback, AuthorityReadError when a read does not
+ * answer, and as buildLaneClawback.
  */
 export async function prepareLaneClawbackReissue(
   dead: AuthorizedTxV2,
@@ -311,7 +326,7 @@ export async function prepareLaneClawbackReissue(
       '[1Money SDK]: prepareLaneClawbackReissue needs { fullHistoryChecked: true } after a check on a node with the full history'
     );
   }
-  const { payload: deadPayload, memo } = deadClawbackOf(dead);
+  const { payload: deadPayload, memo } = laneClawbackRecordOf(dead);
   const fate = await laneClawbackFate(dead);
   if (fate.fate !== 'unknown' || fate.observed.status !== undefined) {
     return { kind: 'refused', fate };

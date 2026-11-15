@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import 'mocha';
 import { keccak256 } from 'viem';
+import { privateKeyToAddress } from 'viem/accounts';
 
 import { MemoValidationError } from '@/utils';
 import {
@@ -1296,5 +1297,18 @@ describe('signing builder test', function () {
         memo: { type: 'has space' },
       })
     ).to.throw(MemoValidationError).with.property('code', 'MEMO_TYPE_INVALID_CHARS');
+  });
+});
+
+describe('private key signer address', function () {
+  it('names the address its signatures recover to', async function () {
+    // Fixed test keys with no value anywhere.
+    for (const key of ['11', '7f', 'e3'].map(
+      byte => `0x${byte.repeat(32)}` as ZeroXString
+    )) {
+      expect(await createPrivateKeySigner(key).getAddress?.()).to.equal(
+        privateKeyToAddress(key)
+      );
+    }
   });
 });
