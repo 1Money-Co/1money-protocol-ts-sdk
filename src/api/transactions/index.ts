@@ -11,7 +11,8 @@ import type {
   FinalizedTransactionReceipt,
   PaymentPayload,
   Transaction,
-  TransactionReceipt
+  TransactionReceipt,
+  TransactionStatusResponse
 } from './types';
 
 const API_PREFIX = `/${API_VERSION}/transactions`;
@@ -28,6 +29,17 @@ export const transactionsApi = {
   getByHash: (hash: string) => {
     return get<'custom', Transaction>(`${API_PREFIX}/by_hash?hash=${hash}`, { withCredentials: false });
   },
+
+  /**
+   * Where a transaction stands. `certified_pending_checkpoint`,
+   * `checkpointed` and `finalized` report a certificate, which is
+   * final. A 404 is not evidence that the transaction failed.
+   */
+  getStatusByHash: (hash: string) =>
+    get<'custom', TransactionStatusResponse>(
+      `${API_PREFIX}/status/by_hash?hash=${hash}`,
+      { withCredentials: false }
+    ),
 
   /**
    * Get transaction receipt by hash

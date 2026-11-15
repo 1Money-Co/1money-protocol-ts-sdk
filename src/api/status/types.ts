@@ -17,6 +17,12 @@ export interface FeatureSupportStatus {
   full_support: boolean;
 }
 
+/**
+ * The token authority envelope mode a node reports. A node of a
+ * release before the token authority model reports none.
+ */
+export type NodeEnvelopeMode = 'upgrade_gap' | 'settled';
+
 export interface NativeWriteStatusResponse {
   native_write_mode: NativeWriteMode;
   // true means the node rejects every native write route
@@ -27,4 +33,9 @@ export interface NativeWriteStatusResponse {
   dual_activated_at_secs: number | null;
   native_domain_separated_transactions:
     FeatureSupportStatus;
+  /**
+   * Missing or null on a node of a release before the token
+   * authority model. Read it with `readEnvelopeMode()`.
+   */
+  envelope_mode?: NodeEnvelopeMode | null;
 }

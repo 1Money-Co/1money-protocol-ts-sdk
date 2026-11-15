@@ -115,7 +115,7 @@ export function readProblem(
   return fields;
 }
 
-const PROBLEM_TYPE_PREFIX =
+export const PROBLEM_TYPE_PREFIX =
   'https://developer.1moneynetwork.com/problem/';
 
 // Problem types that refuse the signed bytes themselves:
