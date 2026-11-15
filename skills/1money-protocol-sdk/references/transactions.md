@@ -241,6 +241,22 @@ one and call again.
 `submitAndSettle` and `settle` refuse a settled authority envelope: its receipt
 appears only at its checkpoint. Poll `authorityOperationState` instead.
 
+To keep the legacy clawback payload you already build, call
+`clawbackByMode({ clawback, source, signer, signerAddress, onSigned })`
+(`source` is `'account'` or `'hold'`). It returns `{ kind: 'legacy' | 'lane',
+authorized }`:
+
+- VERIFY and a hold stay the legacy clawback at `clawback.nonce`; no mode read.
+- In the settled mode, or after a retired legacy clawback once the node reports
+  `settled`, it issues the lane clawback of the same token, holder (`from`),
+  recipient and value.
+- It signs that lane clawback only while the signer's nonce has not passed
+  `clawback.nonce`. Otherwise it throws `ClawbackIntentNonceUsedError` with
+  nothing signed: a legacy send may have executed, so read its outcome first.
+
+`sendClawback(envelope, params)` does the same for an envelope you already
+chose.
+
 ### Reading the result: positive evidence only
 
 `authorityOperationState` and `laneClawbackFate` read the account nonce, the
@@ -262,7 +278,21 @@ receipt and `GET /v1/transactions/status/by_hash` once:
   executed.
 - Never issue an unknown clawback again by itself. Issuing it again on the
   holder's next slot is an explicit issuer action, after a check on a node with
-  the full history that no receipt exists for its hash.
+  the full history that no receipt and no status exist for its hash:
+
+  ```typescript
+  const reissue = await prepareLaneClawbackReissue(
+    storedDead, signer, { fullHistoryChecked: true },
+  );
+  if (reissue.kind === 'prepared') {
+    await store.replace(storedDead, reissue.authorized); // store BEFORE the send
+    await client.tokens.laneClawback(reissue.authorized);
+  } // 'refused': the reads show it executed, certified, pending, or known to a node
+  ```
+
+  It signs the replacement at the holder's next nonce with a new `r` and the
+  same memo, and sends nothing. Prepare once per dead clawback (two calls can
+  sign two replacements that both execute), and never send the dead one again.
 - A settled operation or a lane clawback can stay pending until stranded-lock
   eviction, up to three epoch transitions. A long pending is not a failure.
 

@@ -337,6 +337,7 @@ import {
   readEnvelopeMode, authorityEnvelope, // token authority switch point
   buildSettledAuthority, authorityOperationByMode, issueLaneClawback,
   authorityOperationState, laneClawbackFate, authorityRefusalOf,
+  clawbackByMode, prepareLaneClawbackReissue,
 } from '@1money/protocol-ts-sdk';
 
 const client = api({ network: 'testnet' });
@@ -391,7 +392,8 @@ violating them throws or silently produces a bad transaction.
   `laneClawback` with `settled`. A VERIFY clawback by its master and a hold
   clawback stay legacy. Conclude a result only from a receipt or a
   counter-signed status: "nonce passed, no receipt" is unknown, never failed,
-  and an unknown clawback is never issued again by itself. Details in
+  and an unknown clawback is never issued again by itself (only through
+  `prepareLaneClawbackReissue`, after a full-history check). Details in
   `references/transactions.md` (token authority model).
 - **Prefer `TransactionBuilder`/`LegacyV1TransactionBuilder` over
   `signMessage`/`encodePayload`.** The latter are `@deprecated` legacy helpers.

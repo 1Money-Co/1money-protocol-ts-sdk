@@ -426,6 +426,10 @@ Errors the token authority helpers throw before or around a send:
   SDK does not know. Nothing was sent; upgrade the SDK.
 - `AuthorityReadError` (`status?`): a state read answered neither the value
   nor a 404. It says nothing about the transaction.
+- `ClawbackIntentNonceUsedError` (`submitted: false`, `signer`, `nonce`,
+  `nextNonce`): the signer's nonce passed the clawback intent's nonce, so no
+  lane clawback was signed. Read the legacy clawback's outcome by its hash
+  before you claw back again.
 
 A soft fail is not a refusal: it is certified, uses the nonce, and has a
 receipt with `success: false` and a `SoftFail` event (`receiptOutcomeOf`).
