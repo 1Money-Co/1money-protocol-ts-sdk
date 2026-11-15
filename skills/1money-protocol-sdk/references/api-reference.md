@@ -286,6 +286,9 @@ Read `envelope_mode` only through `getEnvelopeMode()` / `readEnvelopeMode()`:
 a missing or null `envelope_mode`, an HTTP error or no answer reads as the
 legacy envelopes, and a value this SDK does not know reads as `unrecognized`
 (send nothing of the class; upgrade the SDK) (see the [token authority model](transactions.md#token-authority-model-settled-envelope-and-lane-clawback)).
+`/api/status` is outside the partner API, and a gateway can hide it. The mode
+then reads as legacy (`status_answered`), so name the envelope yourself once
+the node is `settled`.
 
 ## Write endpoints (index)
 

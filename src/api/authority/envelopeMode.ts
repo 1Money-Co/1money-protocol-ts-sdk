@@ -19,7 +19,13 @@ const NODE_ENVELOPE_MODES: readonly NodeEnvelopeMode[] = [
 export type LegacyModeReason =
   /** The status has no `envelope_mode`, or a null one. */
   | { kind: 'not_reported' }
-  /** `GET /api/status` answered with this HTTP status. */
+  /**
+   * `GET /api/status` answered with this HTTP status. The endpoint
+   * is operational, outside the partner API, so a gateway may hide
+   * it. Behind such a gateway every by-mode call ends in a retired
+   * refusal once the node takes the new envelopes: send with the
+   * envelope named (`'settled'`) instead.
+   */
   | { kind: 'status_answered'; status: number }
   /** `GET /api/status` got no answer. */
   | { kind: 'no_answer'; message: string }

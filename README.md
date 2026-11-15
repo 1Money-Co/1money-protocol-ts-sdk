@@ -814,10 +814,13 @@ if (authorityEnvelope(mode) === 'settled') {
 
 `authorityOperationByMode` does the mode switch for a legacy payload, and signs
 again as the new envelope at the same nonce after a `legacy_envelope_retired`
-refusal. `clawbackByMode` routes a clawback (VERIFY and holds stay legacy;
-otherwise the lane clawback on the holder's nonce sequence), and
+refusal. Its `onSigned` option receives each signed envelope before the send,
+so you can store it first. `clawbackByMode` routes a clawback (VERIFY and holds
+stay legacy; otherwise the lane clawback on the holder's nonce sequence), and
 `prepareLaneClawbackReissue` is the explicit issuer action that replaces a lane
-clawback whose outcome is unknown. The
+clawback whose outcome is unknown. `/api/status` can be hidden behind a
+gateway. The mode then reads as legacy, so name the envelope with
+`sendAuthorityOperation('settled', …)` or `sendClawback('settled', …)`. The
 full rules (refusals, the lane clawback, reading results only from positive
 evidence) are in
 [the transactions reference](skills/1money-protocol-sdk/references/transactions.md#token-authority-model-settled-envelope-and-lane-clawback).

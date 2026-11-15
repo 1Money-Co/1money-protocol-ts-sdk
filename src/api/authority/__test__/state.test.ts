@@ -2,10 +2,12 @@ import { expect } from 'chai';
 import 'mocha';
 
 import { AuthorityReadError } from '../reads';
+import { signLaneClawback } from '../send';
 import {
   authorityOperationState,
   laneClawbackFate
 } from '../state';
+import { createPrivateKeySigner } from '@/signing/signer';
 import { MockNode, notFound, ok } from './helpers/mockNode';
 
 import type { AuthorizedTxV2 } from '@/signing/v2';
@@ -18,9 +20,9 @@ const NONCE = '/v1/accounts/nonce';
 const RECEIPT = '/v1/transactions/receipt/by_hash';
 const STATUS = '/v1/transactions/status/by_hash';
 
-function receipt(extra: object) {
+function receipt(extra: object, hash = HASH) {
   return ok({
-    transaction_hash: HASH,
+    transaction_hash: hash,
     fee_used: '0',
     from: SIGNER,
     checkpoint_number: 86,
@@ -28,8 +30,17 @@ function receipt(extra: object) {
   });
 }
 
-function status(value: string) {
-  return ok({ hash: HASH, status: value });
+function status(value: string, hash = HASH) {
+  return ok({ hash, status: value });
+}
+
+async function rejection(promise: Promise<unknown>) {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  throw new Error('expected a rejection');
 }
 
 describe('authority operation state (positive evidence only)', function () {
@@ -149,16 +160,63 @@ describe('authority operation state (positive evidence only)', function () {
     }
     expect(caught).to.be.instanceOf(AuthorityReadError);
   });
+
+  it('never reads a status it does not know as pending or unknown', async function () {
+    at(6, { [STATUS]: status('evicted') });
+    expect(
+      await rejection(authorityOperationState(SIGNER, 5, HASH))
+    ).to.be.instanceOf(AuthorityReadError);
+  });
+
+  it('never reads a receipt it cannot read as decided', async function () {
+    for (const unreadable of [
+      receipt({}),
+      receipt({ success: 'false' }),
+      receipt({
+        success: false,
+        execution_events: [{ event_type: 'SoftFail', reason: 'Gone' }]
+      }),
+      receipt({
+        success: true,
+        execution_events: [{ event_type: 'NoOp', target: 7 }]
+      }),
+      receipt({ success: true, execution_events: {} }),
+      receipt({ success: true, warnings: [{}] })
+    ]) {
+      at(6, { [RECEIPT]: unreadable });
+      expect(
+        await rejection(authorityOperationState(SIGNER, 5, HASH))
+      ).to.be.instanceOf(AuthorityReadError);
+      node.uninstall();
+    }
+    at(6, {});
+  });
 });
 
 describe('lane clawback fate (on the holder lane)', function () {
   let node: MockNode;
-  const clawback: AuthorizedTxV2 = {
-    operation: 'laneClawback',
-    path: '/v2/tokens/lane_clawback',
-    request: { holder: HOLDER, from_nonce: 3 },
-    transactionHash: HASH as `0x${string}`
+  let clawback: AuthorizedTxV2;
+  let other: AuthorizedTxV2;
+
+  // A fixed test key with no value anywhere.
+  const signer = createPrivateKeySigner(`0x${'11'.repeat(32)}`);
+  const payload = {
+    chain_id: 1212101,
+    token: `0x${'01'.repeat(20)}`,
+    holder: HOLDER,
+    from_nonce: 3,
+    reference_checkpoint: 20,
+    recipient: `0x${'0c'.repeat(20)}`,
+    value: '9'
   };
+
+  before(async function () {
+    clawback = await signLaneClawback(payload, signer);
+    other = await signLaneClawback(
+      { ...payload, value: '10' },
+      signer
+    );
+  });
 
   afterEach(function () {
     node.uninstall();
@@ -178,7 +236,7 @@ describe('lane clawback fate (on the holder lane)', function () {
   it('is certified on finalized: it executes, as a payment does', async function () {
     node = new MockNode({
       [NONCE]: ok({ nonce: 4 }),
-      [STATUS]: status('finalized')
+      [STATUS]: status('finalized', clawback.transactionHash)
     }).install();
     expect(await laneClawbackFate(clawback)).to.deep.equal({
       fate: 'certified',
@@ -196,19 +254,49 @@ describe('lane clawback fate (on the holder lane)', function () {
 
   it('refuses anything but a signed lane clawback', async function () {
     node = new MockNode().install();
-    let caught: unknown;
-    try {
-      await laneClawbackFate({ ...clawback, operation: 'tokenClawback' });
-    } catch (error) {
-      caught = error;
+    const error = await rejection(
+      laneClawbackFate({ ...clawback, operation: 'tokenClawback' })
+    );
+    expect(String(error)).to.include('another operation');
+  });
+
+  it('refuses a record whose hash belongs to another clawback, before any read', async function () {
+    node = new MockNode().install();
+    for (const broken of [
+      { ...clawback, transactionHash: other.transactionHash },
+      { ...other, transactionHash: clawback.transactionHash },
+      {
+        ...clawback,
+        request: { ...clawback.request, from_nonce: 4 }
+      },
+      {
+        ...clawback,
+        request: { ...clawback.request, memo: { ...other.request.memo as object, data: 'x' } }
+      },
+      {
+        ...clawback,
+        request: { ...clawback.request, nonce: 3 }
+      }
+    ]) {
+      expect(String(await rejection(laneClawbackFate(broken)))).to.include(
+        'Not a valid signed lane clawback'
+      );
     }
-    expect(String(caught)).to.include('needs a signed lane clawback');
+    expect(node.gets).to.have.length(0);
+  });
+
+  it('takes a record that crossed a JSON boundary', async function () {
+    node = new MockNode({ [NONCE]: ok({ nonce: 3 }) }).install();
+    const stored = JSON.parse(JSON.stringify(clawback));
+    expect(await laneClawbackFate(stored)).to.deep.equal({
+      fate: 'pending'
+    });
   });
 
   it('is executed on its receipt', async function () {
     node = new MockNode({
       [NONCE]: ok({ nonce: 4 }),
-      [RECEIPT]: receipt({ success: true })
+      [RECEIPT]: receipt({ success: true }, clawback.transactionHash)
     }).install();
     const fate = await laneClawbackFate(clawback);
     expect(fate.fate).to.equal('executed');

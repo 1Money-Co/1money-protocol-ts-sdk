@@ -338,6 +338,7 @@ import {
   buildSettledAuthority, authorityOperationByMode, issueLaneClawback,
   authorityOperationState, laneClawbackFate, authorityRefusalOf,
   clawbackByMode, prepareLaneClawbackReissue,
+  laneClawbackRecordOf,         // checks a stored lane clawback against its hash
 } from '@1money/protocol-ts-sdk';
 
 const client = api({ network: 'testnet' });

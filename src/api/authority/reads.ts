@@ -7,13 +7,37 @@ import {
 } from './answer';
 
 import type {
+  SoftFailReason,
   TransactionReceipt,
-  TransactionStatusResponse
+  TransactionStatusResponse,
+  TransactionStatusValue
 } from '../transactions/types';
 
 const NOT_FOUND = 404;
 
-/** A read that did not answer with the value or a 404. */
+const STATUS_VALUES: readonly TransactionStatusValue[] = [
+  'pending',
+  'finalized',
+  'certified_pending_checkpoint',
+  'checkpointed'
+];
+
+const SOFT_FAIL_REASONS: readonly SoftFailReason[] = [
+  'HoldNotFound',
+  'HoldInsufficient',
+  'ComplianceRejected',
+  'AuthorityChanged',
+  'RoleMissing',
+  'CapReached',
+  'AllowanceShort',
+  'RotationConflict',
+  'RecipientNotWallet'
+];
+
+/**
+ * A read that did not answer with a value this SDK can read, or a
+ * 404. Its value decides nothing.
+ */
 export class AuthorityReadError extends Error {
   public readonly status?: number;
 
@@ -21,7 +45,7 @@ export class AuthorityReadError extends Error {
     const status = answeredStatus(answer);
     const message = ownMember(answer, 'message');
     super(
-      `[1Money SDK]: The ${what} did not answer${status !== undefined ? ` (HTTP ${status})` : ''}: ${typeof message === 'string' ? message : 'unexpected body'}`
+      `[1Money SDK]: The ${what} gave no readable answer${status !== undefined ? ` (HTTP ${status})` : ''}: ${typeof message === 'string' ? message : 'unexpected body'}`
     );
     this.name = 'AuthorityReadError';
     if (status !== undefined) this.status = status;
@@ -57,17 +81,60 @@ async function readFound<T>(
 
 const PREFIX = `/${API_VERSION}`;
 
+function isListOf(
+  value: unknown,
+  isItem: (item: unknown) => boolean
+): boolean {
+  return (
+    value === undefined ||
+    value === null ||
+    (Array.isArray(value) && value.every(isItem))
+  );
+}
+
+// An event of another type decides nothing here, so it is let
+// through; a SoftFail or NoOp must carry what the outcome reports.
+function isReadableEvent(event: unknown): boolean {
+  const type = ownMember(event, 'event_type');
+  if (type === 'SoftFail') {
+    return (SOFT_FAIL_REASONS as unknown[]).includes(
+      ownMember(event, 'reason')
+    );
+  }
+  if (type === 'NoOp') {
+    const target = ownMember(event, 'target');
+    return target === null || typeof target === 'string';
+  }
+  return typeof type === 'string';
+}
+
+function isReadableWarning(warning: unknown): boolean {
+  return typeof ownMember(warning, 'type') === 'string';
+}
+
+// A receipt decides an outcome, so one the SDK cannot read must
+// never read as a failure or a success.
+function isReadableReceipt(answer: unknown, hash: string): boolean {
+  return (
+    sameHash(ownMember(answer, 'transaction_hash'), hash) &&
+    typeof ownMember(answer, 'success') === 'boolean' &&
+    isListOf(ownMember(answer, 'execution_events'), isReadableEvent) &&
+    isListOf(ownMember(answer, 'warnings'), isReadableWarning)
+  );
+}
+
+/** Throws AuthorityReadError for a receipt this SDK cannot read. */
 export function readReceipt(
   hash: string
 ): Promise<TransactionReceipt | undefined> {
   return readFound(
     'receipt read',
     `${PREFIX}/transactions/receipt/by_hash?hash=${hash}`,
-    answer =>
-      sameHash(ownMember(answer, 'transaction_hash'), hash)
+    answer => isReadableReceipt(answer, hash)
   );
 }
 
+/** Throws AuthorityReadError for a status this SDK does not know. */
 export function readStatus(
   hash: string
 ): Promise<TransactionStatusResponse | undefined> {
@@ -76,7 +143,9 @@ export function readStatus(
     `${PREFIX}/transactions/status/by_hash?hash=${hash}`,
     answer =>
       sameHash(ownMember(answer, 'hash'), hash) &&
-      typeof ownMember(answer, 'status') === 'string'
+      (STATUS_VALUES as unknown[]).includes(
+        ownMember(answer, 'status')
+      )
   );
 }
 

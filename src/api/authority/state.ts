@@ -1,3 +1,4 @@
+import { laneClawbackRecordOf } from './laneClawbackRecord';
 import {
   readAccountNonce,
   readReceipt,
@@ -179,36 +180,20 @@ export async function authorityOperationState(
   }
 }
 
-function laneOf(authorized: AuthorizedTxV2): {
-  holder: string;
-  fromNonce: number;
-} {
-  const { holder, from_nonce } = authorized.request;
-  if (
-    authorized.operation !== 'laneClawback' ||
-    typeof holder !== 'string' ||
-    !Number.isSafeInteger(from_nonce)
-  ) {
-    throw new Error(
-      '[1Money SDK]: laneClawbackFate needs a signed lane clawback'
-    );
-  }
-  return { holder, fromNonce: from_nonce as number };
-}
-
 /**
  * Read, in one round, where a signed lane clawback stands, on its
- * holder's lane. Throws AuthorityReadError when a read does not
- * answer.
+ * holder's lane. Throws as laneClawbackRecordOf before any read, and
+ * AuthorityReadError when a read does not answer.
  */
 export async function laneClawbackFate(
   authorized: AuthorizedTxV2
 ): Promise<LaneClawbackFate> {
-  const { holder, fromNonce } = laneOf(authorized);
+  const { payload, transactionHash } =
+    laneClawbackRecordOf(authorized);
   const evidence = await readEvidence(
-    holder,
-    fromNonce,
-    authorized.transactionHash
+    payload.holder,
+    payload.from_nonce,
+    transactionHash
   );
   switch (evidence.kind) {
     case 'receipt':

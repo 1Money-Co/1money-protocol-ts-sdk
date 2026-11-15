@@ -165,7 +165,7 @@ describe('settled authority envelope encoding', function () {
       {
         type: 'update_metadata',
         name: 'n',
-        uri: 'u',
+        uri: 'https://u.example',
         additional_metadata: []
       }
     ];
@@ -206,7 +206,7 @@ describe('settled authority envelope encoding', function () {
       settled({
         type: 'update_metadata',
         name: 'n',
-        uri: 'u',
+        uri: 'https://u.example',
         additional_metadata: pairs
       })
     ).authorize({
@@ -239,7 +239,7 @@ describe('settled authority envelope encoding', function () {
       {
         type: 'update_metadata',
         name: 'n',
-        uri: 'u',
+        uri: 'https://u.example',
         additional_metadata: [{ key: 'k' }]
       }
     ];
@@ -250,6 +250,48 @@ describe('settled authority envelope encoding', function () {
           settled(operation as AuthorityOperation)
         )
       ).to.throw('[1Money SDK]: Invalid');
+    }
+  });
+
+  it('refuses metadata past the node limits, counted in UTF-8 bytes', function () {
+    const metadata = (fields: object) => ({
+      type: 'update_metadata',
+      name: 'n',
+      uri: 'https://u.example',
+      additional_metadata: [],
+      ...fields
+    });
+    const pair = (key: string, value: string) => ({
+      additional_metadata: [{ key, value }]
+    });
+    const sign = (operation: object) =>
+      prepareTransactionV2(
+        'settledAuthority',
+        settled(operation as AuthorityOperation)
+      );
+    for (const fields of [
+      { name: '' },
+      { name: 'n'.repeat(121) },
+      { name: '\u00e9'.repeat(61) },
+      { uri: '' },
+      { uri: 'not a url' },
+      { uri: `https://u.example/${'p'.repeat(495)}` },
+      pair('', 'v'),
+      pair('k'.repeat(21), 'v'),
+      pair('k', ''),
+      pair('k', 'v'.repeat(101))
+    ]) {
+      expect(() => sign(metadata(fields))).to.throw(
+        '[1Money SDK]: Invalid'
+      );
+    }
+    for (const fields of [
+      { name: 'n'.repeat(120) },
+      { name: '\u00e9'.repeat(60) },
+      { uri: `https://u.example/${'p'.repeat(494)}` },
+      pair('k'.repeat(20), 'v'.repeat(100))
+    ]) {
+      expect(() => sign(metadata(fields))).to.not.throw();
     }
   });
 });
