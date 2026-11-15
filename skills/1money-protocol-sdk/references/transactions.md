@@ -242,17 +242,23 @@ one and call again.
 appears only at its checkpoint. Poll `authorityOperationState` instead.
 
 To keep the legacy clawback payload you already build, call
-`clawbackByMode({ clawback, source, signer, signerAddress, onSigned })`
-(`source` is `'account'` or `'hold'`). It returns `{ kind: 'legacy' | 'lane',
-authorized }`:
+`clawbackByMode({ clawback, source, signer, onSigned })` (`source` is
+`'account'` or `'hold'`; `onSigned` is required and stores the signed clawback
+before the send). It returns `{ kind: 'legacy' | 'lane', authorized }`:
 
 - VERIFY and a hold stay the legacy clawback at `clawback.nonce`; no mode read.
 - In the settled mode, or after a retired legacy clawback once the node reports
   `settled`, it issues the lane clawback of the same token, holder (`from`),
   recipient and value.
-- It signs that lane clawback only while the signer's nonce has not passed
-  `clawback.nonce`. Otherwise it throws `ClawbackIntentNonceUsedError` with
-  nothing signed: a legacy send may have executed, so read its outcome first.
+- It signs that lane clawback only while the signer's nonce (the address
+  recovered from the signer's own signature) has not passed `clawback.nonce`.
+  Otherwise it throws `ClawbackIntentNonceUsedError` with nothing signed: a
+  legacy send may have executed, so read its outcome first.
+- **Call it once per clawback intent.** The nonce check cannot see a lane
+  clawback already issued for the intent, or a legacy one still in flight.
+  After an error that `authorityRefusalOf` does not name, read the stored
+  transaction's outcome (`laneClawbackFate` for a lane clawback) or resend its
+  signed bytes; calling the router again would sign a second clawback.
 
 `sendClawback(envelope, params)` does the same for an envelope you already
 chose.
@@ -291,7 +297,9 @@ receipt and `GET /v1/transactions/status/by_hash` once:
   ```
 
   It signs the replacement at the holder's next nonce with a new `r` and the
-  same memo, and sends nothing. Prepare once per dead clawback (two calls can
+  same memo, and sends nothing. It validates the stored record first, and
+  refuses with `reason: 'node_behind'` when the second nonce read is not past
+  the dead slot. Prepare once per dead clawback (two calls can
   sign two replacements that both execute), and never send the dead one again.
 - A settled operation or a lane clawback can stay pending until stranded-lock
   eviction, up to three epoch transitions. A long pending is not a failure.

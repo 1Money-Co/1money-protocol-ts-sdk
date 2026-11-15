@@ -1,6 +1,4 @@
 import { refuseLaneClawbackOfVerify } from '@/signing/builders/laneClawback';
-import { prepareTransactionV2 } from '@/signing/v2';
-import { submitAuthorized } from '../submit';
 import {
   authorityEnvelope,
   readEnvelopeMode
@@ -18,8 +16,12 @@ import {
   isAuthorityRefusal,
   isReferenceNotReady
 } from './refusals';
+import {
+  settledAfterRetirement,
+  sign,
+  submit
+} from './sendCore';
 
-import type { Hash } from '../types';
 import type {
   LaneClawbackPayload,
   SettledAuthorityPayload
@@ -61,30 +63,6 @@ const LEGACY_OPERATIONS: Record<
   pause: 'tokenPause',
   metadata: 'tokenMetadata'
 };
-
-async function sign<K extends OperationName>(
-  operation: K,
-  unsigned: OperationUnsignedMap[K],
-  signer: SignerAdapter,
-  memo?: Memo
-): Promise<AuthorizedTxV2> {
-  const prepared = prepareTransactionV2(operation, unsigned, {
-    memo
-  });
-  return prepared.authorize(
-    await signer.signDigest(prepared.signingHash)
-  );
-}
-
-async function submit(
-  authorized: AuthorizedTxV2
-): Promise<AuthorizedTxV2> {
-  await submitAuthorized<Hash>(
-    authorized,
-    authorized.operation
-  );
-  return authorized;
-}
 
 function wait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -167,16 +145,6 @@ function sendSettled(
       ),
     options.referenceRetryDelayMs
   );
-}
-
-// After a retired refusal: resolves once the node reports
-// `settled`; otherwise rethrows the refusal, or throws the mode's
-// error, so that the caller tries again later.
-async function settledAfterRetirement(
-  refusal: unknown
-): Promise<void> {
-  const envelope = authorityEnvelope(await readEnvelopeMode());
-  if (envelope === 'legacy') throw refusal;
 }
 
 /**

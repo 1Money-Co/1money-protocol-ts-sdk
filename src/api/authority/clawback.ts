@@ -1,5 +1,7 @@
+import { recoverAddress } from 'viem';
+
+import { validateLaneClawback } from '@/signing/builders/laneClawback';
 import { prepareTransactionV2 } from '@/signing/v2';
-import { submitAuthorized } from '../submit';
 import {
   authorityEnvelope,
   clawbackStaysLegacy,
@@ -7,18 +9,15 @@ import {
 } from './envelopeMode';
 import { readAccountNonce } from './reads';
 import { isAuthorityRefusal } from './refusals';
+import { buildLaneClawback, signLaneClawback } from './send';
 import {
-  buildLaneClawback,
-  issueLaneClawback,
-  signLaneClawback
-} from './send';
+  settledAfterRetirement,
+  submit
+} from './sendCore';
 import { laneClawbackFate } from './state';
 
-import type { Hash } from '../types';
-import type {
-  AuthorityEnvelope,
-  ClawbackSource
-} from './envelopeMode';
+import type { LaneClawbackPayload } from '../tokens/types';
+import type { AuthorityEnvelope, ClawbackSource } from './envelopeMode';
 import type { LaneClawbackFate } from './state';
 import type { SignerAdapter } from '@/signing/core';
 import type {
@@ -65,90 +64,98 @@ export class ClawbackIntentNonceUsedError extends Error {
 }
 
 export interface SendClawbackParams {
-  /** The legacy clawback; `nonce` names it on its signer's lane. */
+  /**
+   * The legacy clawback. `nonce` names it on its signer's lane: the
+   * signer's next nonce for a new clawback.
+   */
   clawback: OperationUnsignedMap['tokenClawback'];
   source: ClawbackSource;
   signer: SignerAdapter;
-  /** The address of `signer`, whose nonce guards the intent. */
-  signerAddress: string;
   memo?: Memo;
-  /** Called with a signed lane clawback before it is sent. Store it here. */
-  onSigned?: (authorized: AuthorizedTxV2) => Promise<void> | void;
+  /**
+   * Called with the signed clawback, legacy or lane, before it is
+   * sent. Store it: after any error, read its outcome from the
+   * stored transaction, never by calling the router again.
+   */
+  onSigned: (authorized: AuthorizedTxV2) => Promise<void> | void;
 }
 
-async function sendLegacyClawback(
+async function signLegacyClawback(
   params: SendClawbackParams
-): Promise<ClawbackSubmission> {
+): Promise<{ authorized: AuthorizedTxV2; signerAddress: string }> {
   const prepared = prepareTransactionV2(
     'tokenClawback',
     params.clawback,
     { memo: params.memo }
   );
-  const authorized = prepared.authorize(
-    await params.signer.signDigest(prepared.signingHash)
+  const signature = await params.signer.signDigest(
+    prepared.signingHash
   );
-  await submitAuthorized<Hash>(authorized, 'tokenClawback');
-  return { kind: 'legacy', authorized };
+  // authorize() refuses any v but 0 or 1 before the recovery reads it.
+  const authorized = prepared.authorize(signature);
+  // The signer's address comes from its own signature, so the nonce
+  // check reads the account that actually signs.
+  const signerAddress = await recoverAddress({
+    hash: prepared.signingHash,
+    signature: {
+      r: signature.r,
+      s: signature.s,
+      yParity: Number(signature.v)
+    }
+  });
+  return { authorized, signerAddress };
 }
 
-// The lane clawback of an intent is signed only while the signer's
+// A lane clawback of the intent is signed only while the signer's
 // nonce has not passed the intent's nonce: a node refuses a resend
 // of an executed legacy clawback as retired before it reads the
 // nonce, and the lane clawback takes a holder slot, so the signer's
-// nonce would no longer stop a second debit.
+// nonce would no longer stop a second debit. The check cannot see a
+// lane clawback already issued for the intent, or a legacy one still
+// in flight: that is why the router runs once per intent.
 async function laneClawbackOfIntent(
-  params: SendClawbackParams
+  params: SendClawbackParams,
+  signerAddress: string
 ): Promise<ClawbackSubmission> {
   const { clawback } = params;
-  const nextNonce = await readAccountNonce(params.signerAddress);
-  if (nextNonce > clawback.nonce) {
-    throw new ClawbackIntentNonceUsedError(
-      params.signerAddress,
-      clawback.nonce,
-      nextNonce
-    );
-  }
-  const authorized = await issueLaneClawback(
-    {
+  const [nextNonce, payload] = await Promise.all([
+    readAccountNonce(signerAddress),
+    buildLaneClawback({
       chain_id: clawback.chain_id,
       token: clawback.token,
       holder: clawback.from,
       recipient: clawback.recipient,
       value: clawback.value
-    },
+    })
+  ]);
+  if (nextNonce > clawback.nonce) {
+    throw new ClawbackIntentNonceUsedError(
+      signerAddress,
+      clawback.nonce,
+      nextNonce
+    );
+  }
+  const authorized = await signLaneClawback(
+    payload,
     params.signer,
-    { memo: params.memo, onSigned: params.onSigned }
+    params.memo
   );
-  return { kind: 'lane', authorized };
+  await params.onSigned(authorized);
+  return { kind: 'lane', authorized: await submit(authorized) };
 }
 
-/**
- * Claw back in `envelope`: the legacy clawback at `clawback.nonce`,
- * or the lane clawback at the holder's next nonce. A clawback that
- * clawbackStaysLegacy names is the legacy clawback whatever
- * `envelope` says, and its retired refusal is returned as is.
- *
- * On a retired legacy clawback of an ordinary account (no nonce or
- * lock taken), once the node reports `settled`, the clawback is
- * issued as the lane clawback.
- *
- * Throws as the single send; ClawbackIntentNonceUsedError before
- * anything is signed; after a retired refusal, the refusal,
- * UpgradeGapError or UnrecognizedEnvelopeModeError.
- */
-export async function sendClawback(
+async function route(
   envelope: AuthorityEnvelope,
+  staysLegacy: boolean,
   params: SendClawbackParams
 ): Promise<ClawbackSubmission> {
-  const staysLegacy = clawbackStaysLegacy(
-    params.clawback.token,
-    params.source
-  );
+  const legacy = await signLegacyClawback(params);
   if (envelope === 'settled' && !staysLegacy) {
-    return laneClawbackOfIntent(params);
+    return laneClawbackOfIntent(params, legacy.signerAddress);
   }
+  await params.onSigned(legacy.authorized);
   try {
-    return await sendLegacyClawback(params);
+    await submit(legacy.authorized);
   } catch (error) {
     if (
       staysLegacy ||
@@ -156,31 +163,59 @@ export async function sendClawback(
     ) {
       throw error;
     }
-    if (
-      authorityEnvelope(await readEnvelopeMode()) === 'legacy'
-    ) {
-      throw error;
-    }
-    return laneClawbackOfIntent(params);
+    await settledAfterRetirement(error);
+    return laneClawbackOfIntent(params, legacy.signerAddress);
   }
+  return { kind: 'legacy', authorized: legacy.authorized };
 }
 
 /**
- * Claw back in the envelope of the node's mode. A clawback that
- * clawbackStaysLegacy names reads no mode. Throws UpgradeGapError
- * or UnrecognizedEnvelopeModeError before anything is sent; else as
- * sendClawback.
+ * Claw back once in `envelope`: the legacy clawback at
+ * `clawback.nonce`, or the lane clawback at the holder's next nonce.
+ * A clawback that clawbackStaysLegacy names is the legacy clawback
+ * whatever `envelope` says, and its retired refusal is returned. On
+ * a retired legacy clawback of an ordinary account (no nonce or lock
+ * taken), once the node reports `settled`, the clawback is issued as
+ * the lane clawback.
+ *
+ * Call it once per clawback intent. After an error that
+ * authorityRefusalOf does not name, the stored transaction may be in
+ * flight or executed: resend its signed bytes or read its outcome
+ * (laneClawbackFate for a lane clawback); never call again, which
+ * would sign a second clawback.
+ *
+ * Throws as the single send; ClawbackIntentNonceUsedError before a
+ * lane clawback is signed; after a retired refusal, the refusal,
+ * UpgradeGapError or UnrecognizedEnvelopeModeError.
+ */
+export function sendClawback(
+  envelope: AuthorityEnvelope,
+  params: SendClawbackParams
+): Promise<ClawbackSubmission> {
+  return route(
+    envelope,
+    clawbackStaysLegacy(params.clawback.token, params.source),
+    params
+  );
+}
+
+/**
+ * Claw back once in the envelope of the node's mode, as
+ * sendClawback does. A clawback that clawbackStaysLegacy names reads
+ * no mode. Throws UpgradeGapError or UnrecognizedEnvelopeModeError
+ * before anything is sent.
  */
 export async function clawbackByMode(
   params: SendClawbackParams
 ): Promise<ClawbackSubmission> {
-  const envelope = clawbackStaysLegacy(
+  const staysLegacy = clawbackStaysLegacy(
     params.clawback.token,
     params.source
-  )
+  );
+  const envelope = staysLegacy
     ? 'legacy'
     : authorityEnvelope(await readEnvelopeMode());
-  return sendClawback(envelope, params);
+  return route(envelope, staysLegacy, params);
 }
 
 export type LaneClawbackReissue =
@@ -193,9 +228,14 @@ export type LaneClawbackReissue =
   /**
    * Nothing was signed: the reads show the clawback executed,
    * counter-signed, its slot not passed, or a node that knows its
-   * hash.
+   * hash. `node_behind`: the holder's nonce read for the replacement
+   * was not past the dead slot; try again later.
    */
-  | { kind: 'refused'; fate: LaneClawbackFate };
+  | {
+      kind: 'refused';
+      fate: LaneClawbackFate;
+      reason?: 'node_behind';
+    };
 
 /**
  * The issuer's statement that, on a node with the full history (not
@@ -207,17 +247,40 @@ export interface FullHistoryCheck {
   fullHistoryChecked: true;
 }
 
-function laneRequestOf(dead: AuthorizedTxV2) {
-  const request = dead.request as {
-    chain_id: number;
-    token: string;
-    holder: string;
-    from_nonce: number;
-    recipient: string;
-    value: string;
-    memo: Memo;
-  };
-  return request;
+function isMemo(value: unknown): value is Memo {
+  const memo = value as Record<string, unknown> | null;
+  return (
+    typeof memo === 'object' &&
+    memo !== null &&
+    ['type', 'format', 'data'].every(
+      key => typeof memo[key] === 'string'
+    )
+  );
+}
+
+// A stored record crossed a JSON boundary: check every field that
+// the replacement copies before it is signed again.
+function deadClawbackOf(dead: AuthorizedTxV2): {
+  payload: LaneClawbackPayload;
+  memo: Memo;
+} {
+  const request = dead.request as Record<string, unknown>;
+  if (dead.operation !== 'laneClawback' || !isMemo(request.memo)) {
+    throw new Error(
+      '[1Money SDK]: prepareLaneClawbackReissue needs a stored signed lane clawback with its memo'
+    );
+  }
+  const payload = {
+    chain_id: request.chain_id,
+    token: request.token,
+    holder: request.holder,
+    from_nonce: request.from_nonce,
+    reference_checkpoint: request.reference_checkpoint,
+    recipient: request.recipient,
+    value: request.value
+  } as LaneClawbackPayload;
+  validateLaneClawback(payload);
+  return { payload, memo: request.memo };
 }
 
 /**
@@ -234,7 +297,8 @@ function laneRequestOf(dead: AuthorizedTxV2) {
  *   sign two replacements, and both can execute.
  * - Never send `dead` again.
  *
- * Throws AuthorityReadError when a read does not answer, and as
+ * Throws for a stored record that is not a valid lane clawback,
+ * AuthorityReadError when a read does not answer, and as
  * buildLaneClawback.
  */
 export async function prepareLaneClawbackReissue(
@@ -247,29 +311,23 @@ export async function prepareLaneClawbackReissue(
       '[1Money SDK]: prepareLaneClawbackReissue needs { fullHistoryChecked: true } after a check on a node with the full history'
     );
   }
+  const { payload: deadPayload, memo } = deadClawbackOf(dead);
   const fate = await laneClawbackFate(dead);
   if (fate.fate !== 'unknown' || fate.observed.status !== undefined) {
     return { kind: 'refused', fate };
   }
-  const request = laneRequestOf(dead);
   const payload = await buildLaneClawback({
-    chain_id: request.chain_id,
-    token: request.token,
-    holder: request.holder,
-    recipient: request.recipient,
-    value: request.value
+    chain_id: deadPayload.chain_id,
+    token: deadPayload.token,
+    holder: deadPayload.holder,
+    recipient: deadPayload.recipient,
+    value: deadPayload.value
   });
-  // A node that is behind can serve a nonce that is not past the
-  // dead slot.
-  if (payload.from_nonce <= request.from_nonce) {
-    return { kind: 'refused', fate: { fate: 'pending' } };
+  if (payload.from_nonce <= deadPayload.from_nonce) {
+    return { kind: 'refused', fate, reason: 'node_behind' };
   }
   return {
     kind: 'prepared',
-    authorized: await signLaneClawback(
-      payload,
-      signer,
-      request.memo
-    )
+    authorized: await signLaneClawback(payload, signer, memo)
   };
 }

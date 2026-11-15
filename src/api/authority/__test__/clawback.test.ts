@@ -10,6 +10,8 @@ import {
 import { UpgradeGapError } from '../envelopeMode';
 import { authorityRefusalOf } from '../refusals';
 import { signLaneClawback } from '../send';
+import { privateKeyToAddress } from 'viem/accounts';
+
 import { createPrivateKeySigner } from '@/signing/signer';
 import { VERIFY_TOKEN_ADDRESS } from '@/signing/builders/laneClawback';
 import { MockNode, notFound, ok, refusal } from './helpers/mockNode';
@@ -22,7 +24,7 @@ import type { AuthorizedTxV2 } from '@/signing/v2';
 
 // A fixed test key with no value anywhere.
 const SIGNER = createPrivateKeySigner(`0x${'11'.repeat(32)}`);
-const SIGNER_ADDRESS = `0x${'0a'.repeat(20)}`;
+const SIGNER_ADDRESS = privateKeyToAddress(`0x${'11'.repeat(32)}`);
 const TOKEN = `0x${'01'.repeat(20)}`;
 const HOLDER = `0x${'0b'.repeat(20)}`;
 const RECIPIENT = `0x${'0c'.repeat(20)}`;
@@ -32,6 +34,8 @@ const CHECKPOINT = '/v1/checkpoints/number';
 const NONCE = '/v1/accounts/nonce';
 const STATUS_BY_HASH = '/v1/transactions/status/by_hash';
 const CHECKED: FullHistoryCheck = { fullHistoryChecked: true };
+
+let stored: AuthorizedTxV2[] = [];
 
 function params(
   overrides: Partial<SendClawbackParams['clawback']> = {},
@@ -49,7 +53,9 @@ function params(
     },
     source,
     signer: SIGNER,
-    signerAddress: SIGNER_ADDRESS
+    onSigned: authorized => {
+      stored.push(authorized);
+    }
   };
 }
 
@@ -100,6 +106,10 @@ describe('the by-mode clawback router', function () {
     ).install();
   }
 
+  beforeEach(function () {
+    stored = [];
+  });
+
   afterEach(function () {
     node.uninstall();
   });
@@ -118,6 +128,24 @@ describe('the by-mode clawback router', function () {
       recipient: RECIPIENT,
       value: '9'
     });
+    expect(stored).to.deep.equal([sent.authorized]);
+  });
+
+  it('reads the nonce of the account that signs', async function () {
+    install({ [STATUS]: mode('settled') });
+    await clawbackByMode(params());
+    expect(
+      node.gets.some(url =>
+        url.includes(`address=${SIGNER_ADDRESS}`)
+      )
+    ).to.equal(true);
+  });
+
+  it('stores the legacy clawback before it is sent', async function () {
+    install({ [STATUS]: mode() });
+    const sent = await clawbackByMode(params());
+    expect(sent.kind).to.equal('legacy');
+    expect(stored).to.deep.equal([sent.authorized]);
   });
 
   it('keeps VERIFY and a hold on the legacy clawback, with no mode read', async function () {
@@ -296,6 +324,24 @@ describe('the explicit lane clawback re-issue', function () {
     install([5, 3]);
     expect(
       await prepareLaneClawbackReissue(dead, SIGNER, CHECKED)
-    ).to.deep.equal({ kind: 'refused', fate: { fate: 'pending' } });
+    ).to.deep.equal({
+      kind: 'refused',
+      fate: { fate: 'unknown', observed: { nextNonce: 5 } },
+      reason: 'node_behind'
+    });
+  });
+
+  it('refuses a stored record that is not a valid lane clawback', async function () {
+    install([5]);
+    for (const broken of [
+      { ...dead, request: { ...dead.request, memo: null } },
+      { ...dead, request: { ...dead.request, value: '-1' } },
+      { ...dead, operation: 'tokenClawback' as const }
+    ]) {
+      await rejection(
+        prepareLaneClawbackReissue(broken, SIGNER, CHECKED)
+      );
+    }
+    expect(node.gets).to.have.length(0);
   });
 });
