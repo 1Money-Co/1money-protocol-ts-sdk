@@ -9,9 +9,18 @@ import {
   validateCreateMultisig
 } from '../builders/createMultisig';
 import {
+  laneClawbackHeaderFields,
+  laneClawbackPayloadFields,
+  validateLaneClawback
+} from '../builders/laneClawback';
+import {
   paymentPayloadFields,
   validatePayment
 } from '../builders/payment';
+import {
+  settledAuthorityPayloadFields,
+  validateSettledAuthority
+} from '../builders/settledAuthority';
 import {
   tokenAuthorityPayloadFields,
   validateTokenAuthority
@@ -54,6 +63,7 @@ import {
 } from '../builders/tokenPause';
 import { NativeOperationType } from './domain';
 import {
+  settledAuthorityWireFields,
   tokenAuthorityWireFields,
   tokenMetadataWireFields
 } from './wire';
@@ -61,7 +71,9 @@ import {
 import type { PlpPayload } from '@/utils';
 import type { BatchPaymentUnsigned } from '../builders/batchPayment';
 import type { CreateMultisigUnsigned } from '../builders/createMultisig';
+import type { LaneClawbackUnsigned } from '../builders/laneClawback';
 import type { PaymentUnsigned } from '../builders/payment';
+import type { SettledAuthorityUnsigned } from '../builders/settledAuthority';
 import type { TokenAuthorityUnsigned } from '../builders/tokenAuthority';
 import type { TokenBridgeAndMintUnsigned } from '../builders/tokenBridgeAndMint';
 import type { TokenBurnUnsigned } from '../builders/tokenBurn';
@@ -93,6 +105,8 @@ export interface OperationUnsignedMap {
   tokenBurnAndBridge: WithoutMemo<TokenBurnAndBridgeUnsigned>;
   createMultisig: CreateMultisigUnsigned;
   batchPayment: WithoutMemo<BatchPaymentUnsigned>;
+  settledAuthority: SettledAuthorityUnsigned;
+  laneClawback: LaneClawbackUnsigned;
 }
 
 export type OperationName =
@@ -109,6 +123,8 @@ export interface OperationSpec<TUnsigned> {
   // stays the complete op-to-route mapping.
   pathV1: string | null;
   pathV2: string;
+  // Omit for the usual [chain_id, nonce] header.
+  headerFields?: (u: TUnsigned) => PlpPayload[];
   payloadFields: (u: TUnsigned) => PlpPayload[];
   validate: (u: TUnsigned) => void;
   // Omit when the JSON body is exactly the unsigned object.
@@ -250,5 +266,25 @@ export const OPERATION_REGISTRY: {
     payloadFields: batchPaymentPayloadFields,
     validate: validateBatchPayment,
     wireFields: batchPaymentWireFields
+  },
+  // The token authority model's envelopes have no legacy form.
+  settledAuthority: {
+    operationType:
+      NativeOperationType.SettledAuthority,
+    memoCapable: true,
+    pathV1: null,
+    pathV2: '/v2/tokens/authority_operation',
+    payloadFields: settledAuthorityPayloadFields,
+    validate: validateSettledAuthority,
+    wireFields: settledAuthorityWireFields
+  },
+  laneClawback: {
+    operationType: NativeOperationType.LaneClawback,
+    memoCapable: true,
+    pathV1: null,
+    pathV2: '/v2/tokens/lane_clawback',
+    headerFields: laneClawbackHeaderFields,
+    payloadFields: laneClawbackPayloadFields,
+    validate: validateLaneClawback
   }
 };

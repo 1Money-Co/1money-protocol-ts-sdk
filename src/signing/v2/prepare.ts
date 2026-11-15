@@ -1,8 +1,9 @@
 import { validateMemo } from '@/utils';
 import { assertLowS } from '../core';
 import { singleSecp256k1 } from './authorization';
+import { rlpValue } from '@/utils';
 import {
-  encodePayloadRlp,
+  encodeFieldsPayloadRlp,
   signingHashV2,
   singleDescriptor,
   singleProof,
@@ -17,6 +18,7 @@ import { toRequiredMemo } from './wire';
 
 import type {
   Memo,
+  PlpPayload,
   Signature,
   ZeroXString
 } from '@/utils';
@@ -77,6 +79,16 @@ function assertNoBatchPaymentMaxFee(
   }
 }
 
+function chainAndNonceHeader(unsigned: {
+  chain_id: number;
+  nonce: number;
+}): PlpPayload[] {
+  return [
+    rlpValue.uint(unsigned.chain_id),
+    rlpValue.uint(unsigned.nonce)
+  ];
+}
+
 export function prepareTransactionV2<
   K extends OperationName
 >(
@@ -133,14 +145,21 @@ export function prepareTransactionV2<
   const memo = toRequiredMemo(options?.memo);
   validateMemo(memo);
 
-  const payloadRlp = encodePayloadRlp({
-    chainId: canonicalUnsigned.chain_id,
-    nonce: canonicalUnsigned.nonce,
-    payloadFields: spec.payloadFields(
-      canonicalUnsigned
-    ),
+  const headerFields: PlpPayload[] = spec.headerFields
+    ? spec.headerFields(canonicalUnsigned)
+    : chainAndNonceHeader(
+        canonicalUnsigned as {
+          chain_id: number;
+          nonce: number;
+        }
+      );
+  const payloadRlp = encodeFieldsPayloadRlp(
+    [
+      ...headerFields,
+      ...spec.payloadFields(canonicalUnsigned)
+    ],
     memo
-  });
+  );
 
   const descriptor = singleDescriptor();
   const signingHash = signingHashV2(
@@ -264,5 +283,14 @@ export const TransactionBuilderV2 = {
   batchPayment: (
     u: OperationUnsignedMap['batchPayment'],
     o?: PrepareOptionsV2
-  ) => prepareTransactionV2('batchPayment', u, o)
+  ) => prepareTransactionV2('batchPayment', u, o),
+  settledAuthority: (
+    u: OperationUnsignedMap['settledAuthority'],
+    o?: PrepareOptionsV2
+  ) =>
+    prepareTransactionV2('settledAuthority', u, o),
+  laneClawback: (
+    u: OperationUnsignedMap['laneClawback'],
+    o?: PrepareOptionsV2
+  ) => prepareTransactionV2('laneClawback', u, o)
 };

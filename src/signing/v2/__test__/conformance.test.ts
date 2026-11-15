@@ -72,8 +72,8 @@ function proofOf(vector: Vector): PlpPayload {
 describe('native v2 signing conformance', function () {
   const vectors = loadVectors();
 
-  it('loads all 36 frozen vectors', function () {
-    expect(vectors).to.have.length(36);
+  it('loads all 50 frozen vectors', function () {
+    expect(vectors).to.have.length(50);
   });
 
   vectors.forEach(vector => {

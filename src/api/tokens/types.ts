@@ -206,3 +206,89 @@ export interface TokenClawbackPayload {
   /** Optional transaction memo (see PaymentPayload.memo). */
   memo?: Memo;
 }
+
+/** A delegated role that a token's master grants and revokes. */
+export type AuthorityRole =
+  | 'pause'
+  | 'manage_list'
+  | 'update_metadata'
+  | 'bridge'
+  | 'clawback';
+
+export type AuthorityListKind = 'blacklist' | 'whitelist';
+
+export type AuthorityListAction = 'add' | 'remove';
+
+/**
+ * One token authority operation, decided at the checkpoint that
+ * includes it. `type` names the operation. A revoke of an account
+ * that holds no role or minter entry succeeds as a no-op, and its
+ * receipt carries a `no_op_revoke` warning.
+ */
+export type AuthorityOperation =
+  | { type: 'pause' }
+  | { type: 'unpause' }
+  | {
+      type: 'list';
+      list: AuthorityListKind;
+      action: AuthorityListAction;
+      account: AddressSchema;
+    }
+  | {
+      type: 'update_metadata';
+      name: string;
+      uri: string;
+      additional_metadata: MetaDataKeyValuePair[];
+    }
+  | {
+      type: 'grant_role' | 'revoke_role';
+      role: AuthorityRole;
+      account: AddressSchema;
+    }
+  | {
+      type: 'set_minter_allowance';
+      minter: AddressSchema;
+      /** An absolute allowance, in the token's base unit. */
+      allowance: U256Schema;
+    }
+  | { type: 'revoke_minter'; minter: AddressSchema }
+  | {
+      type: 'rotate_master_mint_burn';
+      account: AddressSchema;
+    }
+  | { type: 'revoke_master_mint_burn' }
+  | {
+      type: 'mint';
+      recipient: AddressSchema;
+      value: U256Schema;
+    };
+
+/** The unsigned settled authority envelope (native operation 17). */
+export interface SettledAuthorityPayload {
+  chain_id: number;
+  /** The signer's nonce. */
+  nonce: number;
+  token: string;
+  /**
+   * A committed checkpoint, at most 100 behind the node's latest.
+   * Admission reads the signer's role in its state.
+   */
+  reference_checkpoint: number;
+  operation: AuthorityOperation;
+}
+
+/**
+ * The unsigned lane clawback (native operation 18). It takes the
+ * holder's nonce `from_nonce` and no nonce of its signer.
+ */
+export interface LaneClawbackPayload {
+  chain_id: number;
+  token: string;
+  /** The frozen account to claw back from. */
+  holder: string;
+  /** The holder's next nonce when the clawback is signed. */
+  from_nonce: number;
+  reference_checkpoint: number;
+  recipient: string;
+  value: string;
+}
