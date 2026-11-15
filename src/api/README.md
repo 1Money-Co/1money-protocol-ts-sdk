@@ -10,6 +10,10 @@ The API is organized into the following modules:
 - `tokens` - Token-related API endpoints
 - `transactions` - Transaction-related API endpoints
 - `checkpoints` - Checkpoint-related API endpoints
+- `status` - Native write status, envelope mode and health
+- `authority/` - Token authority model helpers: envelope mode, typed refusals,
+  settled envelope and lane clawback send helpers, and the result reads
+  (see `skills/1money-protocol-sdk/references/transactions.md`)
 
 ## Usage
 

@@ -3,7 +3,8 @@ import type {
   BatchReceiptInfo,
   FinalizedTransactionReceipt,
   Transaction,
-  TransactionReceipt
+  TransactionReceipt,
+  TransactionStatusResponse
 } from '../../transactions/types';
 
 type BatchPaymentDataHasNoMaxFee =
@@ -145,3 +146,71 @@ export const batchPaymentTransactionFixture = {
 } satisfies Transaction;
 
 void batchPaymentDataHasNoMaxFee;
+
+// Shapes a local node of the token authority release answered.
+export const noOpRevokeReceiptFixture = {
+  success: true,
+  transaction_hash: TRANSACTION_HASH,
+  checkpoint_number: 138,
+  fee_used: '0',
+  from: SENDER,
+  recipient: RECIPIENT,
+  token_address: TOKEN,
+  execution_events: [{ event_type: 'NoOp', target: RECIPIENT }],
+  warnings: [{ type: 'no_op_revoke', target: RECIPIENT }]
+} satisfies TransactionReceipt;
+
+export const softFailReceiptFixture = {
+  success: false,
+  transaction_hash: TRANSACTION_HASH,
+  checkpoint_number: 112,
+  fee_used: '0',
+  from: SENDER,
+  recipient: RECIPIENT,
+  token_address: TOKEN,
+  execution_events: [
+    { event_type: 'SoftFail', reason: 'CapReached' }
+  ]
+} satisfies TransactionReceipt;
+
+export const authorityOperationTransactionFixture = {
+  hash: TRANSACTION_HASH,
+  chain_id: 7888999,
+  from: SENDER,
+  nonce: 61,
+  signature: { r: '0x01', s: '0x02', v: 0 },
+  transaction_type: 'TokenAuthorityOperation',
+  data: {
+    token: TOKEN,
+    reference_checkpoint: 3557,
+    operation: {
+      type: 'mint',
+      recipient: RECIPIENT,
+      value: '1000000'
+    }
+  }
+} satisfies Transaction;
+
+export const laneClawbackTransactionFixture = {
+  hash: TRANSACTION_HASH,
+  chain_id: 7888999,
+  from: SENDER,
+  nonce: 1,
+  lane: RECIPIENT,
+  signature: { r: '0x01', s: '0x02', v: 1 },
+  transaction_type: 'TokenLaneClawback',
+  data: {
+    token: TOKEN,
+    holder: RECIPIENT,
+    from_nonce: 1,
+    reference_checkpoint: 126,
+    recipient: SENDER,
+    value: '9'
+  }
+} satisfies Transaction;
+
+export const checkpointedStatusFixture = {
+  hash: TRANSACTION_HASH,
+  status: 'checkpointed',
+  checkpoint_number: 86
+} satisfies TransactionStatusResponse;

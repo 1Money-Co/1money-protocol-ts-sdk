@@ -8,6 +8,8 @@ import {
 } from '../state';
 import { MockNode, notFound, ok } from './helpers/mockNode';
 
+import type { AuthorizedTxV2 } from '@/signing/v2';
+
 const SIGNER = `0x${'0a'.repeat(20)}`;
 const HOLDER = `0x${'0b'.repeat(20)}`;
 const HASH = `0x${'ab'.repeat(32)}`;
@@ -151,7 +153,12 @@ describe('authority operation state (positive evidence only)', function () {
 
 describe('lane clawback fate (on the holder lane)', function () {
   let node: MockNode;
-  const clawback = { holder: HOLDER, from_nonce: 3 };
+  const clawback: AuthorizedTxV2 = {
+    operation: 'laneClawback',
+    path: '/v2/tokens/lane_clawback',
+    request: { holder: HOLDER, from_nonce: 3 },
+    transactionHash: HASH as `0x${string}`
+  };
 
   afterEach(function () {
     node.uninstall();
@@ -162,7 +169,7 @@ describe('lane clawback fate (on the holder lane)', function () {
       [NONCE]: ok({ nonce: 3 }),
       [STATUS]: notFound()
     }).install();
-    expect(await laneClawbackFate(clawback, HASH)).to.deep.equal({
+    expect(await laneClawbackFate(clawback)).to.deep.equal({
       fate: 'pending'
     });
     expect(node.gets[0]).to.include(`address=${HOLDER}`);
@@ -173,7 +180,7 @@ describe('lane clawback fate (on the holder lane)', function () {
       [NONCE]: ok({ nonce: 4 }),
       [STATUS]: status('finalized')
     }).install();
-    expect(await laneClawbackFate(clawback, HASH)).to.deep.equal({
+    expect(await laneClawbackFate(clawback)).to.deep.equal({
       fate: 'certified',
       status: 'finalized'
     });
@@ -181,10 +188,21 @@ describe('lane clawback fate (on the holder lane)', function () {
 
   it('is unknown when another transaction may have taken the slot', async function () {
     node = new MockNode({ [NONCE]: ok({ nonce: 4 }) }).install();
-    expect(await laneClawbackFate(clawback, HASH)).to.deep.equal({
+    expect(await laneClawbackFate(clawback)).to.deep.equal({
       fate: 'unknown',
       observed: { nextNonce: 4 }
     });
+  });
+
+  it('refuses anything but a signed lane clawback', async function () {
+    node = new MockNode().install();
+    let caught: unknown;
+    try {
+      await laneClawbackFate({ ...clawback, operation: 'tokenClawback' });
+    } catch (error) {
+      caught = error;
+    }
+    expect(String(caught)).to.include('needs a signed lane clawback');
   });
 
   it('is executed on its receipt', async function () {
@@ -192,7 +210,7 @@ describe('lane clawback fate (on the holder lane)', function () {
       [NONCE]: ok({ nonce: 4 }),
       [RECEIPT]: receipt({ success: true })
     }).install();
-    const fate = await laneClawbackFate(clawback, HASH);
+    const fate = await laneClawbackFate(clawback);
     expect(fate.fate).to.equal('executed');
   });
 });

@@ -7,13 +7,17 @@ import {
   TransactionOutcomeUnknownError,
   TransactionSubmissionError
 } from '../errors';
+import { receiptOutcomeOf } from '../authority/state';
 import transactionsApi from '../transactions';
 import type { BatchExecutionEvent } from '../transactions/types';
 import {
   batchPaymentReceiptFixture,
   batchPaymentTransactionFixture,
   finalizedBatchPaymentReceiptFixture,
+  laneClawbackTransactionFixture,
+  noOpRevokeReceiptFixture,
   paymentSuccessReceiptFixture,
+  softFailReceiptFixture,
   ZERO_ADDRESS
 } from './fixtures/transactions';
 
@@ -76,6 +80,26 @@ const OPERATIONS = [
     amount: '20'
   }
 ];
+
+describe('token authority response models', function () {
+  it('reads the outcome of live settled receipts', function () {
+    expect(receiptOutcomeOf(noOpRevokeReceiptFixture)).to.deep.equal({
+      outcome: 'no_op',
+      target: noOpRevokeReceiptFixture.execution_events[0].target,
+      warnings: noOpRevokeReceiptFixture.warnings
+    });
+    expect(receiptOutcomeOf(softFailReceiptFixture)).to.deep.equal({
+      outcome: 'soft_fail',
+      reason: 'CapReached'
+    });
+  });
+
+  it('names the holder lane of a lane clawback', function () {
+    expect(laneClawbackTransactionFixture.lane).to.equal(
+      laneClawbackTransactionFixture.data.holder
+    );
+  });
+});
 
 describe('Batch Payment fee estimate', function () {
   let originalAdapter: typeof axiosStatic.defaults.adapter;

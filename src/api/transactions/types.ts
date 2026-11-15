@@ -1,5 +1,6 @@
 // Types for transactions API
 import { AuthorityType, RestSignature } from '../tokens/types';
+import type { AuthorityOperation } from '../tokens/types';
 import type {
   AddressSchema,
   B256Schema,
@@ -313,6 +314,21 @@ export interface CreateMultiSigData {
   multisig_address: AddressSchema;
 }
 
+export interface TokenAuthorityOperationData {
+  token: AddressSchema;
+  reference_checkpoint: number;
+  operation: AuthorityOperation;
+}
+
+export interface TokenLaneClawbackData {
+  token: AddressSchema;
+  holder: AddressSchema;
+  from_nonce: number;
+  reference_checkpoint: number;
+  recipient: AddressSchema;
+  value: string;
+}
+
 // Base transaction fields shared by all transaction types
 interface BaseTransaction {
   hash: B256Schema;
@@ -324,6 +340,12 @@ interface BaseTransaction {
   chain_id: number;
   from: AddressSchema;
   nonce: number;
+  /**
+   * The account whose nonce sequence the transaction takes, present
+   * only when it is not `from`: for a lane clawback, the holder, and
+   * `nonce` is the holder's nonce.
+   */
+  lane?: AddressSchema;
   signature: {
     r: string;
     s: string;
@@ -386,6 +408,14 @@ export type Transaction =
   | (BaseTransaction & {
       transaction_type: 'TokenClawback';
       data: TokenClawbackData;
+    })
+  | (BaseTransaction & {
+      transaction_type: 'TokenAuthorityOperation';
+      data: TokenAuthorityOperationData;
+    })
+  | (BaseTransaction & {
+      transaction_type: 'TokenLaneClawback';
+      data: TokenLaneClawbackData;
     })
   | (BaseTransaction & {
       transaction_type: 'TokenCloseAccount';
