@@ -42,6 +42,14 @@ post('/api/data', { key: 'value' }, {
   });
 ```
 
+A rejected request writes one `console.error` line before its handlers run.
+Pass `logErrors: false` to stop that line for a request whose rejection is an
+expected answer, such as a 404 while a receipt is not there yet:
+
+```typescript
+get(`/v1/transactions/receipt/by_hash?hash=${hash}`, { logErrors: false });
+```
+
 #### Making Other HTTP Requests
 The module also supports `PUT`, `PATCH`, and `DELETE` methods in a similar manner:
 

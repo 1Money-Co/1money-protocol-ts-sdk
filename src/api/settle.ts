@@ -672,11 +672,13 @@ const TRANSACTIONS_PREFIX = `/${API_VERSION}/transactions`;
 
 // A read error resolves (global onError) or rejects; both
 // are returned as the value, so the engine sees the same
-// thing either way.
+// thing either way. Not logged: a 404 is the expected
+// answer until the receipt appears.
 async function readValue(url: string): Promise<unknown> {
   try {
     return await get<'custom', unknown>(url, {
-      withCredentials: false
+      withCredentials: false,
+      logErrors: false
     });
   } catch (caught) {
     return caught;

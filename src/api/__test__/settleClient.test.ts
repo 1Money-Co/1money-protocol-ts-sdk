@@ -117,6 +117,22 @@ describe('submitAndSettle and settle (real dependencies)', function () {
     expect(receiptReads).to.equal(3);
   });
 
+  it('logs no error for the expected receipt 404s of a wait', async function () {
+    node([200, { hash: HASH }], 3);
+    const originalError = console.error;
+    const logged: unknown[][] = [];
+    console.error = (...args: unknown[]) => {
+      logged.push(args);
+    };
+    try {
+      await submitAndSettle(AUTHORIZED, FAST);
+    } finally {
+      console.error = originalError;
+    }
+    expect(receiptReads).to.equal(3);
+    expect(logged).to.deep.equal([]);
+  });
+
   it('settle reads the same way when the client resolves errors (global onError)', async function () {
     setInitConfig({
       baseURL: LOCAL_API_URL,

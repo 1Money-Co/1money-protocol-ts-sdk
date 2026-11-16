@@ -100,7 +100,14 @@ export interface InitConfig<T = any, U = unknown> {
   baseURL?: string;
 }
 
-export interface Options<T, U = unknown> extends InitConfig<T, U>, AxiosRequestConfig { }
+export interface Options<T, U = unknown> extends InitConfig<T, U>, AxiosRequestConfig {
+  /**
+   * `false` stops the `console.error` line of a rejected request, for a
+   * read whose rejection (such as a 404) is an expected answer. The
+   * handlers and the result do not change. Default: logged.
+   */
+  logErrors?: boolean;
+}
 
 export type FactoryType = 'success' | 'failure' | 'error' | 'login';
 
@@ -682,7 +689,7 @@ export class Request {
         cleanup();
 
         const data = err.response?.data ?? {};
-        console.error(`[1Money SDK]: Error(${err.status ?? 500}, ${err.code ?? 'UNKNOWN'}), Message: ${err.message}, Config: ${err.config?.method}, ${err.config?.baseURL ?? ''}${err.config?.url ?? ''};`);
+        if (options.logErrors !== false) console.error(`[1Money SDK]: Error(${err.status ?? 500}, ${err.code ?? 'UNKNOWN'}), Message: ${err.message}, Config: ${err.config?.method}, ${err.config?.baseURL ?? ''}${err.config?.url ?? ''};`);
 
         const status = err.response?.status ?? 500;
         const headers = err.response?.headers ?? {};

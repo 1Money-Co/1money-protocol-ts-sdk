@@ -523,6 +523,21 @@ low-level `get`/`post` exports from `@1money/protocol-ts-sdk/client`, which do
 accept an options object with a `signal`; that signal is merged with the SDK's
 internal timeout abort signal.
 
+## Error logging
+
+The request core writes one `console.error` line for each rejected request
+(an HTTP error status, a network error), before any handler runs. The line
+does not change the result.
+
+The low-level `get`/`post` exports take `logErrors: false` to stop that line
+for one request whose rejection is an expected answer, such as a 404 while a
+receipt is not there yet. Other requests log as before.
+
+The SDK sets it on the reads where a 404 is a normal answer: the receipt and
+transaction reads of `submitAndSettle` and `settle`. Their waits log nothing
+while they read 404. Other high-level methods, such as
+`transactions.getReceiptByHash`, still log a 404.
+
 ## Utilities
 
 Imported from the package root (`@1money/protocol-ts-sdk`).
