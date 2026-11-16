@@ -43,11 +43,12 @@ post('/api/data', { key: 'value' }, {
 ```
 
 A rejected request writes one `console.error` line before its handlers run.
-Pass `logErrors: false` to stop that line for a request whose rejection is an
-expected answer, such as a 404 while a receipt is not there yet:
+Pass `quietStatuses` to stop that line for the HTTP statuses that are an
+expected answer for the request, such as a 404 while a receipt is not there
+yet. Other statuses, and a network error or timeout, still log:
 
 ```typescript
-get(`/v1/transactions/receipt/by_hash?hash=${hash}`, { logErrors: false });
+get(`/v1/transactions/receipt/by_hash?hash=${hash}`, { quietStatuses: [404] });
 ```
 
 #### Making Other HTTP Requests

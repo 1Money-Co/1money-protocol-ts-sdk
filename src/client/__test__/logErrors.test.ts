@@ -5,22 +5,32 @@ import Request from '../core';
 
 import type { AxiosAdapter } from 'axios';
 
-const notFound: AxiosAdapter = config =>
-  Promise.reject({
-    message: 'Request failed with status code 404',
-    name: 'AxiosError',
-    status: 404,
-    config,
-    response: {
-      status: 404,
-      statusText: 'Not Found',
-      headers: {},
+function rejectWith(status: number): AxiosAdapter {
+  return config =>
+    Promise.reject({
+      message: `Request failed with status code ${status}`,
+      name: 'AxiosError',
+      status,
       config,
-      data: { action: 'check_status' }
-    }
+      response: {
+        status,
+        statusText: 'Error',
+        headers: {},
+        config,
+        data: { action: 'check_status' }
+      }
+    });
+}
+
+const networkError: AxiosAdapter = config =>
+  Promise.reject({
+    message: 'Network Error',
+    name: 'AxiosError',
+    code: 'ERR_NETWORK',
+    config
   });
 
-describe('logErrors request option', function () {
+describe('quietStatuses request option', function () {
   const originalError = console.error;
   let logged: unknown[][];
 
@@ -35,34 +45,43 @@ describe('logErrors request option', function () {
     console.error = originalError;
   });
 
-  async function rejectedRead(logErrors?: boolean) {
-    const client = new Request();
-    const answer = await client
+  async function rejectedRead(
+    adapter: AxiosAdapter,
+    quietStatuses?: readonly number[]
+  ) {
+    await new Request()
       .request({
         method: 'get',
         url: 'http://node.invalid/v1/transactions/receipt/by_hash',
-        adapter: notFound,
-        ...(logErrors === undefined ? {} : { logErrors })
+        adapter,
+        ...(quietStatuses && { quietStatuses })
       })
       .catch((error: unknown) => error);
-    expect(answer).to.include({ status: 404 });
   }
 
-  it('logs nothing for a rejected request with logErrors: false', async function () {
-    await rejectedRead(false);
+  it('logs nothing for a rejection with a quiet status', async function () {
+    await rejectedRead(rejectWith(404), [404]);
     expect(logged).to.deep.equal([]);
   });
 
-  it('still logs a rejected request without the option', async function () {
-    await rejectedRead();
+  it('still logs a rejection whose status is not quiet', async function () {
+    await rejectedRead(rejectWith(500), [404]);
+    expect(logged).to.have.length(1);
+    expect(String(logged[0][0])).to.contain(
+      '[1Money SDK]: Error(500'
+    );
+  });
+
+  it('still logs a network error, which has no status', async function () {
+    await rejectedRead(networkError, [404]);
+    expect(logged).to.have.length(1);
+  });
+
+  it('still logs a 404 without the option', async function () {
+    await rejectedRead(rejectWith(404));
     expect(logged).to.have.length(1);
     expect(String(logged[0][0])).to.contain(
       '[1Money SDK]: Error(404'
     );
-  });
-
-  it('still logs a rejected request with logErrors: true', async function () {
-    await rejectedRead(true);
-    expect(logged).to.have.length(1);
   });
 });

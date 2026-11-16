@@ -102,11 +102,13 @@ export interface InitConfig<T = any, U = unknown> {
 
 export interface Options<T, U = unknown> extends InitConfig<T, U>, AxiosRequestConfig {
   /**
-   * `false` stops the `console.error` line of a rejected request, for a
-   * read whose rejection (such as a 404) is an expected answer. The
-   * handlers and the result do not change. Default: logged.
+   * HTTP statuses whose rejection is an expected answer (such as 404
+   * while a receipt is not there yet): the request core writes no
+   * `console.error` line for them. Every other rejection, and a network
+   * error or timeout, still logs. The handlers and the result do not
+   * change.
    */
-  logErrors?: boolean;
+  quietStatuses?: readonly number[];
 }
 
 export type FactoryType = 'success' | 'failure' | 'error' | 'login';
@@ -689,7 +691,8 @@ export class Request {
         cleanup();
 
         const data = err.response?.data ?? {};
-        if (options.logErrors !== false) console.error(`[1Money SDK]: Error(${err.status ?? 500}, ${err.code ?? 'UNKNOWN'}), Message: ${err.message}, Config: ${err.config?.method}, ${err.config?.baseURL ?? ''}${err.config?.url ?? ''};`);
+        const quiet = err.response !== undefined && options.quietStatuses?.includes(err.response.status);
+        if (!quiet) console.error(`[1Money SDK]: Error(${err.status ?? 500}, ${err.code ?? 'UNKNOWN'}), Message: ${err.message}, Config: ${err.config?.method}, ${err.config?.baseURL ?? ''}${err.config?.url ?? ''};`);
 
         const status = err.response?.status ?? 500;
         const headers = err.response?.headers ?? {};
