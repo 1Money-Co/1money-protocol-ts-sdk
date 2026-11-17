@@ -30,6 +30,28 @@ const networkError: AxiosAdapter = config =>
     config
   });
 
+// A custom adapter may reject with `response: null`; stock adapters
+// omit `response` when no response came.
+const nullResponse: AxiosAdapter = config =>
+  Promise.reject({
+    message: 'Custom adapter error',
+    name: 'AxiosError',
+    config,
+    response: null
+  });
+
+const neverAnswers: AxiosAdapter = config =>
+  new Promise((_resolve, reject) => {
+    config.signal?.addEventListener?.('abort', () =>
+      reject({
+        message: 'canceled',
+        name: 'CanceledError',
+        code: 'ERR_CANCELED',
+        config
+      })
+    );
+  });
+
 describe('quietStatuses request option', function () {
   const originalError = console.error;
   let logged: unknown[][];
@@ -75,6 +97,36 @@ describe('quietStatuses request option', function () {
   it('still logs a network error, which has no status', async function () {
     await rejectedRead(networkError, [404]);
     expect(logged).to.have.length(1);
+  });
+
+  it('settles and logs a rejection whose response is null', async function () {
+    this.timeout(2000);
+    const error = await new Request()
+      .request({
+        method: 'get',
+        url: 'http://node.invalid/v1/transactions/receipt/by_hash',
+        adapter: nullResponse,
+        quietStatuses: [404]
+      })
+      .catch((caught: unknown) => caught);
+    expect(error).to.include({ status: 500 });
+    expect(logged).to.have.length(1);
+  });
+
+  it('logs nothing when the request timeout expires', async function () {
+    let timedOut = false;
+    await new Request()
+      .request({
+        method: 'get',
+        url: 'http://node.invalid/v1/transactions/receipt/by_hash',
+        adapter: neverAnswers,
+        timeout: 20
+      })
+      .timeout(() => {
+        timedOut = true;
+      });
+    expect(timedOut).to.equal(true);
+    expect(logged).to.deep.equal([]);
   });
 
   it('still logs a 404 without the option', async function () {

@@ -45,7 +45,9 @@ post('/api/data', { key: 'value' }, {
 A rejected request writes one `console.error` line before its handlers run.
 Pass `quietStatuses` to stop that line for the HTTP statuses that are an
 expected answer for the request, such as a 404 while a receipt is not there
-yet. Other statuses, and a network error or timeout, still log:
+yet. Other statuses and a network error still log. Expiry of the request
+`timeout` writes no line, with or without the option: it calls the timeout
+handler:
 
 ```typescript
 get(`/v1/transactions/receipt/by_hash?hash=${hash}`, { quietStatuses: [404] });

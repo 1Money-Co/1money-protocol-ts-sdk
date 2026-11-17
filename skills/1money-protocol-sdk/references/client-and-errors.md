@@ -527,12 +527,13 @@ internal timeout abort signal.
 
 The request core writes one `console.error` line for each rejected request
 (an HTTP error status, a network error), before any handler runs. The line
-does not change the result.
+does not change the result. Expiry of the request `timeout` writes no line: it
+calls the timeout handler.
 
 The low-level `get`/`post` exports take `quietStatuses`, a list of HTTP
 statuses that are an expected answer for that request, such as `[404]` while a
 receipt is not there yet. A rejection with a listed status writes no line.
-Every other rejection, and a network error or timeout, still logs.
+Every other rejection, such as a network error, still logs.
 
 The SDK sets `quietStatuses: [404]` on the reads where a 404 is a normal
 answer: the receipt and transaction reads of `submitAndSettle` and `settle`.

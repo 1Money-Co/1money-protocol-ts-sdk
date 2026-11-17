@@ -104,9 +104,10 @@ export interface Options<T, U = unknown> extends InitConfig<T, U>, AxiosRequestC
   /**
    * HTTP statuses whose rejection is an expected answer (such as 404
    * while a receipt is not there yet): the request core writes no
-   * `console.error` line for them. Every other rejection, and a network
-   * error or timeout, still logs. The handlers and the result do not
-   * change.
+   * `console.error` line for them. Every other rejection, such as a
+   * network error, still logs. The handlers and the result do not
+   * change. Expiry of the request `timeout` never logs, with or without
+   * this option: it calls the timeout handler.
    */
   quietStatuses?: readonly number[];
 }
@@ -691,7 +692,8 @@ export class Request {
         cleanup();
 
         const data = err.response?.data ?? {};
-        const quiet = err.response !== undefined && options.quietStatuses?.includes(err.response.status);
+        const responseStatus = err.response?.status;
+        const quiet = typeof responseStatus === 'number' && (options.quietStatuses?.includes(responseStatus) ?? false);
         if (!quiet) console.error(`[1Money SDK]: Error(${err.status ?? 500}, ${err.code ?? 'UNKNOWN'}), Message: ${err.message}, Config: ${err.config?.method}, ${err.config?.baseURL ?? ''}${err.config?.url ?? ''};`);
 
         const status = err.response?.status ?? 500;
