@@ -6,6 +6,12 @@ name: CI
 # and stay out of this job.
 on:
   pull_request:
+    # A base change (a retarget, or the automatic retarget after the
+    # base pull request merges) arrives as `edited` and changes the
+    # merge commit under test. Do not skip title or body edits with a
+    # job `if`: the skipped run would cancel the real one through the
+    # concurrency group and show as the latest, passing check.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches:
       - main
@@ -36,4 +42,6 @@ jobs:
       - run: pnpm i --frozen-lockfile
       - run: npm run lint
       - run: npm test
-      - run: npm run build
+      # omni's own flag (not git's): it skips the build preflight
+      # (npm test, lint:es, lint:prettier) that the steps above run.
+      - run: npm run build -- --no-verify
