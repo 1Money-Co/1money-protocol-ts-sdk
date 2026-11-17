@@ -34,19 +34,36 @@ export function encodePayloadRlp(params: {
   payloadFields: PlpPayload[];
   memo: RequiredMemo;
 }): Uint8Array {
-  const innerList = rlpValue.list([
-    rlpValue.uint(params.chainId),
-    rlpValue.uint(params.nonce),
-    ...params.payloadFields
-  ]);
+  return encodeFieldsPayloadRlp(
+    [
+      ...chainAndNonceHeader(params.chainId, params.nonce),
+      ...params.payloadFields
+    ],
+    params.memo
+  );
+}
 
+// The header of every operation that carries its signer's nonce.
+export function chainAndNonceHeader(
+  chainId: number,
+  nonce: number
+): PlpPayload[] {
+  return [rlpValue.uint(chainId), rlpValue.uint(nonce)];
+}
+
+// The memo wrapper over a complete business field list, header
+// included: the lane clawback has no signer nonce in its header.
+export function encodeFieldsPayloadRlp(
+  fields: PlpPayload[],
+  memo: RequiredMemo
+): Uint8Array {
   return encodeRlpPayload(
     rlpValue.list([
-      innerList,
+      rlpValue.list(fields),
       rlpValue.list([
-        rlpValue.string(params.memo.type),
-        rlpValue.string(params.memo.format),
-        rlpValue.string(params.memo.data)
+        rlpValue.string(memo.type),
+        rlpValue.string(memo.format),
+        rlpValue.string(memo.data)
       ])
     ])
   );

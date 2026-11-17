@@ -16,6 +16,7 @@ export * from './transactions/types';
 export * from './checkpoints/types';
 export * from './chain/types';
 export * from './status/types';
+export * from './authority';
 
 /**
  * API client for 1money network

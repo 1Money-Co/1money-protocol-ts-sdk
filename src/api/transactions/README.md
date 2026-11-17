@@ -16,7 +16,7 @@ const apiClient = api();
 
 ## Available Endpoints
 
-- `getByHash`, `getReceiptByHash`, `getFinalizedByHash`, `estimateFee`,
+- `getByHash`, `getReceiptByHash`, `getFinalizedByHash`, `getStatusByHash`, `estimateFee`,
   `estimateBatchPaymentFee` — reads/unsigned estimates, always against `/v1`.
   The Batch Payment estimator is `POST /v1/transactions/batch_payment/estimate_fee`.
 - `payment`, `batchPayment` — native v2 writes. Take an `AuthorizedTxV2` built

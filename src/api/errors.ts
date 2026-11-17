@@ -1,6 +1,7 @@
 import { parseProblem } from './problem';
 
 import type { ApiProblem, ClientAction } from './problem';
+import type { AuthorizedTxV2 } from '@/signing/v2';
 import type {
   SettleEndReason,
   SettleObservation
@@ -195,6 +196,12 @@ export class TransactionLockedError extends Error {
   readonly observations?: readonly SettleObservation[];
   /** Why a settle run ended; set only by settle. */
   readonly endReason?: SettleEndReason;
+  /**
+   * The signed transaction that was sent, set by submitAuthorized.
+   * A helper that builds the transaction itself (issueLaneClawback)
+   * leaves its caller no other copy of it.
+   */
+  readonly authorized?: AuthorizedTxV2;
 
   constructor(
     transactionHash: string,
@@ -205,6 +212,7 @@ export class TransactionLockedError extends Error {
       observations?: readonly SettleObservation[];
       endReason?: SettleEndReason;
       nonceUsed?: boolean;
+      authorized?: AuthorizedTxV2;
     } = {}
   ) {
     super(
@@ -219,6 +227,7 @@ export class TransactionLockedError extends Error {
     this.problem = parseProblem(diagnostic.data);
     this.observations = diagnostic.observations;
     this.endReason = diagnostic.endReason;
+    this.authorized = diagnostic.authorized;
   }
 }
 
@@ -278,6 +287,12 @@ export class TransactionOutcomeUnknownError extends
   public readonly observations?: readonly SettleObservation[];
   /** Why a settle run ended; set only by settle. */
   public readonly endReason?: SettleEndReason;
+  /**
+   * The signed transaction that was sent, set by submitAuthorized.
+   * A helper that builds the transaction itself (issueLaneClawback)
+   * leaves its caller no other copy of it.
+   */
+  public readonly authorized?: AuthorizedTxV2;
 
   constructor(
     transactionHash: string,
@@ -290,6 +305,7 @@ export class TransactionOutcomeUnknownError extends
       observations?: readonly SettleObservation[];
       endReason?: SettleEndReason;
       nonceUsed?: boolean;
+      authorized?: AuthorizedTxV2;
     } = {}
   ) {
     super(
@@ -308,6 +324,7 @@ export class TransactionOutcomeUnknownError extends
     this.problem = parseProblem(diagnostic.data);
     this.observations = diagnostic.observations;
     this.endReason = diagnostic.endReason;
+    this.authorized = diagnostic.authorized;
   }
 }
 

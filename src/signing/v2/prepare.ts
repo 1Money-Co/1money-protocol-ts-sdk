@@ -2,7 +2,8 @@ import { validateMemo } from '@/utils';
 import { assertLowS } from '../core';
 import { singleSecp256k1 } from './authorization';
 import {
-  encodePayloadRlp,
+  chainAndNonceHeader,
+  encodeFieldsPayloadRlp,
   signingHashV2,
   singleDescriptor,
   singleProof,
@@ -17,6 +18,7 @@ import { toRequiredMemo } from './wire';
 
 import type {
   Memo,
+  PlpPayload,
   Signature,
   ZeroXString
 } from '@/utils';
@@ -133,14 +135,19 @@ export function prepareTransactionV2<
   const memo = toRequiredMemo(options?.memo);
   validateMemo(memo);
 
-  const payloadRlp = encodePayloadRlp({
-    chainId: canonicalUnsigned.chain_id,
-    nonce: canonicalUnsigned.nonce,
-    payloadFields: spec.payloadFields(
-      canonicalUnsigned
-    ),
+  const headerFields: PlpPayload[] = spec.headerFields
+    ? spec.headerFields(canonicalUnsigned)
+    : chainAndNonceHeader(
+        (canonicalUnsigned as { chain_id: number }).chain_id,
+        (canonicalUnsigned as { nonce: number }).nonce
+      );
+  const payloadRlp = encodeFieldsPayloadRlp(
+    [
+      ...headerFields,
+      ...spec.payloadFields(canonicalUnsigned)
+    ],
     memo
-  });
+  );
 
   const descriptor = singleDescriptor();
   const signingHash = signingHashV2(
@@ -264,5 +271,14 @@ export const TransactionBuilderV2 = {
   batchPayment: (
     u: OperationUnsignedMap['batchPayment'],
     o?: PrepareOptionsV2
-  ) => prepareTransactionV2('batchPayment', u, o)
+  ) => prepareTransactionV2('batchPayment', u, o),
+  settledAuthority: (
+    u: OperationUnsignedMap['settledAuthority'],
+    o?: PrepareOptionsV2
+  ) =>
+    prepareTransactionV2('settledAuthority', u, o),
+  laneClawback: (
+    u: OperationUnsignedMap['laneClawback'],
+    o?: PrepareOptionsV2
+  ) => prepareTransactionV2('laneClawback', u, o)
 };

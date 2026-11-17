@@ -29,14 +29,16 @@ describe('signing exports', function () {
     );
   });
 
-  it('covers all fourteen operations', function () {
+  it('covers all sixteen operations', function () {
     expect(
       Object.keys(TransactionBuilder).sort()
     ).to.deep.equal(
       [
         'batchPayment',
         'createMultisig',
+        'laneClawback',
         'payment',
+        'settledAuthority',
         'tokenAuthority',
         'tokenBlacklist',
         'tokenBridgeAndMint',

@@ -1,4 +1,5 @@
 import { get } from '@/client';
+import { readEnvelopeMode } from '../authority/envelopeMode';
 
 import type { NativeWriteStatusResponse } from './types';
 
@@ -24,6 +25,14 @@ export const statusApi = {
       '/api/status',
       { withCredentials: false }
     ),
+
+  /**
+   * Read the node's token authority envelope mode. Never throws
+   * for a node answer: a missing mode, an HTTP error or no answer
+   * reads as `legacy`, with the reason; a mode this SDK does not
+   * know reads as `unrecognized` (send nothing of the class).
+   */
+  getEnvelopeMode: readEnvelopeMode,
 
   /**
    * Node health probe. Returns the plain-text body (e.g.

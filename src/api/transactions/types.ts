@@ -1,5 +1,6 @@
 // Types for transactions API
 import { AuthorityType, RestSignature } from '../tokens/types';
+import type { AuthorityOperation } from '../tokens/types';
 import type {
   AddressSchema,
   B256Schema,
@@ -64,6 +65,61 @@ export type BatchExecutionEvent =
       operations_hash: B256Schema | null;
     };
 
+/**
+ * Why a certified transaction that settles at its checkpoint
+ * failed there: a hold debit, or a token authority operation.
+ */
+export type SoftFailReason =
+  | 'HoldNotFound'
+  | 'HoldInsufficient'
+  | 'ComplianceRejected'
+  | 'AuthorityChanged'
+  | 'RoleMissing'
+  | 'CapReached'
+  | 'AllowanceShort'
+  | 'RotationConflict'
+  | 'RecipientNotWallet';
+
+export type ExecutionEvent =
+  | BatchExecutionEvent
+  | {
+      /** Failed at its checkpoint; the nonce is used. */
+      event_type: 'SoftFail';
+      reason: SoftFailReason;
+    }
+  | {
+      /**
+       * A settled authority operation whose target state already
+       * held: a success that changed only the signer's nonce.
+       */
+      event_type: 'NoOp';
+      target: AddressSchema | null;
+    };
+
+/** A condition of a successful transaction to show to the user. */
+export type ReceiptWarning = {
+  /**
+   * A revoke of an account that held no role or minter entry: the
+   * role can still be held by the account the signer meant.
+   */
+  type: 'no_op_revoke';
+  target: AddressSchema;
+};
+
+/** `GET /v1/transactions/status/by_hash` values. */
+export type TransactionStatusValue =
+  | 'pending'
+  | 'finalized'
+  | 'certified_pending_checkpoint'
+  | 'checkpointed';
+
+export interface TransactionStatusResponse {
+  hash: B256Schema;
+  status: TransactionStatusValue;
+  /** Present once the transaction is in a committed checkpoint. */
+  checkpoint_number?: number;
+}
+
 // Transaction receipt response
 export interface TransactionReceipt {
   success: boolean;
@@ -77,7 +133,8 @@ export interface TransactionReceipt {
   token_address?: AddressSchema | null;
   success_info?: SuccessInfo;
   batch_info?: BatchReceiptInfo;
-  execution_events?: BatchExecutionEvent[];
+  execution_events?: ExecutionEvent[];
+  warnings?: ReceiptWarning[];
 }
 
 // Finalized transaction receipt response
@@ -257,6 +314,21 @@ export interface CreateMultiSigData {
   multisig_address: AddressSchema;
 }
 
+export interface TokenAuthorityOperationData {
+  token: AddressSchema;
+  reference_checkpoint: number;
+  operation: AuthorityOperation;
+}
+
+export interface TokenLaneClawbackData {
+  token: AddressSchema;
+  holder: AddressSchema;
+  from_nonce: number;
+  reference_checkpoint: number;
+  recipient: AddressSchema;
+  value: string;
+}
+
 // Base transaction fields shared by all transaction types
 interface BaseTransaction {
   hash: B256Schema;
@@ -268,6 +340,12 @@ interface BaseTransaction {
   chain_id: number;
   from: AddressSchema;
   nonce: number;
+  /**
+   * The account whose nonce sequence the transaction takes, present
+   * only when it is not `from`: for a lane clawback, the holder, and
+   * `nonce` is the holder's nonce.
+   */
+  lane?: AddressSchema;
   signature: {
     r: string;
     s: string;
@@ -330,6 +408,14 @@ export type Transaction =
   | (BaseTransaction & {
       transaction_type: 'TokenClawback';
       data: TokenClawbackData;
+    })
+  | (BaseTransaction & {
+      transaction_type: 'TokenAuthorityOperation';
+      data: TokenAuthorityOperationData;
+    })
+  | (BaseTransaction & {
+      transaction_type: 'TokenLaneClawback';
+      data: TokenLaneClawbackData;
     })
   | (BaseTransaction & {
       transaction_type: 'TokenCloseAccount';

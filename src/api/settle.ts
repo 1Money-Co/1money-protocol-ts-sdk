@@ -424,6 +424,19 @@ function refusalError(
     : undefined;
 }
 
+// After nonce_too_low this engine reads only receipts, so it would
+// end a counter-signed transaction whose receipt is not readable
+// yet as nonce_used. These envelopes conclude only from a receipt
+// or a counter-signed status.
+const NOT_SETTLED_HERE: Partial<
+  Record<AuthorizedTxV2['operation'], string>
+> = {
+  settledAuthority:
+    'settle and submitAndSettle do not take a settled authority envelope: its receipt appears only when its checkpoint commits. Send it with tokens.authorityOperation and read authorityOperationState.',
+  laneClawback:
+    'settle and submitAndSettle do not take a lane clawback: they can miss its certificate. Send it with tokens.laneClawback and read laneClawbackFate.'
+};
+
 // The settle engine. `start` is 'clean' for
 // submitAndSettle, which sends first, and 'sent' for
 // settle, which reads first. It only ever resends the
@@ -436,6 +449,10 @@ export async function runSettle(
   deps: SettleDeps
 ): Promise<SettledTransaction> {
   // Checked before any request.
+  const refusal = NOT_SETTLED_HERE[authorized.operation];
+  if (refusal !== undefined) {
+    throw new Error(`[1Money SDK]: ${refusal}`);
+  }
   const options = resolveOptions(settleOptions);
   const signed = privateCopy(authorized);
   const hash = signed.transactionHash;

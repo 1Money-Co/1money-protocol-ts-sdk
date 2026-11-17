@@ -26,6 +26,11 @@ const apiClient = api();
   `TransactionBuilder.tokenWhitelist` — these are distinct v2 operations, not
   a shared "manage list" builder) and POSTs to the matching `/v2/tokens/*`
   route.
+- `authorityOperation`, `laneClawback` — the token authority model's v2-only
+  envelopes (`TransactionBuilder.settledAuthority`, `TransactionBuilder.laneClawback`),
+  POSTed to `/v2/tokens/authority_operation` and `/v2/tokens/lane_clawback`.
+  Send them only when the node reports `envelope_mode: 'settled'`; the helpers
+  in [`../authority/`](../authority/) read the mode, sign, and read the result.
 - `legacyV1.*` — the pre-3.0 signed-payload path for the same eleven
   operations (`legacyV1.manageBlacklist` and `legacyV1.manageWhitelist` both
   take the single legacy `TokenManageListPayload` shape), explicit opt-in

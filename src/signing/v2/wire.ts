@@ -1,4 +1,5 @@
 import type { Memo } from '@/utils';
+import type { SettledAuthorityUnsigned } from '../builders/settledAuthority';
 import type { TokenAuthorityUnsigned } from '../builders/tokenAuthority';
 import type { TokenMetadataUnsigned } from '../builders/tokenMetadata';
 import type { RequiredMemo } from './encoding';
@@ -46,5 +47,24 @@ export function tokenMetadataWireFields(
       unsigned.additional_metadata.map(pair => ({
         ...pair
       }))
+  };
+}
+
+export function settledAuthorityWireFields(
+  unsigned: SettledAuthorityUnsigned
+): Record<string, unknown> {
+  const { operation } = unsigned;
+  return {
+    ...unsigned,
+    operation:
+      operation.type === 'update_metadata'
+        ? {
+            ...operation,
+            additional_metadata:
+              operation.additional_metadata.map(pair => ({
+                ...pair
+              }))
+          }
+        : { ...operation }
   };
 }

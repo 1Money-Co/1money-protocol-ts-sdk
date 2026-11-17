@@ -135,6 +135,27 @@ export const tokensApi = {
     ),
 
   /**
+   * Submit a settled authority envelope (native operation 17).
+   * Its receipt appears when its checkpoint commits; until then
+   * it is settling (see authorityOperationState).
+   * @param authorized Output of TransactionBuilderV2.settledAuthority(..).authorize(sig)
+   */
+  authorityOperation: (authorized: AuthorizedTxV2) =>
+    submitAuthorized<Hash>(
+      authorized,
+      'settledAuthority'
+    ),
+
+  /**
+   * Submit a lane clawback (native operation 18). It takes the
+   * holder's nonce, not the signer's. Store the signed clawback
+   * before you send it.
+   * @param authorized Output of TransactionBuilderV2.laneClawback(..).authorize(sig)
+   */
+  laneClawback: (authorized: AuthorizedTxV2) =>
+    submitAuthorized<Hash>(authorized, 'laneClawback'),
+
+  /**
    * Legacy v1 writes. Explicit opt-in for the migration window;
    * rejected with 410 once the node reaches V2Only.
    */

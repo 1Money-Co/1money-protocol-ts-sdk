@@ -27,7 +27,11 @@ export const NativeOperationType = {
   TokenBridgeAndMint: 11,
   TokenBurnAndBridge: 12,
   CreateMultiSig: 13,
-  BatchPayment: 14
+  BatchPayment: 14,
+  // 15 and 16 belong to Reserved Payment, which this SDK does not
+  // build.
+  SettledAuthority: 17,
+  LaneClawback: 18
 } as const;
 
 export type NativeOperationType =

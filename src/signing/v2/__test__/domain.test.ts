@@ -15,11 +15,12 @@ describe('native v2 domain constants', function () {
     );
   });
 
-  it('has all fourteen frozen operation ids', function () {
+  it('has the frozen ids of every operation it builds', function () {
     expect(
       Object.values(NativeOperationType)
     ).to.deep.equal([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      17, 18
     ]);
     expect(NativeOperationType.Payment).to.equal(1);
     expect(

@@ -771,6 +771,57 @@ try {
 }
 ```
 
+#### Token Authority Model (settled envelope and lane clawback)
+
+A node of the token authority release decides authority operations (mint,
+grant, revoke, pause, list, metadata, clawback of an ordinary account) through
+two new envelopes. Read the node's `envelope_mode` before each one:
+
+```typescript
+import {
+  readEnvelopeMode,
+  authorityEnvelope,
+  buildSettledAuthority,
+  signSettledAuthority,
+  authorityOperationState,
+  createPrivateKeySigner
+} from '@1money/protocol-ts-sdk';
+
+const mode = await readEnvelopeMode();
+// 'legacy' (no envelope_mode reported): use the builders above.
+// Throws UpgradeGapError in the upgrade gap: send nothing, try later.
+if (authorityEnvelope(mode) === 'settled') {
+  const payload = await buildSettledAuthority({
+    chain_id,
+    nonce, // the signer's nonce
+    token,
+    // reference_checkpoint defaults to the latest committed checkpoint
+    operation: { type: 'mint', recipient, value: '1000000' }
+  });
+  const authorized = await signSettledAuthority(
+    payload,
+    createPrivateKeySigner(privateKey)
+  );
+  await apiClient.tokens.authorityOperation(authorized);
+  // 'pending' | 'settling' | 'decided' (with the receipt outcome) | 'unknown'
+  const state = await authorityOperationState(
+    signer,
+    nonce,
+    authorized.transactionHash
+  );
+}
+```
+
+`authorityOperationByMode` does the mode switch for a legacy payload, and signs
+again as the new envelope at the same nonce after a `legacy_envelope_retired`
+refusal. Its `onSigned` option receives each signed envelope before the send,
+so you can store it first. `issueLaneClawback` claws back on the holder's nonce
+sequence. `/api/status` can be hidden behind a gateway. The mode then reads as
+legacy, so name the envelope with `sendAuthorityOperation('settled', …)`. The
+full rules (refusals, the lane clawback, reading results only from positive
+evidence) are in
+[the transactions reference](skills/1money-protocol-sdk/references/transactions.md#token-authority-model-settled-envelope-and-lane-clawback).
+
 ### Transactions API
 
 #### Get Transaction Details
