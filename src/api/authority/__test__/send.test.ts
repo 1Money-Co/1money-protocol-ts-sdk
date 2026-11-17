@@ -1,7 +1,11 @@
 import { expect } from 'chai';
 import 'mocha';
 
-import { TransactionSubmissionError } from '../../errors';
+import {
+  TransactionOutcomeUnknownError,
+  TransactionSubmissionError
+} from '../../errors';
+import tokensApi from '../../tokens';
 import { PauseAction, ManageListAction } from '../../tokens/types';
 import { UpgradeGapError } from '../envelopeMode';
 import { authorityRefusalOf } from '../refusals';
@@ -10,11 +14,17 @@ import {
   buildLaneClawback,
   buildSettledAuthority,
   issueLaneClawback,
-  sendAuthorityOperation
+  sendAuthorityOperation,
+  signLaneClawback
 } from '../send';
 import { createPrivateKeySigner } from '@/signing/signer';
 import { VERIFY_TOKEN_ADDRESS } from '@/signing/builders/laneClawback';
-import { MockNode, ok, refusal } from './helpers/mockNode';
+import {
+  MockNode,
+  ok,
+  PROBLEM,
+  refusal
+} from './helpers/mockNode';
 
 import type { LegacyAuthorityOperation } from '../legacyMap';
 import type { SignedContext } from '../send';
@@ -268,6 +278,32 @@ describe('sending authority operations by envelope', function () {
     expect(node.posts).to.have.length(0);
   });
 
+  it('signs and sends nothing for a pause action it does not know', async function () {
+    node = new MockNode({
+      [STATUS]: mode('settled'),
+      [CHECKPOINT]: ok({ number: 40 })
+    }).install();
+    const signed: AuthorizedTxV2[] = [];
+    const lowercase = {
+      kind: 'pause',
+      payload: { ...HEADER, action: 'pause' }
+    } as unknown as LegacyAuthorityOperation;
+    expect(
+      String(
+        await rejection(
+          sendAuthorityOperation('settled', lowercase, SIGNER, {
+            ...FAST,
+            onSigned: authorized => {
+              signed.push(authorized);
+            }
+          })
+        )
+      )
+    ).to.include('Invalid action');
+    expect(signed).to.have.length(0);
+    expect(node.posts).to.have.length(0);
+  });
+
   it('reads the token privacy for a list operation', async function () {
     node = new MockNode({
       [CHECKPOINT]: ok({ number: 60 }),
@@ -401,6 +437,32 @@ describe('lane clawback build and issue', function () {
     ]);
   });
 
+  it('names nothing in replaces when the retry signs the same clawback', async function () {
+    node = new MockNode(
+      {
+        [NONCE]: ok({ nonce: 4 }),
+        [CHECKPOINT]: ok({ number: 126 })
+      },
+      [refusal('reference_checkpoint_not_committed')]
+    ).install();
+    const handed: [AuthorizedTxV2, SignedContext][] = [];
+    const sent = await issueLaneClawback(intent, SIGNER, {
+      ...FAST,
+      onSigned: (authorized, context) => {
+        handed.push([authorized, context]);
+      }
+    });
+    expect(node.posts).to.have.length(2);
+    expect(handed.map(([a]) => a.transactionHash)).to.deep.equal([
+      sent.transactionHash,
+      sent.transactionHash
+    ]);
+    expect(handed.map(([, context]) => context)).to.deep.equal([
+      {},
+      {}
+    ]);
+  });
+
   it('returns a second not-ready refusal, and a too-old one at once', async function () {
     node = new MockNode(
       {
@@ -421,6 +483,91 @@ describe('lane clawback build and issue', function () {
     expect(node.posts).to.have.length(2);
     await rejection(issueLaneClawback(intent, SIGNER, FAST));
     expect(node.posts).to.have.length(3);
+  });
+
+  it('sends nothing when onSigned rethrows a reference refusal of another request', async function () {
+    for (const send of [
+      (onSigned: () => void) =>
+        issueLaneClawback(intent, SIGNER, { ...FAST, onSigned }),
+      (onSigned: () => void) =>
+        sendAuthorityOperation('settled', MINT, SIGNER, {
+          ...FAST,
+          onSigned
+        })
+    ]) {
+      node = new MockNode({
+        [NONCE]: ok({ nonce: 4 }),
+        [CHECKPOINT]: ok({ number: 126 })
+      }).install();
+      const foreign = new TransactionSubmissionError(
+        422,
+        refusal('reference_checkpoint_not_committed').body,
+        'another request',
+        {
+          problemType: `${PROBLEM}reference_checkpoint_not_committed`
+        }
+      );
+      let calls = 0;
+      const error = await rejection(
+        send(() => {
+          calls += 1;
+          if (calls === 1) throw foreign;
+        })
+      );
+      expect(error).to.equal(foreign);
+      expect(calls).to.equal(1);
+      expect(node.posts).to.have.length(0);
+      node.uninstall();
+    }
+  });
+
+  it('sends no stored clawback whose hash belongs to another clawback', async function () {
+    const payload = {
+      ...intent,
+      from_nonce: 4,
+      reference_checkpoint: 126
+    };
+    const first = await signLaneClawback(payload, SIGNER);
+    const second = await signLaneClawback(
+      { ...payload, value: '10' },
+      SIGNER
+    );
+    const swapped = JSON.parse(
+      JSON.stringify({
+        ...second,
+        transactionHash: first.transactionHash
+      })
+    ) as AuthorizedTxV2;
+    node = new MockNode().install();
+    expect(
+      String(await rejection(tokensApi.laneClawback(swapped)))
+    ).to.include('its hash does not match its request');
+    expect(node.posts).to.have.length(0);
+    const stored = JSON.parse(
+      JSON.stringify(first)
+    ) as AuthorizedTxV2;
+    await tokensApi.laneClawback(stored);
+    expect(node.posts).to.have.length(1);
+  });
+
+  it('hands back the sent clawback when its answer is lost', async function () {
+    node = new MockNode(
+      {
+        [NONCE]: ok({ nonce: 4 }),
+        [CHECKPOINT]: ok({ number: 126 })
+      },
+      [{ status: 408, body: {} }]
+    ).install();
+    const error = await rejection(
+      issueLaneClawback(intent, SIGNER, FAST)
+    );
+    expect(error).to.be.instanceOf(TransactionOutcomeUnknownError);
+    const sent = (error as TransactionOutcomeUnknownError)
+      .authorized as AuthorizedTxV2;
+    expect(sent.request).to.deep.equal(node.posts[0].body);
+    expect(sent.transactionHash).to.equal(
+      (error as TransactionOutcomeUnknownError).transactionHash
+    );
   });
 
   it('sends nothing when storing fails', async function () {

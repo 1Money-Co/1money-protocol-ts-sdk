@@ -15,7 +15,14 @@ import { privateKeyToAddress } from 'viem/accounts';
 
 import { createPrivateKeySigner } from '@/signing/signer';
 import { VERIFY_TOKEN_ADDRESS } from '@/signing/builders/laneClawback';
-import { MockNode, notFound, ok, refusal } from './helpers/mockNode';
+import { TransactionSubmissionError } from '../../errors';
+import {
+  MockNode,
+  notFound,
+  ok,
+  PROBLEM,
+  refusal
+} from './helpers/mockNode';
 
 import type { GetRoute } from './helpers/mockNode';
 
@@ -221,6 +228,31 @@ describe('the by-mode clawback router', function () {
     expect(stored).to.have.length(2);
     expect(contexts).to.deep.equal([{}, { replaces: stored[0] }]);
     expect(stored[1]).to.equal(sent.authorized);
+  });
+
+  it('sends nothing when onSigned rethrows a reference refusal of another request', async function () {
+    install({ [STATUS]: mode('settled') });
+    const foreign = new TransactionSubmissionError(
+      422,
+      refusal('reference_checkpoint_not_committed').body,
+      'another request',
+      {
+        problemType: `${PROBLEM}reference_checkpoint_not_committed`
+      }
+    );
+    let calls = 0;
+    const error = await rejection(
+      clawbackByMode({
+        ...params(),
+        onSigned: () => {
+          calls += 1;
+          throw foreign;
+        }
+      })
+    );
+    expect(error).to.equal(foreign);
+    expect(calls).to.equal(1);
+    expect(node.posts).to.have.length(0);
   });
 
   it('stores the legacy clawback before it is sent', async function () {

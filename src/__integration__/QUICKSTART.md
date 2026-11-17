@@ -19,6 +19,12 @@ The default local operator and master keys are already in the example file.
 The suite derives their addresses, generates temporary users, and issues the
 token fixtures it needs.
 
+The suite needs a node before token authority activation: `GET /api/status`
+reports no `envelope_mode`, or `legacy`. Its fixtures grant roles, mint, pause
+and manage lists with legacy authority writes, which an upgraded node refuses
+(`legacy_envelope_retired`). The suite has no test of the settled envelope or
+the lane clawback yet; their unit tests use a mock node.
+
 ### Batch Payment
 
 Enable Batch Payment in the local l1client governance configuration before

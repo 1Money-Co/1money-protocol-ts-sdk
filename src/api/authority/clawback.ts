@@ -8,7 +8,7 @@ import { readAccountNonce } from './reads';
 import { isAuthorityRefusal } from './refusals';
 import { buildLaneClawback, signLaneClawback } from './send';
 import {
-  retryOnceOnReferenceNotReady,
+  sendWithReferenceRetry,
   settledAfterRetirement,
   signRecovering,
   signedRecorder,
@@ -130,10 +130,9 @@ async function signerAddressOf(
 // nonce would no longer stop a second debit. The check cannot see a
 // lane clawback already issued for the intent, or a legacy one still
 // in flight: that is why the router runs once per intent.
-async function laneAttempt(
+async function signLaneClawbackOfIntent(
   params: SendClawbackParams,
-  signerAddress: string,
-  record: Recorder
+  signerAddress: string
 ): Promise<AuthorizedTxV2> {
   const { clawback } = params;
   const [nextNonce, payload] = await Promise.all([
@@ -168,8 +167,7 @@ async function laneAttempt(
       signed.signerAddress
     );
   }
-  await record(signed.authorized);
-  return submit(signed.authorized);
+  return signed.authorized;
 }
 
 async function laneClawbackOfIntent(
@@ -177,8 +175,9 @@ async function laneClawbackOfIntent(
   signerAddress: string,
   record: Recorder
 ): Promise<ClawbackSubmission> {
-  const authorized = await retryOnceOnReferenceNotReady(
-    () => laneAttempt(params, signerAddress, record),
+  const authorized = await sendWithReferenceRetry(
+    () => signLaneClawbackOfIntent(params, signerAddress),
+    record,
     params.referenceRetryDelayMs
   );
   return { kind: 'lane', authorized };

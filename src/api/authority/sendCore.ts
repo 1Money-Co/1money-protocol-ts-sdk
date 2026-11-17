@@ -24,6 +24,8 @@ export interface SignedContext {
    * The transaction this one supersedes. The node refused it at
    * admission, and it had no effect. Never send it again: at most
    * one of the two can execute, and only this one is tracked.
+   * Missing when a new signature has the same hash as the last one:
+   * the same transaction stays active.
    */
   replaces?: AuthorizedTxV2;
 }
@@ -40,13 +42,23 @@ export type OnSigned = (
 ) => Promise<void> | void;
 
 // Hands each new signature of one intent to onSigned, with the
-// signature it supersedes.
+// signature it supersedes. A retry with the same checkpoint and
+// nonce signs the same bytes (RFC 6979 signatures are
+// deterministic), and a journal that retires `replaces` would then
+// retire the one active record.
 export function signedRecorder(
   onSigned: OnSigned | undefined
 ): (authorized: AuthorizedTxV2) => Promise<void> {
   let last: AuthorizedTxV2 | undefined;
   return async authorized => {
-    await onSigned?.(authorized, last ? { replaces: last } : {});
+    const supersedes =
+      last !== undefined &&
+      last.transactionHash.toLowerCase() !==
+        authorized.transactionHash.toLowerCase();
+    await onSigned?.(
+      authorized,
+      supersedes ? { replaces: last } : {}
+    );
     last = authorized;
   };
 }
@@ -100,23 +112,33 @@ function wait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// One more attempt after a short wait when the node refused the
-// reference as not committed or as not holding the token. Either
-// refusal had no effect, so the second signature cannot make two
-// transactions: they share a nonce (or a holder slot), or the slot
-// of the first has passed. A second refusal is returned: a token
-// missing at the reference does not show it does not exist.
-export async function retryOnceOnReferenceNotReady<T>(
-  attempt: () => Promise<T>,
+// Signs, records and sends. One more signature after a short wait
+// when the node refused the reference of the send as not committed
+// or as not holding the token. Either refusal had no effect, so the
+// second signature cannot make two transactions: they share a nonce
+// (or a holder slot), or the slot of the first has passed. Only the
+// send's own refusal counts: an error of the signer or of `record`
+// stops the send, whatever it carries. A second refusal is
+// returned: a token missing at the reference does not show it does
+// not exist.
+export async function sendWithReferenceRetry(
+  signFresh: () => Promise<AuthorizedTxV2>,
+  record: (authorized: AuthorizedTxV2) => Promise<void>,
   delayMs = DEFAULT_REFERENCE_RETRY_DELAY_MS
-): Promise<T> {
+): Promise<AuthorizedTxV2> {
+  const signAndRecord = async () => {
+    const authorized = await signFresh();
+    await record(authorized);
+    return authorized;
+  };
+  const first = await signAndRecord();
   try {
-    return await attempt();
+    return await submit(first);
   } catch (error) {
     if (!isReferenceNotReady(error)) throw error;
-    await wait(delayMs);
-    return attempt();
   }
+  await wait(delayMs);
+  return submit(await signAndRecord());
 }
 
 // After a retired refusal: resolves once the node reports

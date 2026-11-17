@@ -280,6 +280,31 @@ describe('legacy to settled operation map', function () {
     });
   });
 
+  it('refuses an action it does not know instead of reading it as the other one', function () {
+    const invalid = ['pause', 'grant', 'add', '', undefined];
+    const operations = (action: unknown): LegacyAuthorityOperation[] => [
+      { kind: 'pause', payload: { ...HEADER, action } },
+      {
+        kind: 'authority',
+        payload: {
+          ...HEADER,
+          action,
+          authority_type: AuthorityType.MasterMint,
+          authority_address: ACCOUNT
+        }
+      },
+      { kind: 'blacklist', payload: { ...HEADER, action, address: ACCOUNT } },
+      { kind: 'whitelist', payload: { ...HEADER, action, address: ACCOUNT } }
+    ] as unknown as LegacyAuthorityOperation[];
+    for (const action of invalid) {
+      for (const legacy of operations(action)) {
+        expect(() => settledOperationOf(legacy, false)).to.throw(
+          'Invalid action'
+        );
+      }
+    }
+  });
+
   it('keeps the chain, nonce and token of the legacy payload', function () {
     expect(
       settledPayloadOf(
