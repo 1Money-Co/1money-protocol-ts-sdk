@@ -53,6 +53,41 @@ const DELEGATED_ROLES: Partial<
   [AuthorityType.Clawback]: 'clawback'
 };
 
+const PAUSE_OPERATIONS: Readonly<
+  Record<PauseAction, 'pause' | 'unpause'>
+> = {
+  [PauseAction.Pause]: 'pause',
+  [PauseAction.Unpause]: 'unpause'
+};
+
+const IS_GRANT: Readonly<Record<AuthorityAction, boolean>> = {
+  [AuthorityAction.Grant]: true,
+  [AuthorityAction.Revoke]: false
+};
+
+const IS_ADD: Readonly<Record<ManageListAction, boolean>> = {
+  [ManageListAction.Add]: true,
+  [ManageListAction.Remove]: false
+};
+
+// A plain JavaScript caller or a stored payload can hold any value
+// here, and a two-way comparison would read every unknown value as
+// the other action: lowercase 'grant' would revoke.
+function actionOf<A extends string, R>(
+  table: Readonly<Record<A, R>>,
+  action: unknown
+): R {
+  if (
+    typeof action !== 'string' ||
+    !Object.prototype.hasOwnProperty.call(table, action)
+  ) {
+    throw new Error(
+      `[1Money SDK]: Invalid action: ${String(action)}; expected ${Object.keys(table).join(' or ')}`
+    );
+  }
+  return table[action as A];
+}
+
 /** The list operation decides the list from the token's privacy. */
 export function isListOperation(
   legacy: LegacyAuthorityOperation
@@ -85,7 +120,7 @@ function settledAuthority(
   payload: OperationUnsignedMap['tokenAuthority']
 ): AuthorityOperation {
   const account = payload.authority_address;
-  const grant = payload.action === AuthorityAction.Grant;
+  const grant = actionOf(IS_GRANT, payload.action);
   switch (payload.authority_type) {
     case AuthorityType.MasterMint:
       return grant && account.toLowerCase() !== ZERO_ADDRESS
@@ -130,21 +165,18 @@ export function settledOperationOf(
     case 'blacklist':
       return settledList(
         tokenIsPrivate,
-        legacy.payload.action === ManageListAction.Add,
+        actionOf(IS_ADD, legacy.payload.action),
         legacy.payload.address
       );
     case 'whitelist':
       return settledList(
         tokenIsPrivate,
-        legacy.payload.action === ManageListAction.Remove,
+        !actionOf(IS_ADD, legacy.payload.action),
         legacy.payload.address
       );
     case 'pause':
       return {
-        type:
-          legacy.payload.action === PauseAction.Pause
-            ? 'pause'
-            : 'unpause'
+        type: actionOf(PAUSE_OPERATIONS, legacy.payload.action)
       };
     case 'metadata':
       return {

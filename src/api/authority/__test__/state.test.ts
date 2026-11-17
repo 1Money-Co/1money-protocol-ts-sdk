@@ -148,6 +148,25 @@ describe('authority operation state (positive evidence only)', function () {
     expect(caught).to.be.instanceOf(AuthorityReadError);
   });
 
+  it('is decided by a receipt when the status lookup fails', async function () {
+    at(6, {
+      [RECEIPT]: receipt({ success: true }),
+      [STATUS]: { status: 503, body: 'down' }
+    });
+    const state = await authorityOperationState(SIGNER, 5, HASH);
+    expect(state.state).to.equal('decided');
+  });
+
+  it('throws when the status lookup fails with no receipt', async function () {
+    at(6, {
+      [RECEIPT]: notFound(),
+      [STATUS]: { status: 503, body: 'down' }
+    });
+    expect(
+      await rejection(authorityOperationState(SIGNER, 5, HASH))
+    ).to.be.instanceOf(AuthorityReadError);
+  });
+
   it('never reads a receipt for another hash as found', async function () {
     at(5, {
       [RECEIPT]: ok({ transaction_hash: `0x${'cd'.repeat(32)}` })
@@ -297,6 +316,16 @@ describe('lane clawback fate (on the holder lane)', function () {
     node = new MockNode({
       [NONCE]: ok({ nonce: 4 }),
       [RECEIPT]: receipt({ success: true }, clawback.transactionHash)
+    }).install();
+    const fate = await laneClawbackFate(clawback);
+    expect(fate.fate).to.equal('executed');
+  });
+
+  it('is executed on its receipt when the status lookup fails', async function () {
+    node = new MockNode({
+      [NONCE]: ok({ nonce: 4 }),
+      [RECEIPT]: receipt({ success: true }, clawback.transactionHash),
+      [STATUS]: { status: 503, body: 'down' }
     }).install();
     const fate = await laneClawbackFate(clawback);
     expect(fate.fate).to.equal('executed');

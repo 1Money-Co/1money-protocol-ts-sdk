@@ -1,4 +1,5 @@
 import { post } from '@/client';
+import { laneClawbackRecordOf } from './authority/laneClawbackRecord';
 import {
   classifySubmitResponse,
   isNonceUsed
@@ -55,6 +56,9 @@ export async function sendAuthorized(
 // - locked: TransactionLockedError (submitted: true).
 // - unknown: TransactionOutcomeUnknownError (submitted:
 //   'unknown').
+// A lane clawback is checked against its hash before the POST: a
+// stored record can pair one clawback's hash with another's
+// request, and the node would admit the request.
 export async function submitAuthorized<
   T extends { hash: string }
 >(
@@ -65,6 +69,9 @@ export async function submitAuthorized<
     throw new Error(
       `[1Money SDK]: Expected a "${expectedOperation}" authorization but received "${authorized.operation}". Refusing to submit -- prepare and authorize the transaction with the matching TransactionBuilder method.`
     );
+  }
+  if (authorized.operation === 'laneClawback') {
+    laneClawbackRecordOf(authorized);
   }
 
   const outcome = await sendAuthorized(authorized);
@@ -93,7 +100,8 @@ export async function submitAuthorized<
           status: outcome.status,
           data: outcome.data,
           problemType: outcome.problemType,
-          nonceUsed: isNonceUsed(outcome)
+          nonceUsed: isNonceUsed(outcome),
+          authorized
         }
       );
     case 'unknown':
@@ -105,7 +113,8 @@ export async function submitAuthorized<
           cause: outcome.cause,
           action: outcome.action,
           problemType: outcome.problemType,
-          nonceUsed: isNonceUsed(outcome)
+          nonceUsed: isNonceUsed(outcome),
+          authorized
         }
       );
   }

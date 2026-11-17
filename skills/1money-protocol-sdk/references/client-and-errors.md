@@ -167,6 +167,11 @@ the nonce. Never sign again at this nonce; look up this transaction's hash
 first. `false` means the call has no such evidence; it does not prove that the
 nonce is unused. The flag does not change the `submitted` contract.
 
+When one submit throws `TransactionLockedError` or
+`TransactionOutcomeUnknownError`, the error holds the signed transaction it sent
+in `authorized`. A helper that builds the transaction (`issueLaneClawback`)
+leaves no other copy of it: read `laneClawbackFate(error.authorized)`.
+
 Errors from `settle` and `submitAndSettle` set `nonceUsed: true` when
 `endReason` is `nonce_used`. They retain the flag if the run is aborted after
 such a response, even if its earlier state was locked. The end reason is then

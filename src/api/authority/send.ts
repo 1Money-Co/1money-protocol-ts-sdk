@@ -14,7 +14,7 @@ import {
 } from './reads';
 import { isAuthorityRefusal } from './refusals';
 import {
-  retryOnceOnReferenceNotReady,
+  sendWithReferenceRetry,
   settledAfterRetirement,
   sign,
   signedRecorder,
@@ -117,15 +117,16 @@ function sendSettled(
   options: AuthoritySendOptions,
   record: (authorized: AuthorizedTxV2) => Promise<void>
 ): Promise<AuthorizedTxV2> {
-  return retryOnceOnReferenceNotReady(async () => {
-    const authorized = await signSettledAuthority(
-      await settledPayload(legacy),
-      signer,
-      options.memo
-    );
-    await record(authorized);
-    return submit(authorized);
-  }, options.referenceRetryDelayMs);
+  return sendWithReferenceRetry(
+    async () =>
+      signSettledAuthority(
+        await settledPayload(legacy),
+        signer,
+        options.memo
+      ),
+    record,
+    options.referenceRetryDelayMs
+  );
 }
 
 /**
@@ -262,9 +263,13 @@ export interface IssueLaneClawbackOptions {
  * Build, sign and send one lane clawback. A node that refuses the
  * reference as not committed or as not holding the token gets one
  * more clawback, built again after a short wait; the refused one had
- * no effect, and onSigned names it in `replaces`. After any other
+ * no effect, and onSigned names it in `replaces` unless the new one
+ * has the same hash. After any other
  * error, read laneClawbackFate of the last clawback onSigned
- * received; never sign a new clawback because a send failed.
+ * received; never sign a new clawback because a send failed. A
+ * TransactionOutcomeUnknownError or TransactionLockedError holds
+ * the clawback it sent in `authorized`; onSigned is still the only
+ * record that survives a crash.
  */
 export function issueLaneClawback(
   intent: LaneClawbackIntent,
@@ -272,13 +277,14 @@ export function issueLaneClawback(
   options: IssueLaneClawbackOptions = {}
 ): Promise<AuthorizedTxV2> {
   const record = signedRecorder(options.onSigned);
-  return retryOnceOnReferenceNotReady(async () => {
-    const authorized = await signLaneClawback(
-      await buildLaneClawback(intent),
-      signer,
-      options.memo
-    );
-    await record(authorized);
-    return submit(authorized);
-  }, options.referenceRetryDelayMs);
+  return sendWithReferenceRetry(
+    async () =>
+      signLaneClawback(
+        await buildLaneClawback(intent),
+        signer,
+        options.memo
+      ),
+    record,
+    options.referenceRetryDelayMs
+  );
 }

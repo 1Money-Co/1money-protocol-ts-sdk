@@ -224,7 +224,9 @@ envelope, and returns `{ envelope, authorized, transactionHash }`:
 - `onSigned(authorized, { replaces })` (an option) receives each signed
   envelope before its send. Persist it before the hook returns. A new
   signature after a refusal names the one it supersedes in `replaces`. The node
-  refused that one at admission, so it had no effect: never send it again. After
+  refused that one at admission, so it had no effect: never send it again.
+  `replaces` is absent when the new signature has the same hash: the same
+  transaction stays active. After
   an error, read `authorityOperationState` of the last envelope the hook
   received. Never call again for the same intent.
 
@@ -255,7 +257,8 @@ VERIFY and for a holder with no lane yet (next nonce 0). `signLaneClawback`
 signs without a network call. On `reference_checkpoint_not_committed` or
 `token_not_at_reference_checkpoint`, `issueLaneClawback` builds and signs one
 more clawback after a short wait. `onSigned` receives it with the refused one in
-`replaces`, and the refused one had no effect. After any other error, read
+`replaces` (absent when the hash did not change), and the refused one had no
+effect. After any other error, read
 `laneClawbackFate` of the last clawback `onSigned` received. Never sign a new
 clawback because a send failed.
 
@@ -267,7 +270,9 @@ pairs one clawback's hash with another's request would otherwise read the wrong
 clawback's fate.
 
 `submitAndSettle` and `settle` refuse a settled authority envelope: its receipt
-appears only at its checkpoint. Poll `authorityOperationState` instead.
+appears only at its checkpoint. Poll `authorityOperationState` instead. They
+also refuse a lane clawback: after `nonce_too_low` they read only receipts and
+can miss its certificate. Read `laneClawbackFate` instead.
 
 ### Reading the result: positive evidence only
 
