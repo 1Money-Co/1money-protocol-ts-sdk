@@ -570,6 +570,24 @@ low-level `get`/`post` exports from `@1money/protocol-ts-sdk/client`, which do
 accept an options object with a `signal`; that signal is merged with the SDK's
 internal timeout abort signal.
 
+## Error logging
+
+The request core writes one `console.error` line for each rejected request
+(an HTTP error status, a network error), before any handler runs. The line
+does not change the result. Expiry of the request `timeout` writes no line: it
+calls the timeout handler.
+
+The low-level `get`/`post` exports take `quietStatuses`, a list of HTTP
+statuses that are an expected answer for that request, such as `[404]` while a
+receipt is not there yet. A rejection with a listed status writes no line.
+Every other rejection, such as a network error, still logs.
+
+The SDK sets `quietStatuses: [404]` on the reads where a 404 is a normal
+answer: the receipt and transaction reads of `submitAndSettle` and `settle`.
+Their waits log nothing while they read 404, and still log a 5xx, a 429 or a
+network error. Other high-level methods, such as
+`transactions.getReceiptByHash`, still log a 404.
+
 ## Utilities
 
 Imported from the package root (`@1money/protocol-ts-sdk`).

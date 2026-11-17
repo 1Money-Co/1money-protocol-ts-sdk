@@ -310,6 +310,8 @@ class ObservationLog {
   }
 }
 
+const NOT_FOUND = 404;
+
 // A read that is not found: rate-limited, a 404 (the node
 // that answered does not have it), or failed (anything
 // else, such as a 5xx or a network error). Only a 404
@@ -318,7 +320,7 @@ function readResult(
   value: unknown
 ): 'not_found' | 'throttled' | 'failed' {
   if (isThrottled(value)) return 'throttled';
-  return ownMember(value, 'status') === 404
+  return ownMember(value, 'status') === NOT_FOUND
     ? 'not_found'
     : 'failed';
 }
@@ -689,11 +691,13 @@ const TRANSACTIONS_PREFIX = `/${API_VERSION}/transactions`;
 
 // A read error resolves (global onError) or rejects; both
 // are returned as the value, so the engine sees the same
-// thing either way.
+// thing either way. A 404 is not logged: it is the
+// expected answer until the receipt appears.
 async function readValue(url: string): Promise<unknown> {
   try {
     return await get<'custom', unknown>(url, {
-      withCredentials: false
+      withCredentials: false,
+      quietStatuses: [NOT_FOUND]
     });
   } catch (caught) {
     return caught;
