@@ -57,6 +57,7 @@ describe('submitAndSettle and settle (real dependencies)', function () {
     return Promise.reject({
       message: `Request failed with status code ${status}`,
       name: 'AxiosError',
+      status,
       config,
       response: {
         status,
@@ -69,8 +70,13 @@ describe('submitAndSettle and settle (real dependencies)', function () {
   }
 
   // POST answers `post`; the receipt is found on the
-  // `foundOn`-th read.
-  function node(post: [number, unknown], foundOn: number) {
+  // `foundOn`-th read, and a read before it answers
+  // `missStatus`.
+  function node(
+    post: [number, unknown],
+    foundOn: number,
+    missStatus = 404
+  ) {
     axiosStatic.defaults.adapter = (config => {
       if (config.method === 'post') {
         return answer(config, post[0], post[1]);
@@ -79,7 +85,7 @@ describe('submitAndSettle and settle (real dependencies)', function () {
         receiptReads += 1;
         return receiptReads >= foundOn
           ? answer(config, 200, RECEIPT)
-          : answer(config, 404, {
+          : answer(config, missStatus, {
               action: 'check_status'
             });
       }
@@ -115,6 +121,42 @@ describe('submitAndSettle and settle (real dependencies)', function () {
       receipt: RECEIPT
     });
     expect(receiptReads).to.equal(3);
+  });
+
+  async function errorsLoggedBy(
+    run: () => Promise<unknown>
+  ): Promise<string[]> {
+    const originalError = console.error;
+    const logged: string[] = [];
+    console.error = (...args: unknown[]) => {
+      logged.push(String(args[0]));
+    };
+    try {
+      await run();
+    } finally {
+      console.error = originalError;
+    }
+    return logged;
+  }
+
+  it('logs no error for the expected receipt 404s of a wait', async function () {
+    node([200, { hash: HASH }], 3);
+    const logged = await errorsLoggedBy(() =>
+      submitAndSettle(AUTHORIZED, FAST)
+    );
+    expect(receiptReads).to.equal(3);
+    expect(logged).to.deep.equal([]);
+  });
+
+  it('still logs a receipt read that a wait gets as a 500', async function () {
+    node([200, { hash: HASH }], 2, 500);
+    const logged = await errorsLoggedBy(() =>
+      submitAndSettle(AUTHORIZED, FAST)
+    );
+    expect(receiptReads).to.equal(2);
+    expect(logged).to.have.length(1);
+    expect(logged[0]).to.contain('Error(500');
+    expect(logged[0]).to.contain('/receipt/by_hash');
   });
 
   it('settle reads the same way when the client resolves errors (global onError)', async function () {
