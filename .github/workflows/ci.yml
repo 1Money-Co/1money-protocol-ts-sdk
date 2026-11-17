@@ -1,0 +1,47 @@
+name: CI
+
+# Lint, unit tests (with the type check of the response models) and
+# build. Runs on a pull request into any branch, so a stacked pull
+# request is checked too. The integration tests need a live network
+# and stay out of this job.
+on:
+  pull_request:
+    # A base change (a retarget, or the automatic retarget after the
+    # base pull request merges) arrives as `edited` and changes the
+    # merge commit under test. Do not skip title or body edits with a
+    # job `if`: the skipped run would cancel the real one through the
+    # concurrency group and show as the latest, passing check.
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - run: npm install --global pnpm@10
+      - run: pnpm i --frozen-lockfile
+      - run: npm run lint
+      - run: npm test
+      # omni's own flag (not git's): it skips the build preflight
+      # (npm test, lint:es, lint:prettier) that the steps above run.
+      - run: npm run build -- --no-verify
