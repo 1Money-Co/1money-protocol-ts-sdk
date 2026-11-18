@@ -100,7 +100,11 @@ identical to the fields used for `signingHash`. Treat `prepared.unsigned` as
 diagnostic data rather than a way to edit a prepared transaction—prepare a
 new transaction when any field changes. Each `authorize` call also returns an
 independent request snapshot. Mutating a prior `authorized.request`, including
-its `memo`, cannot alter a later authorization or its hashes.
+its `memo`, cannot alter a later authorization or its hashes. A submit or
+settle call copies the authorization before its first check: a change to the
+caller's object after the call cannot change what is sent or what an error
+reports. A call refuses, before any request, an authorization whose `path` is
+not the route of its `operation`.
 
 `createPrivateKeySigner(privateKey: \`0x${string}\`)` produces a
 `SignerAdapter` (`{ signDigest(digest) => Promise<Signature> }`) that signs

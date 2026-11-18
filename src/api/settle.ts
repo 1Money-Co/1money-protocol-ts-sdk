@@ -12,7 +12,10 @@ import {
   ownMember,
   readProblem
 } from './problem';
-import { sendAuthorized } from './submit';
+import {
+  sendAuthorized,
+  signedCopy
+} from './submit';
 
 import type { SubmitOutcome } from './classify';
 import type { TransactionReceipt } from './transactions/types';
@@ -334,22 +337,6 @@ type SettleState =
   | 'unknown'
   | 'locked';
 
-// The caller may change or reuse its object while the
-// engine waits, and every send must carry the same signed
-// bytes. The JSON round trip is the body the client sends.
-function privateCopy(
-  authorized: AuthorizedTxV2
-): AuthorizedTxV2 {
-  return {
-    operation: authorized.operation,
-    path: authorized.path,
-    request: JSON.parse(
-      JSON.stringify(authorized.request)
-    ) as AuthorizedTxV2['request'],
-    transactionHash: authorized.transactionHash
-  };
-}
-
 // After a nonce-use response, the error is never locked:
 // H either executed or can never execute, so "a node
 // holds H, resend it" is no longer true.
@@ -453,8 +440,8 @@ export async function runSettle(
   if (refusal !== undefined) {
     throw new Error(`[1Money SDK]: ${refusal}`);
   }
+  const signed = signedCopy(authorized);
   const options = resolveOptions(settleOptions);
-  const signed = privateCopy(authorized);
   const hash = signed.transactionHash;
   const t0 = deps.now();
   const log = new ObservationLog(t0, deps.now);
