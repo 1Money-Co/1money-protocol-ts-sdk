@@ -553,10 +553,13 @@ receipt is not there yet. A rejection with a listed status writes no line.
 Every other rejection, such as a network error, still logs.
 
 The SDK sets `quietStatuses: [404]` on the reads where a 404 is a normal
-answer: the receipt and transaction reads of `submitAndSettle` and `settle`.
-Their waits log nothing while they read 404, and still log a 5xx, a 429 or a
-network error. Other high-level methods, such as
-`transactions.getReceiptByHash`, still log a 404.
+answer: the receipt and transaction reads of `submitAndSettle` and `settle`,
+and the receipt and status reads of `authorityOperationState` and
+`laneClawbackFate`. Their waits and polls log nothing while they read 404, and
+still log a 5xx, a 429 or a network error. Other reads still log a 404: the
+nonce, checkpoint, token metadata and envelope-mode reads of the authority
+helpers, where a 404 is an error, and high-level methods such as
+`transactions.getReceiptByHash`.
 
 ## Utilities
 

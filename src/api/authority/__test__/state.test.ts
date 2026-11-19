@@ -331,3 +331,95 @@ describe('lane clawback fate (on the holder lane)', function () {
     expect(fate.fate).to.equal('executed');
   });
 });
+
+// Issue #73: a poll reads 404 until the receipt or the status
+// exists. That answer is expected there, so it logs nothing; every
+// other rejection still logs.
+describe('authority reads that expect a 404 log nothing for it', function () {
+  let node: MockNode | undefined;
+
+  afterEach(function () {
+    node?.uninstall();
+    node = undefined;
+  });
+
+  async function errorsLoggedBy(
+    run: () => Promise<unknown>
+  ): Promise<string[]> {
+    const originalError = console.error;
+    const logged: string[] = [];
+    console.error = (...args: unknown[]) => {
+      logged.push(String(args[0]));
+    };
+    try {
+      await run().catch(() => undefined);
+    } finally {
+      console.error = originalError;
+    }
+    return logged;
+  }
+
+  it('logs nothing when a poll of authorityOperationState reads 404', async function () {
+    node = new MockNode({ [NONCE]: ok({ nonce: 6 }) }).install();
+    const logged = await errorsLoggedBy(async () => {
+      expect(
+        await authorityOperationState(SIGNER, 5, HASH)
+      ).to.deep.equal({
+        state: 'unknown',
+        observed: { nextNonce: 6 }
+      });
+    });
+    expect(node.gets.some(url => url.includes(RECEIPT))).to.equal(
+      true
+    );
+    expect(node.gets.some(url => url.includes(STATUS))).to.equal(
+      true
+    );
+    expect(logged).to.deep.equal([]);
+  });
+
+  it('logs nothing when laneClawbackFate reads 404', async function () {
+    // A fixed test key with no value anywhere.
+    const signer = createPrivateKeySigner(`0x${'11'.repeat(32)}`);
+    const clawback = await signLaneClawback(
+      {
+        chain_id: 1212101,
+        token: `0x${'01'.repeat(20)}`,
+        holder: HOLDER,
+        from_nonce: 3,
+        reference_checkpoint: 20,
+        recipient: `0x${'0c'.repeat(20)}`,
+        value: '9'
+      },
+      signer
+    );
+    node = new MockNode({ [NONCE]: ok({ nonce: 3 }) }).install();
+    const logged = await errorsLoggedBy(async () => {
+      expect(await laneClawbackFate(clawback)).to.deep.equal({
+        fate: 'pending'
+      });
+    });
+    expect(logged).to.deep.equal([]);
+  });
+
+  it('still logs a receipt read that gets a 500', async function () {
+    node = new MockNode({
+      [NONCE]: ok({ nonce: 6 }),
+      [RECEIPT]: { status: 500, body: 'boom' }
+    }).install();
+    const logged = await errorsLoggedBy(() =>
+      authorityOperationState(SIGNER, 5, HASH)
+    );
+    expect(logged).to.have.length(1);
+    expect(logged[0]).to.include('500');
+  });
+
+  it('still logs a 404 of a read that expects an answer: the nonce', async function () {
+    node = new MockNode({}).install();
+    const logged = await errorsLoggedBy(() =>
+      authorityOperationState(SIGNER, 5, HASH)
+    );
+    expect(logged).to.have.length(1);
+    expect(logged[0]).to.include('404');
+  });
+});
