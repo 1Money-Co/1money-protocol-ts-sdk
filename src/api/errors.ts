@@ -106,13 +106,9 @@ export function errorCodeOf(
 }
 
 // The node rejected this request before admission:
-// the body's `action` proves no effect (fix_request,
-// retry_later, use_other_node), or, on a node without
-// the `action` member, the status is a 4xx that cannot
-// follow admission, or the message is a released node's
-// refusal of the signed bytes (see src/api/classify.ts).
-// This
-// request did not lock the transaction or use its
+// the node's `action` proves no effect (fix_request,
+// retry_later, use_other_node; see src/api/classify.ts).
+// This request did not lock the transaction or use its
 // nonce. `submitted` is `false` for this request only:
 // it says nothing about an earlier send of the same
 // transaction, or about another transaction for the same
@@ -170,9 +166,8 @@ export class TransactionSubmissionError extends
 // The node holds this exact transaction: it is admitted
 // and locked (it holds the sender's nonce), but not
 // executed yet. The node answers `action: in_progress`
-// (a released node: "already inflight; please retry
-// later") to a resend that comes before its retry gate
-// allows one. The node does not broadcast a locked transaction
+// to a resend that comes before its retry gate allows
+// one. The node does not broadcast a locked transaction
 // again by itself: resend the same signed bytes until
 // the transaction executes. Never sign a new transaction
 // for the same intent while it is locked.
@@ -353,6 +348,19 @@ export function isLegacyWriteDisabled(
   );
 }
 
+const HASH_HEX = /^(0x)?[0-9a-f]{64}$/i;
+
+// Two 32-byte hashes in hex, in any case, with or without
+// `0x`.
+export function sameHash(a: string, b: string): boolean {
+  return (
+    HASH_HEX.test(a) &&
+    HASH_HEX.test(b) &&
+    a.replace(/^0x/i, '').toLowerCase() ===
+      b.replace(/^0x/i, '').toLowerCase()
+  );
+}
+
 // `serverHash` originates from a parsed HTTP
 // response body -- the static `string` type on the
 // caller's side does not guarantee the runtime shape.
@@ -369,8 +377,7 @@ export function assertTransactionHash(
   if (
     typeof localHash !== 'string' ||
     typeof serverHash !== 'string' ||
-    localHash.toLowerCase() !==
-      serverHash.toLowerCase()
+    !sameHash(localHash, serverHash)
   ) {
     throw new TransactionHashMismatchError(
       String(localHash),

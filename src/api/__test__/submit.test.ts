@@ -198,7 +198,7 @@ describe('submitAuthorized', function () {
       });
     });
 
-    it('throws TransactionSubmissionError (submitted: false), not TransactionHashMismatchError', async function () {
+    it('throws TransactionOutcomeUnknownError, not TransactionHashMismatchError, for a refusal without the node action', async function () {
       axiosStatic.defaults.adapter = (config =>
         Promise.reject({
           message:
@@ -226,25 +226,19 @@ describe('submitAuthorized', function () {
         caught = error;
       }
 
+      // Only the node's action proves a rejection.
       expect(caught).to.be.instanceOf(
-        TransactionSubmissionError
+        TransactionOutcomeUnknownError
       );
       const err =
-        caught as TransactionSubmissionError;
-      // Rejected before admission -- send again once /v2 is
-      // active.
-      expect(err.submitted).to.equal(false);
+        caught as TransactionOutcomeUnknownError;
+      expect(err.submitted).to.equal('unknown');
       expect(err.status).to.equal(403);
-      expect(err.errorCode).to.equal(
-        'DOMAIN_SEPARATED_SIGNATURE_NOT_ACTIVE'
-      );
       expect(caught).to.not.be.instanceOf(
         TransactionHashMismatchError
       );
-      // isNativeV2NotActive reads `.data.error_code` -- confirm
-      // TransactionSubmissionError still satisfies it exactly as a
-      // raw ParsedError would have, so migration-window callers that
-      // branch on it don't need to change anything.
+      // isNativeV2NotActive reads `.data.error_code`, which the
+      // error keeps.
       expect(isNativeV2NotActive(err)).to.equal(
         true
       );
@@ -357,7 +351,7 @@ describe('submitAuthorized', function () {
       ).to.equal('unknown');
     });
 
-    it('still throws TransactionSubmissionError for a genuine 4xx refusal (e.g. 400)', async function () {
+    it('throws TransactionOutcomeUnknownError for a 4xx without the node action (e.g. 400)', async function () {
       respondWithHttpError(400, 'Bad Request');
 
       let caught: unknown;
@@ -368,26 +362,19 @@ describe('submitAuthorized', function () {
       }
 
       expect(caught).to.be.instanceOf(
-        TransactionSubmissionError
+        TransactionOutcomeUnknownError
       );
       expect(
-        (caught as TransactionSubmissionError)
-          .submitted
-      ).to.equal(false);
-      expect(
-        (caught as TransactionSubmissionError).status
+        (caught as TransactionOutcomeUnknownError).status
       ).to.equal(400);
     });
   });
 
-  // Regression coverage for the round-2 finding: core.ts's login branch
-  // (src/client/core.ts) resolves with just the response body, discarding
-  // the numeric HTTP status -- so a status check can never see a refusal
-  // that arrived this way (e.g. a WAF/gateway 401 in front of the node).
-  // Before the fix this fell through to TransactionOutcomeUnknownError
-  // even though it is exactly as pre-admission as any other 4xx.
+  // core.ts's login branch (src/client/core.ts) resolves with just the
+  // response body and drops the HTTP status. The body has no node
+  // action, so the outcome is unknown, as for any other 401.
   describe('401 refused via the login branch (status discarded by core.ts)', function () {
-    it('throws TransactionSubmissionError (submitted: false), not TransactionOutcomeUnknownError', async function () {
+    it('throws TransactionOutcomeUnknownError: a 401 body has no node action', async function () {
       axiosStatic.defaults.adapter = (config =>
         Promise.reject({
           message:
@@ -415,18 +402,11 @@ describe('submitAuthorized', function () {
       }
 
       expect(caught).to.be.instanceOf(
-        TransactionSubmissionError
-      );
-      const err =
-        caught as TransactionSubmissionError;
-      expect(err.submitted).to.equal(false);
-      expect(err.status).to.equal(401);
-      expect(err.message).to.match(
-        /authentication required/
-      );
-      expect(caught).to.not.be.instanceOf(
         TransactionOutcomeUnknownError
       );
+      expect(
+        (caught as TransactionOutcomeUnknownError).submitted
+      ).to.equal('unknown');
     });
   });
 
@@ -493,7 +473,7 @@ describe('submitAuthorized', function () {
           type: `${TYPE_PREFIX}nonce_too_low`,
           action: 'fix_request'
         },
-        true,
+        false,
         TransactionSubmissionError
       ],
       [
@@ -503,7 +483,7 @@ describe('submitAuthorized', function () {
           message:
             'Transaction processing failed: nonce already used; state advanced'
         },
-        true,
+        false,
         TransactionOutcomeUnknownError
       ],
       [
@@ -513,7 +493,7 @@ describe('submitAuthorized', function () {
           message:
             'Transaction processing failed: Execution admission denied: nonce too low to execute: expected 8, actual 7'
         },
-        true,
+        false,
         TransactionOutcomeUnknownError
       ],
       [
@@ -611,39 +591,24 @@ describe('submitAuthorized', function () {
       );
     });
 
-    // D18: a released node (no action) states the class only
-    // in its fixed message text.
-    it('throws TransactionLockedError for the legacy in-flight text', async function () {
-      respondWithProblem(422, {
-        error_code: 'business_transaction_failed',
-        message:
-          'Transaction processing failed: already inflight; please retry later'
-      });
-      const caught = await caughtFrom();
+    it('reads no legacy text: an in-flight or a bytes text without the node action is unknown', async function () {
+      for (const reason of [
+        'already inflight; please retry later',
+        'Invalid chain id: expected 21210, actual 1212101'
+      ]) {
+        respondWithProblem(422, {
+          error_code: 'business_transaction_failed',
+          message: `Transaction processing failed: ${reason}`
+        });
+        const caught = await caughtFrom();
 
-      expect(caught).to.be.instanceOf(
-        TransactionLockedError
-      );
-      expect(
-        (caught as TransactionLockedError).status
-      ).to.equal(422);
-    });
-
-    it('throws TransactionSubmissionError with the node text for a legacy refusal of the bytes', async function () {
-      const message =
-        'Transaction processing failed: Invalid chain id: expected 21210, actual 1212101';
-      respondWithProblem(422, {
-        error_code: 'business_transaction_failed',
-        message
-      });
-      const caught = await caughtFrom();
-
-      expect(caught).to.be.instanceOf(
-        TransactionSubmissionError
-      );
-      expect(
-        (caught as TransactionSubmissionError).message
-      ).to.include(message);
+        expect(caught, reason).to.be.instanceOf(
+          TransactionOutcomeUnknownError
+        );
+        expect(
+          (caught as TransactionOutcomeUnknownError).status
+        ).to.equal(422);
+      }
     });
 
     it('throws TransactionOutcomeUnknownError for any other legacy 422', async function () {

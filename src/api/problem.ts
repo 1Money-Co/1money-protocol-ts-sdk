@@ -20,13 +20,13 @@ export const NO_EFFECT_ACTIONS: readonly ClientAction[] =
 
 export interface ProblemFields {
   // True when the body has an own `action` member of
-  // any value.
+  // any value and the node wrote it (isNodeType).
   hasAction: boolean;
-  // The `action` value as sent, of any type, when
-  // hasAction. Diagnostics only.
+  // The `action` member as sent, of any type and from any
+  // writer. Diagnostics only.
   actionRaw?: unknown;
   // Set only for an exact match of a CLIENT_ACTIONS
-  // value.
+  // value that the node wrote.
   action?: ClientAction;
   // The `type` URI, when it is a string.
   problemType?: string;
@@ -80,9 +80,27 @@ function ownString(
     : undefined;
 }
 
+export const PROBLEM_TYPE_PREFIX =
+  'https://developer.1moneynetwork.com/problem/';
+
+// RFC 9457 section 4.2.1: a problem that adds nothing to the
+// HTTP status. The node adds its action to it.
+const ABOUT_BLANK = 'about:blank';
+
+// Only the node's own statement selects more than the HTTP
+// status: a proxy, a firewall or a load balancer in front of
+// the node can send problem details too. The node writes a
+// type in its namespace, or `about:blank`.
+function isNodeType(type: unknown): boolean {
+  return (
+    typeof type === 'string' &&
+    (type.startsWith(PROBLEM_TYPE_PREFIX) ||
+      type === ABOUT_BLANK)
+  );
+}
+
 // Reads the members the classifier decides on. Never
-// reads `message` or `title`; only the legacy rules read
-// message text (src/api/legacyText.ts).
+// reads `message` or `title`.
 export function readProblem(
   body: unknown
 ): ProblemFields {
@@ -94,15 +112,18 @@ export function readProblem(
     return { hasAction: false, hasTxHash: false };
   }
   const record = body as Record<string, unknown>;
+  const nodeAction =
+    hasOwn(record, 'action') &&
+    isNodeType(ownMember(record, 'type'));
   const fields: ProblemFields = {
-    hasAction: hasOwn(record, 'action'),
+    hasAction: nodeAction,
     hasTxHash: hasOwn(record, 'tx_hash')
   };
-  if (fields.hasAction) {
+  if (hasOwn(record, 'action')) {
     fields.actionRaw = record.action;
-    if (isClientAction(record.action)) {
-      fields.action = record.action;
-    }
+  }
+  if (nodeAction && isClientAction(record.action)) {
+    fields.action = record.action;
   }
   const problemType = ownString(record, 'type');
   if (problemType !== undefined) {
@@ -114,9 +135,6 @@ export function readProblem(
   }
   return fields;
 }
-
-export const PROBLEM_TYPE_PREFIX =
-  'https://developer.1moneynetwork.com/problem/';
 
 // Problem types that refuse the signed bytes themselves:
 // each is built only from a check of the bytes and fixed
@@ -182,9 +200,10 @@ export interface ApiProblem {
   /** The request ID, `urn:uuid:<id>`. Quote it to the node operator. */
   readonly instance?: string;
   /**
-   * Missing when the body has no action, or one this SDK does
-   * not know. On a submission, treat a missing action as
-   * `check_status`.
+   * Missing when the body has no action, one this SDK does not
+   * know, or a `type` that is neither the node's nor
+   * `about:blank` (something in front of the node wrote it). On
+   * a submission, treat a missing action as `check_status`.
    */
   readonly action?: ClientAction;
   /**
@@ -234,7 +253,8 @@ export function parseProblem(
     ...(title !== undefined && { title }),
     ...(isHttpStatus(status) && { status }),
     ...(instance !== undefined && { instance }),
-    ...(isClientAction(action) && { action }),
+    ...(isNodeType(type) &&
+      isClientAction(action) && { action }),
     members,
     ...(txHash !== undefined && { txHash }),
     ...(isSeconds(retryAfterSecs) && { retryAfterSecs })

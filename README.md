@@ -139,11 +139,12 @@ transaction is always safe: it has the same hash, so at most one copy executes.
 `apiClient.transactions.settle(authorized)`
 resends the same signed bytes and resolves with the receipt; send a new write with
 `apiClient.transactions.submitAndSettle(authorized)` to do both in one call (see
-`src/api/transactions/README.md`). The SDK decides by the `action`
-member of the node's error body; on a node without it, a `422`
-`business_transaction_failed` and a `408` are unknown, except a few fixed texts
-of a released node: "already inflight" means locked, and a refusal of the
-signed bytes (for example a bad signature or a wrong chain id) means rejected. See
+`src/api/transactions/README.md`). The SDK decides only by the
+node's `action`: the `action` member of a body whose `type` is the node's
+(`https://developer.1moneynetwork.com/problem/...`) or `about:blank`. Every
+answer without one is unknown, whatever its status or message: a firewall
+`403` or `429`, a `408`, or a node without problem details. These rules match
+the Rust SDK (`onemoney-protocol`). See
 `skills/1money-protocol-sdk/references/client-and-errors.md` for the full rules.
 
 #### Problem details
@@ -162,7 +163,7 @@ rule passes the raw body to `.login()`, or resolves the promise with it. That bo
 | Member | Meaning |
 | --- | --- |
 | `type` | The problem type URI, `https://developer.1moneynetwork.com/problem/<identifier>`, or `about:blank`. Compare the whole string. |
-| `action` | `fix_request`, `retry_later`, `in_progress`, `check_status` or `use_other_node`. `undefined` when the body has no action or one this SDK does not know: on a submission, treat that as `check_status`. |
+| `action` | `fix_request`, `retry_later`, `in_progress`, `check_status` or `use_other_node`. `undefined` when the body has no action, one this SDK does not know, or a `type` that is neither the node's nor `about:blank` (something in front of the node sent it): on a submission, treat that as `check_status`. |
 | `instance` | The request ID, `urn:uuid:<id>`. Quote it when you report a problem to a node operator. |
 | `title`, `status` | The type's short summary and the HTTP status. |
 | `members` | The typed members of the type, as sent (for example `tx_hash`, `nonce`, `path`). A member can be missing from an older node. `txHash` and `retryAfterSecs` read the two common ones. |

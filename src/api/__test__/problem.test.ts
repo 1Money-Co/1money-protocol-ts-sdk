@@ -13,7 +13,7 @@ const OTHER = `0x${'cd'.repeat(32)}`;
 describe('readProblem', function () {
   it('accepts each of the five client actions', function () {
     for (const action of CLIENT_ACTIONS) {
-      const p = readProblem({ action });
+      const p = readProblem({ type: 'about:blank', action });
       expect(p.hasAction).to.equal(true);
       expect(p.action).to.equal(action);
       expect(p.actionRaw).to.equal(action);
@@ -38,11 +38,42 @@ describe('readProblem', function () {
       42,
       { nested: true }
     ]) {
-      const p = readProblem({ action: raw });
+      const p = readProblem({
+        type: 'https://developer.1moneynetwork.com/problem/future_kind',
+        action: raw
+      });
       expect(p.hasAction).to.equal(true);
       expect(p.action).to.equal(undefined);
       expect(p.actionRaw).to.deep.equal(raw);
     }
+  });
+
+  it('takes the action only from a type the node wrote, and keeps the raw member', function () {
+    for (const type of [
+      undefined,
+      null,
+      7,
+      '',
+      'urn:future',
+      'about:blank#x',
+      'https://httpproblems.com/http-status/429',
+      'https://developer.1moneynetwork.com/problems/nonce_too_low',
+      'HTTPS://DEVELOPER.1MONEYNETWORK.COM/problem/nonce_too_low'
+    ]) {
+      const p = readProblem({ type, action: 'fix_request' });
+      expect(p.hasAction, String(type)).to.equal(false);
+      expect(p.action, String(type)).to.equal(undefined);
+      expect(p.actionRaw, String(type)).to.equal('fix_request');
+    }
+  });
+
+  it('does not take the node type from an inherited member', function () {
+    const body = Object.create({ type: 'about:blank' }) as Record<
+      string,
+      unknown
+    >;
+    body.action = 'fix_request';
+    expect(readProblem(body).action).to.equal(undefined);
   });
 
   it('gives no action for a body without the member', function () {

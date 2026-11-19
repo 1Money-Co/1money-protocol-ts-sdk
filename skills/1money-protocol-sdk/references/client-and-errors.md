@@ -100,7 +100,8 @@ interface ParsedError<T extends string = string> {
 
 `ApiProblem` (a type export of the root and of `/client`, `src/api/problem.ts`) is the node's RFC 9457
 problem body: `type` (the type URI; compare the whole string), `action` (one of
-the five client actions, `undefined` when missing or unknown), `instance` (the
+the five client actions, `undefined` when missing, unknown, or under a `type`
+that is neither the node's nor `about:blank`), `instance` (the
 request ID, `urn:uuid:<id>`), `title`, `status`, and `members` (the typed
 members of the type, as sent; nested values are shared with `data`), with the
 accessors `txHash` (`tx_hash` as sent) and `retryAfterSecs`. `problem` is absent when the body has no string `type`
@@ -161,8 +162,8 @@ package root), and only the two strict-equality checks `submitted === true` /
 | `TransactionOutcomeUnknownError` | `'unknown'` | **No** — find the state first: look up the hash, resend the same `authorized` | The answer does not tell whether the node admitted the transaction. |
 
 All four submit errors expose the boolean `nonceUsed`. It is `true` when a
-response to the call reports the exact `nonce_too_low` problem type, or one of
-the pinned legacy nonce texts. An earlier transaction, possibly this one, used
+response to the call is unknown and reports the exact `nonce_too_low` problem
+type (the node sends it with `check_status`). An earlier transaction, possibly this one, used
 the nonce. Never sign again at this nonce; look up this transaction's hash
 first. `false` means the call has no such evidence; it does not prove that the
 nonce is unused. The flag does not change the `submitted` contract.
@@ -178,7 +179,7 @@ such a response, even if its earlier state was locked. The end reason is then
 `aborted`, and the error is `TransactionOutcomeUnknownError`.
 
 `TransactionSubmissionError` and `TransactionOutcomeUnknownError` carry
-`action` (the body's `action`; on the unknown error it can be a value this SDK
+`action` (the node's `action`; on the unknown error it can be a value this SDK
 does not know) and `problemType` (the problem `type` URI), when the node sent
 them. When one submit throws them, they also carry `problem`, the parsed
 `ApiProblem` of the body (see [ParsedError shape](#parsederror-shape)). The
@@ -190,62 +191,28 @@ does not send. `TransactionLockedError` and
 transport value as `cause`. These fields explain the observation only; they do
 not make an unknown outcome safe to sign again.
 
-**The node's `action` decides; the HTTP status decides only when the body has
-no `action`.** Nodes with the API error contract send an RFC 9457 problem body
-with an `action` member on every error. Older nodes and gateways do not. The
-first matching rule wins:
+**Only the node's `action` decides.** The node's action is the `action`
+member of a body whose `type` is in the node's namespace
+(`https://developer.1moneynetwork.com/problem/...`) or is `about:blank`. Nodes
+with the API error contract (l1client v0.8.12 on) send it on every error. Any
+other body is data only: a body without problem details, a problem with another
+`type`, or an `action` without a `type`. A firewall, a proxy or a load balancer
+in front of the node can send such a body. The first matching rule wins:
 
 | # | Answer | Outcome |
 | --- | --- | --- |
-| 1 | A string `hash` in the body | resolves (hash checked) |
-| 2 | `action` is `fix_request`, `retry_later`, or `use_other_node` (any status, also a 5xx such as `node_syncing`) | `TransactionSubmissionError` |
-| 3 | `action` is `in_progress`, and `tx_hash` is absent or equals the local hash | `TransactionLockedError` |
-| 4 | Any other `action` value (`check_status`, an unknown value, `in_progress` with another hash or a `tx_hash` that is not a string) | `TransactionOutcomeUnknownError` |
-| 5a | No `action`; `422 business_transaction_failed`; message `Transaction processing failed: already inflight; please retry later` | `TransactionLockedError` |
-| 5b | No `action`; `422 business_transaction_failed`; message is a pinned refusal of the signed bytes (for example `Transaction processing failed: Failed to recover REST envelope: invalid signature bytes`, `... Invalid chain id: expected ...`, `... Invalid transaction memo: ...`) | `TransactionSubmissionError` |
-| 5 | No `action`; `422` with `error_code: business_transaction_failed`, any other message | `TransactionOutcomeUnknownError` |
-| 6 | No `action`; `408` | `TransactionOutcomeUnknownError` |
-| 7 | No `action`; any other `4xx` with a body, or the body-only `401` shape | `TransactionSubmissionError` |
-| 8 | Anything else: `5xx`, timeout, network error, no body, 2xx without `hash` | `TransactionOutcomeUnknownError` |
+| 1 | A `2xx` with a string `hash` | resolves (hash checked) |
+| 2 | The node's `action` is `fix_request`, `retry_later`, or `use_other_node` (any status, also a 5xx such as `node_syncing`) | `TransactionSubmissionError` |
+| 3 | The node's `action` is `in_progress`, and `tx_hash` is absent or names the local hash (any case, `0x` optional) | `TransactionLockedError` |
+| 4 | Any other node `action` (`check_status`, an unknown value, `in_progress` with another hash or a `tx_hash` that is not a string) | `TransactionOutcomeUnknownError` |
+| 5 to 8 | No node `action`, whatever the status, `error_code` or message: a `422` `business_transaction_failed`, a `408`, any other `4xx` (a firewall `403` or `429`, the body-only `401` shape), a `5xx`, a timeout, a network error, no body, a `2xx` without `hash` | `TransactionOutcomeUnknownError` |
 
-Why the rules for a body without `action` are this narrow:
-
-- **`422 business_transaction_failed` is unknown (rule 5), except for a few
-  fixed texts (rules 5a, 5b).** On a released node (l1client v0.8.x, no
-  `action`), this one code covers "already inflight" (the node holds this
-  exact transaction), the nonce answers, and real refusals alike, so it can
-  follow admission. The node's fixed message tells some of them apart: the
-  in-flight text means locked, and a refusal of the signed bytes themselves
-  (signature recovery, zero or reserved sender, chain id, memo, an empty batch,
-  a batch total overflow) means rejected, because the same bytes fail on every
-  node. A text counts only when its check exists unchanged in every release
-  that accepts v2 submits (v0.8.3 on), so bytes that an older release admitted
-  never read as rejected. Every other text, including insufficient balance,
-  stays unknown on such a node; that errs on the safe side.
-- **`408` is unknown (rule 6).** l1client's REST layer wraps every handler —
-  including the pool-admission call — in a `tokio::time::timeout` (10s) that
-  answers `408` and discards whatever the handler was doing if the clock wins
-  the race. If admission completes a hair too late, the transaction can be on
-  the node despite the `408`.
-- **A `5xx` without `action` is unknown (rule 8).** l1client's `500` bucket
-  mixes rejections before admission with failures that can follow it, and a
-  `502`/`503`/`504` from a load balancer in front of the node can follow a
-  successful admission as easily as precede one. With `action`, a `5xx` that
-  proves no effect (`retry_later`) is a rejection (rule 2).
-- **Every other `4xx` without `action` is a rejection (rule 7).** The node
-  returns those synchronously, before it calls the pool. A firewall or load
-  balancer `4xx` (for example a WAF `429` or `403`) comes before the request
-  reaches the node.
-- **A `401` whose HTTP status never reaches `submitAuthorized` still counts as
-  a rejection.** The underlying HTTP client's login branch (`src/client/
-  core.ts`, triggered by the shared `isLogin` rule in `src/client/index.ts`:
-  `status === 401 || res.code == 401`) resolves with just the response body,
-  discarding the numeric status. `submitAuthorized` recognizes this shape — a
-  body with `code == 401` (the same loose equality `isLogin` itself uses) —
-  and throws `TransactionSubmissionError` with `status: 401`.
-- **Only rules 5a and 5b read message text,** and only for a body without
-  `action`: the pinned list is `src/api/legacyText.ts`. A node with problem
-  details is classified by `action` alone.
+Only an action proves that a request had no effect: a status cannot. A `422`
+`business_transaction_failed` covers answers that can follow admission, a
+`408` can come after admission won the race against the node's request
+timeout, a `5xx` can follow admission, and a `4xx` from a firewall or a proxy
+says nothing about the node. No rule reads message text. These rules match the
+Rust SDK `onemoney-protocol` (l1client `crates/om-sdk/src/submit/classify.rs`).
 
 ```typescript
 import {
@@ -290,15 +257,18 @@ They copy `authorized` when they start, so a later change to that object does
 not change what they send. No send starts after the deadline.
 
 - **First send of `submitAndSettle`:** classified like a single send. A
-  rejection (rules 2, 5b, 7: `fix_request`, `retry_later`, `use_other_node`, a
-  refusal of the bytes, or a `4xx` without `action` such as a firewall `429`)
-  throws `TransactionSubmissionError` at once, with the node's message. Every
+  rejection (rule 2) throws `TransactionSubmissionError` at once, with the
+  node's message, except with HTTP status `429`: then the first send goes out
+  again when the hold ends, and nothing is read before a send reaches a node.
+  If the deadline passes or the signal aborts first, the bytes reached no node,
+  and the helper throws `TransactionSubmissionError` with the last `429`. Every
   other answer, `nonce_too_low` and `check_status` included, goes on to settle
   from that answer, with no resend at once. The helper uses no history from
   before the call: a `nonce_too_low` can come from this transaction's own
   earlier send.
-- **Nodes without problem details** (released nodes): a state refusal is rule
-  5 (unknown), so the helper settles and ends after about 10 s with
+- **Answers without the node's action** (rules 5 to 8, for example a node
+  without problem details, or a firewall `403` or `429`) are unknown, so the
+  helper settles and ends after about 10 s with
   `TransactionOutcomeUnknownError` (`not_found_after_probes`). Use the helpers
   with nodes that send problem details.
 - **Your own history:** `observations` on `TransactionOutcomeUnknownError` hold
@@ -306,8 +276,7 @@ not change what they send. No send starts after the deadline.
   were never sent before can read the first answer with that knowledge: for
   example, `nonce_too_low` there means that another transaction used the
   nonce.
-- **A refusal of the signed bytes** (rule 2 with a bytes problem type, or rule
-  5b) throws `TransactionSubmissionError` on any send of either helper, while
+- **A refusal of the signed bytes** (rule 2 with a bytes problem type) throws `TransactionSubmissionError` on any send of either helper, while
   no node is known to have admitted the transaction. After a `2xx` or a lookup
   that found it, such a refusal means the nodes disagree, and it ends nothing.
   Any other refusal of a later send says nothing about an earlier send.
@@ -324,20 +293,22 @@ not change what they send. No send starts after the deadline.
   became locked: a rebroadcast helps only after peers forget the last one (60 s
   gossip duplicate cache + 10 s publish queue). A resend of the same bytes can
   never execute twice.
-- **Throttled sends:** a later send answered `429` (with or without a body)
-  or `retry_later` delivered nothing. It does not count as a probe or a resend,
-  and no send goes out for the node's `retry_after_secs`, or
-  `throttleBackoffMs` (60 000 ms) without it; the receipt polls go on. A run whose sends
-  keep being throttled ends at the deadline, not after the probes.
+- **Throttled sends:** after a send answered HTTP `429` or the node's
+  `retry_later`, no send goes out for the node's `retry_after_secs` (a whole
+  number of seconds in a problem body), or `throttleBackoffMs` (60 000 ms)
+  without it; the receipt polls go on. Only a rejection (the node's
+  `retry_later`) proves that the send delivered nothing: it does not count as a
+  probe or a resend, so a run whose sends keep being rejected this way ends at
+  the deadline. A `429` without the node's action may have reached a node, so
+  it counts.
 - **Polls** start at `pollIntervalMs` (1 000 ms) and double to
   `maxPollIntervalMs` (10 000 ms); right after a `404` read the next poll
-  comes after `pollIntervalMs`. A read answered `429` or `retry_later` waits
-  the node's `retry_after_secs`, or `throttleBackoffMs` (60 000 ms) without it,
+  comes after `pollIntervalMs`. A read answered HTTP `429` or the node's
+  `retry_later` waits the node's `retry_after_secs`, or `throttleBackoffMs` (60 000 ms) without it,
   and for the rest of the run `404`s no
   longer shorten the wait: a firewall in front of the node blocks an IP address
   above about 120 reads per minute.
-- **`nonce_too_low`** (the problem type, or a released node's fixed nonce text)
-  means the nonce is used, so no send can help: the helper stops sending and
+- **`nonce_too_low`** (the problem type) means the nonce is used, so no send can help: the helper stops sending and
   reads only the receipt. Three receipt `404`s in a row end the run with
   `endReason: 'nonce_used'`; `nonceUsedGraceMs` (70 000 ms) is the limit when
   the reads keep failing. It never says "rejected": a missing receipt can be a
@@ -403,6 +374,13 @@ not change what they send. No send starts after the deadline.
 > and the payment could execute twice. The SDK now reads the node's `action`
 > member, and treats `422 business_transaction_failed` without `action` as
 > unknown.
+
+> **Why the status and text rules went away:** the Rust SDK
+> `onemoney-protocol` is the canonical SDK behavior, and it reads only the
+> node's own statement (l1client issue #1730). A `4xx` from a firewall or a
+> proxy says nothing about the node, and every node with problem details sends
+> an `action`. So a `4xx` without the node's action, the body-only `401` and
+> the pinned texts of released nodes are now unknown, never rejected or locked.
 
 ### Token authority refusals
 
