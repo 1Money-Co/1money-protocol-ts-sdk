@@ -435,12 +435,12 @@ export async function runSettle(
   settleOptions: SettleOptions | undefined,
   deps: SettleDeps
 ): Promise<SettledTransaction> {
-  // Checked before any request.
-  const refusal = NOT_SETTLED_HERE[authorized.operation];
+  // Checked on the copy, before any request.
+  const signed = signedCopy(authorized);
+  const refusal = NOT_SETTLED_HERE[signed.operation];
   if (refusal !== undefined) {
     throw new Error(`[1Money SDK]: ${refusal}`);
   }
-  const signed = signedCopy(authorized);
   const options = resolveOptions(settleOptions);
   const hash = signed.transactionHash;
   const t0 = deps.now();

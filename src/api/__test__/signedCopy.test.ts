@@ -87,4 +87,23 @@ describe('the signed copy of a submission', function () {
     }
     expect(node.posts).to.have.length(0);
   });
+
+  it('checks the copy, not a label that changes between reads', async function () {
+    const clawback = await signLaneClawback(CLAWBACK, SIGNER);
+    let reads = 0;
+    // The first read says payment; every later read says lane
+    // clawback, the operation that settle refuses.
+    const shifting = {
+      path: clawback.path,
+      request: clawback.request,
+      transactionHash: clawback.transactionHash,
+      get operation() {
+        reads += 1;
+        return reads === 1 ? 'payment' : 'laneClawback';
+      }
+    } as AuthorizedTxV2;
+    node = new MockNode().install();
+    await rejection(submitAndSettle(shifting));
+    expect(node.posts).to.have.length(0);
+  });
 });
