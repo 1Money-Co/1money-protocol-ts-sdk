@@ -2,7 +2,8 @@ import { expect } from 'chai';
 import { createServer } from 'http';
 import 'mocha';
 
-import { axiosStatic, get } from '../index';
+import { axiosStatic, get, setInitConfig } from '../index';
+import { AuthorityReadError, readReceipt } from '@/api/authority/reads';
 import {
   TransactionOutcomeUnknownError,
   TransactionSubmissionError
@@ -50,6 +51,7 @@ describe('the SDK client follows no redirect (Node)', function () {
   let server: Server;
   let requests: string[];
   let redirectStatus: number;
+  let redirectBody: string;
   const originalBaseURL = axiosStatic.defaults.baseURL;
   const originalAdapter = axiosStatic.defaults.adapter;
 
@@ -71,8 +73,11 @@ describe('the SDK client follows no redirect (Node)', function () {
           );
           return;
         }
-        response.writeHead(redirectStatus, { Location: ELSEWHERE });
-        response.end();
+        response.writeHead(redirectStatus, {
+          Location: ELSEWHERE,
+          'Content-Type': 'application/json'
+        });
+        response.end(redirectBody);
       }
     );
     await new Promise<void>(resolve =>
@@ -91,6 +96,7 @@ describe('the SDK client follows no redirect (Node)', function () {
 
   beforeEach(function () {
     requests = [];
+    redirectBody = '';
   });
 
   for (const status of [303, 307, 308]) {
@@ -105,6 +111,18 @@ describe('the SDK client follows no redirect (Node)', function () {
       expect(requests).to.deep.equal([`POST ${PAYMENT}`]);
     });
   }
+
+  it('reads a 3xx submit whose body matches the login rule as unknown', async function () {
+    const authorized = await signedPayment();
+    redirectStatus = 302;
+    redirectBody = JSON.stringify({
+      code: 401,
+      hash: authorized.transactionHash
+    });
+    const error = await rejection(transactionsApi.payment(authorized));
+    expect(error).to.be.instanceOf(TransactionOutcomeUnknownError);
+    expect(requests).to.deep.equal([`POST ${PAYMENT}`]);
+  });
 
   it('makes a read answered 302 an error, with no second request', async function () {
     redirectStatus = 302;
@@ -194,6 +212,77 @@ describe('an answer after a redirect that a browser followed', function () {
       );
     }
   });
+
+  for (const globalHandler of [false, true]) {
+    const mode = globalHandler ? 'a global onError' : 'no global handler';
+
+    it(`reads a submit as unknown when the redirected answer matches the login rule (${mode})`, async function () {
+      const authorized = await signedPayment();
+      const refusal = {
+        code: 401,
+        type: `${PROBLEM}chain_id_mismatch`,
+        action: 'fix_request'
+      };
+      setInitConfig({
+        baseURL: 'https://node.example',
+        onError: globalHandler ? (e: unknown) => e : undefined
+      });
+      try {
+        for (const [status, body] of [
+          [401, refusal],
+          [422, refusal],
+          [200, { code: 401, hash: authorized.transactionHash }]
+        ] as const) {
+          browserFollowed(status, body);
+          const error = await rejection(
+            transactionsApi.payment(authorized)
+          );
+          expect(error, `${status}`).to.be.instanceOf(
+            TransactionOutcomeUnknownError
+          );
+        }
+      } finally {
+        setInitConfig({
+          baseURL: 'https://node.example',
+          onError: undefined
+        });
+      }
+    });
+
+    it(`fails a read when the redirected answer matches the login rule (${mode})`, async function () {
+      const hash = `0x${'ab'.repeat(32)}`;
+      const receipt = {
+        code: 401,
+        transaction_hash: hash,
+        success: true
+      };
+      setInitConfig({
+        baseURL: 'https://node.example',
+        onError: globalHandler ? (e: unknown) => e : undefined
+      });
+      try {
+        for (const status of [401, 200]) {
+          browserFollowed(status, receipt);
+          let answer: unknown;
+          try {
+            answer = await get('/v1/any', { withCredentials: false });
+          } catch (error) {
+            answer = error;
+          }
+          expect(answer, `${status}`).to.include({ redirected: true });
+          expect(
+            await rejection(readReceipt(hash)),
+            `${status}`
+          ).to.be.instanceOf(AuthorityReadError);
+        }
+      } finally {
+        setInitConfig({
+          baseURL: 'https://node.example',
+          onError: undefined
+        });
+      }
+    });
+  }
 
   it('makes a read an error that says so', async function () {
     browserFollowed(200, { transaction_hash: '0x00' });

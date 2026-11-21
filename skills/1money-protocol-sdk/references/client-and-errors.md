@@ -213,7 +213,9 @@ redirected answer is someone else's answer. This is stricter than the Rust SDK,
 which classifies a `3xx` like any other status. The SDK's own requests follow
 no redirect (`maxRedirects: 0` in Node, `redirect: 'manual'` for fetch). A
 browser's `XMLHttpRequest` follows anyway; the SDK then marks the
-`ParsedError` with `redirected: true`, and a read with that mark fails.
+`ParsedError` with `redirected: true`, and a read with that mark fails. A
+redirected answer or a `3xx` never goes to the login handler, even with HTTP
+`401` or `code: 401`, so the mark survives a global `onError`.
 
 Only an action proves that a request had no effect: a status cannot. A `422`
 `business_transaction_failed` covers answers that can follow admission, a

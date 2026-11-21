@@ -166,6 +166,9 @@ node's answer. The SDK's own requests follow no redirect. They set
   whatever the redirected answer says, and a read fails with a `ParsedError`
   that has `redirected: true`. A browser without `responseURL` gives no such
   signal.
+- A redirected answer or a `3xx` never goes to the login handler (`isLogin`,
+  `onLogin`), even when it is a `401` or has `code: 401`: it stays an error
+  with its redirect mark, also when a global `onError` resolves it.
 
 #### Problem details
 

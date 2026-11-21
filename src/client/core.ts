@@ -753,9 +753,15 @@ export class Request {
         const status = err.response?.status ?? 500;
         const headers = err.response?.headers ?? {};
 
+        // A redirected answer or a 3xx is not the node's: it never goes to
+        // the login branch, which resolves the raw body and would drop the
+        // redirect mark, so a body with `code: 401` could read as the
+        // node's refusal or acceptance.
+        const notTheNodes = (err as { redirected?: unknown }).redirected === true || (status >= 300 && status <= 399);
+
         try {
           let res = data;
-          const doLogin = rules.login?.(data, status, headers);
+          const doLogin = !notTheNodes && rules.login?.(data, status, headers);
           if (doLogin) {
             res = await Promise.resolve(callbacks.login(res, headers));
             ResPromise._resolve!(res);

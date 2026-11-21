@@ -45,7 +45,8 @@ post('/api/data', { key: 'value' }, {
 Every request follows no redirect: the client sets `maxRedirects: 0` and
 `fetchOptions: { redirect: 'manual' }` unless you pass them, so a `3xx` is an
 error answer. A browser's `XMLHttpRequest` still follows a redirect; the error
-then has `redirected: true` (see "Redirects" in the root README).
+then has `redirected: true` (see "Redirects" in the root README). A redirected
+answer or a `3xx` never goes to the login handler.
 
 A rejected request writes one `console.error` line before its handlers run.
 Pass `quietStatuses` to stop that line for the HTTP statuses that are an
