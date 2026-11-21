@@ -1,4 +1,5 @@
 import { API_VERSION } from '@/api/constants';
+import { sameHash } from '../errors';
 import { ownMember } from '../problem';
 import {
   answeredStatus,
@@ -56,13 +57,6 @@ function isNotFound(answer: unknown): boolean {
   return (
     ownMember(answer, 'status') === NOT_FOUND &&
     typeof ownMember(answer, 'name') === 'string'
-  );
-}
-
-function sameHash(value: unknown, hash: string): boolean {
-  return (
-    typeof value === 'string' &&
-    value.toLowerCase() === hash.toLowerCase()
   );
 }
 

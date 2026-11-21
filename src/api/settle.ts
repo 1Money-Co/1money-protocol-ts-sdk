@@ -6,6 +6,7 @@ import {
 } from './classify';
 import {
   assertTransactionHash,
+  sameHash,
   TransactionLockedError,
   TransactionOutcomeUnknownError,
   TransactionSubmissionError
@@ -125,13 +126,6 @@ export interface SettleDeps {
   lookup(hash: string): Promise<unknown>;
   now(): number;
   sleep(ms: number, signal?: AbortSignal): Promise<void>;
-}
-
-function sameHash(value: unknown, hash: string) {
-  return (
-    typeof value === 'string' &&
-    value.toLowerCase() === hash.toLowerCase()
-  );
 }
 
 // Found only when the returned hash is this transaction's

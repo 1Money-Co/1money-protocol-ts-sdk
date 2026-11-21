@@ -148,6 +148,19 @@ describe('authority operation state (positive evidence only)', function () {
     expect(caught).to.be.instanceOf(AuthorityReadError);
   });
 
+  it('reads a receipt or a status whose hash has no 0x', async function () {
+    const bare = HASH.slice(2).toUpperCase();
+    at(6, { [RECEIPT]: receipt({ success: true }, bare) });
+    expect((await authorityOperationState(SIGNER, 5, HASH)).state).to.equal(
+      'decided'
+    );
+    node.uninstall();
+    at(5, { [STATUS]: status('finalized', bare) });
+    expect(
+      await authorityOperationState(SIGNER, 5, HASH)
+    ).to.deep.equal({ state: 'settling', status: 'finalized' });
+  });
+
   it('is decided by a receipt when the status lookup fails', async function () {
     at(6, {
       [RECEIPT]: receipt({ success: true }),

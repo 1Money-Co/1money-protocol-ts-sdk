@@ -2121,6 +2121,44 @@ describe('runSettle (R2)', function () {
   });
 });
 
+// The node's hash, as a 32-byte value: any case, `0x` optional
+// (the Rust SDK compares B256 values).
+describe('runSettle hash matching', function () {
+  const BARE = HASH.slice(2).toUpperCase();
+
+  it('finds a receipt whose transaction_hash has no 0x', async function () {
+    const f = fakeDeps({
+      send: () => ACCEPTED,
+      receipt: () => ({ ...RECEIPT, transaction_hash: BARE })
+    });
+    const settled = await runSettle(
+      AUTHORIZED,
+      'clean',
+      {},
+      f.deps
+    );
+    expect(settled.transactionHash).to.equal(HASH);
+  });
+
+  it('finds a transaction whose lookup hash has no 0x', async function () {
+    const f = fakeDeps({
+      send: () => ACCEPTED,
+      lookup: () => ({ hash: BARE })
+    });
+    const error = await caught(
+      runSettle(
+        AUTHORIZED,
+        'clean',
+        { deadlineMs: 20_000 },
+        f.deps
+      )
+    );
+    // Found: locked, so no more lookups and no probes.
+    expect(error).to.be.instanceOf(TransactionLockedError);
+    expect(f.lookups).to.deep.equal([0]);
+  });
+});
+
 // Ported from the Rust SDK, the canonical behavior:
 // l1client crates/om-sdk/src/submit/tests/settle.rs at
 // dc5cffa0b. Backpressure holds the sends, but only an
