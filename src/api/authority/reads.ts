@@ -1,5 +1,5 @@
 import { API_VERSION } from '@/api/constants';
-import { sameHash } from '../errors';
+import { sameHash } from '../hash';
 import { ownMember } from '../problem';
 import {
   answeredStatus,

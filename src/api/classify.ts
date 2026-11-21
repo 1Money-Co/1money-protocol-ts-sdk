@@ -1,4 +1,4 @@
-import { sameHash } from './errors';
+import { sameHash } from './hash';
 import {
   bodyMessage,
   BYTES_REFUSAL_TYPES,
