@@ -365,7 +365,7 @@ describe('authority reads that expect a 404 log nothing for it', function () {
       logged.push(String(args[0]));
     };
     try {
-      await run().catch(() => undefined);
+      await run();
     } finally {
       console.error = originalError;
     }
@@ -420,18 +420,22 @@ describe('authority reads that expect a 404 log nothing for it', function () {
       [NONCE]: ok({ nonce: 6 }),
       [RECEIPT]: { status: 500, body: 'boom' }
     }).install();
-    const logged = await errorsLoggedBy(() =>
-      authorityOperationState(SIGNER, 5, HASH)
-    );
+    const logged = await errorsLoggedBy(async () => {
+      expect(
+        await rejection(authorityOperationState(SIGNER, 5, HASH))
+      ).to.be.instanceOf(AuthorityReadError);
+    });
     expect(logged).to.have.length(1);
     expect(logged[0]).to.include('500');
   });
 
   it('still logs a 404 of a read that expects an answer: the nonce', async function () {
     node = new MockNode({}).install();
-    const logged = await errorsLoggedBy(() =>
-      authorityOperationState(SIGNER, 5, HASH)
-    );
+    const logged = await errorsLoggedBy(async () => {
+      expect(
+        await rejection(authorityOperationState(SIGNER, 5, HASH))
+      ).to.be.instanceOf(AuthorityReadError);
+    });
     expect(logged).to.have.length(1);
     expect(logged[0]).to.include('404');
   });
