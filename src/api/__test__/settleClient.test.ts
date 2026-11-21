@@ -5,6 +5,7 @@ import { LOCAL_API_URL } from '../constants';
 import { axiosStatic, setInitConfig } from '../../client';
 import { TransactionOutcomeUnknownError } from '../errors';
 import { settle, submitAndSettle } from '../settle';
+import { OPERATION_REGISTRY } from '@/signing/v2';
 
 import type { AuthorizedTxV2 } from '@/signing/v2';
 
@@ -115,7 +116,11 @@ describe('submitAndSettle and settle (real dependencies)', function () {
     let caught: unknown;
     try {
       await submitAndSettle(
-        { ...AUTHORIZED, operation: 'settledAuthority' },
+        {
+          ...AUTHORIZED,
+          operation: 'settledAuthority',
+          path: OPERATION_REGISTRY.settledAuthority.pathV2
+        },
         FAST
       );
     } catch (error) {
@@ -131,7 +136,11 @@ describe('submitAndSettle and settle (real dependencies)', function () {
       let caught: unknown;
       try {
         await run(
-          { ...AUTHORIZED, operation: 'laneClawback' },
+          {
+            ...AUTHORIZED,
+            operation: 'laneClawback',
+            path: OPERATION_REGISTRY.laneClawback.pathV2
+          },
           FAST
         );
       } catch (error) {
