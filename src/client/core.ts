@@ -13,6 +13,12 @@ export type ParsedError<T extends string = string> = {
   data?: any;
   /** The problem details of `data`, when the node sent them. */
   problem?: ApiProblem;
+  /**
+   * `true` when the answer came from another URL after a redirect that
+   * the HTTP client followed (in a browser, which always follows). The
+   * answer is not the node's answer to this request.
+   */
+  redirected?: true;
 };
 
 export type ResponseData<T = null> = {
@@ -451,8 +457,28 @@ export class Request {
       stack,
       status,
       data,
-      ...(problem && { problem })
+      ...(problem && { problem }),
+      ...(err?.redirected === true && { redirected: true as const })
     };
+  }
+
+  // A browser's XMLHttpRequest follows every redirect and cannot be told
+  // not to; it reports the final URL in `responseURL`. Node and fetch
+  // follow none (see `request`).
+  private redirectTarget(response: AxiosResponse): string | undefined {
+    const responseURL: unknown = response.request?.responseURL;
+    if (typeof responseURL !== 'string' || responseURL === '') return undefined;
+    const base = typeof location !== 'undefined' ? location.href : undefined;
+    let asked: string;
+    let answered: string;
+    try {
+      asked = new URL(this.axios.getUri(response.config), base).href;
+      answered = new URL(responseURL, base).href;
+    } catch {
+      asked = this.axios.getUri(response.config);
+      answered = responseURL;
+    }
+    return asked === answered ? undefined : responseURL;
   }
 
   private mergeSignals(...signals: AbortSignal[]): { signal: AbortSignal; cleanup: () => void } {
@@ -489,6 +515,14 @@ export class Request {
       ...options.headers,
     };
     options.headers['Accept'] = options.headers['Accept'] || '*/*';
+    // Follow no redirect: an answer from another URL is not the node's
+    // answer to this request. A submit followed by a 303 becomes a GET
+    // whose answer could read as a refusal, and the caller could then
+    // sign again and pay twice. The Rust and Go SDKs follow none either.
+    // `maxRedirects` stops Node's http adapter; `redirect: 'manual'` stops
+    // fetch. A browser's XMLHttpRequest still follows (redirectTarget).
+    options.maxRedirects = options.maxRedirects ?? 0;
+    options.fetchOptions = { redirect: 'manual', ...options.fetchOptions };
     options.headers['X-Requested-With'] = options.headers['X-Requested-With'] || 'XMLHttpRequest';
 
     const {
@@ -667,6 +701,18 @@ export class Request {
         if (isTimeout) return;
         cleanup();
 
+        const redirectedTo = this.redirectTarget(response);
+        if (redirectedTo !== undefined) {
+          throw {
+            name: 'RedirectError',
+            message: `The answer came after an HTTP redirect to ${redirectedTo}`,
+            config: response.config,
+            response,
+            status: response.status,
+            redirected: true,
+          };
+        }
+
         const { status, data, headers } = response;
         try {
           const doSuccess = rules.success?.(data, status, headers);
@@ -690,6 +736,14 @@ export class Request {
       }).catch(async (err: AxiosError<any>) => {
         if (isTimeout) return;
         cleanup();
+
+        const redirectedTo = err.response && !(err as { redirected?: unknown }).redirected ? this.redirectTarget(err.response) : undefined;
+        if (redirectedTo !== undefined) {
+          Object.assign(err, {
+            message: `The answer came after an HTTP redirect to ${redirectedTo}: ${err.message}`,
+            redirected: true,
+          });
+        }
 
         const data = err.response?.data ?? {};
         const responseStatus = err.response?.status;

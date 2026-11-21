@@ -2,7 +2,8 @@ import { API_VERSION } from '@/api/constants';
 import { get } from '@/client';
 import {
   isNonceUsed,
-  isParsedErrorShape
+  isParsedErrorShape,
+  isRedirected
 } from './classify';
 import {
   assertTransactionHash,
@@ -170,11 +171,13 @@ function httpStatusOf(value: unknown): number | undefined {
 
 // A rate-limit answer proves nothing about the
 // transaction: the firewall's 429, or the node's own
-// `retry_later`.
+// `retry_later`. An answer after a redirect is not the
+// node's, so it is only a failed read.
 function isThrottled(value: unknown): boolean {
   return (
-    httpStatusOf(value) === TOO_MANY_REQUESTS ||
-    readProblem(bodyOf(value)).action === 'retry_later'
+    !isRedirected(value) &&
+    (httpStatusOf(value) === TOO_MANY_REQUESTS ||
+      readProblem(bodyOf(value)).action === 'retry_later')
   );
 }
 
@@ -323,7 +326,7 @@ export function readResult(
   value: unknown
 ): 'not_found' | 'throttled' | 'failed' {
   if (isThrottled(value)) return 'throttled';
-  return httpStatusOf(value) === NOT_FOUND
+  return httpStatusOf(value) === NOT_FOUND && !isRedirected(value)
     ? 'not_found'
     : 'failed';
 }

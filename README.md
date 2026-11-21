@@ -147,6 +147,26 @@ answer without one is unknown, whatever its status or message: a firewall
 the Rust SDK (`onemoney-protocol`). See
 `skills/1money-protocol-sdk/references/client-and-errors.md` for the full rules.
 
+#### Redirects
+
+The node never redirects a request, so an answer from another URL is not the
+node's answer. The SDK's own requests follow no redirect. They set
+`maxRedirects: 0` (Node's HTTP client) and `fetchOptions: { redirect: 'manual' }`
+(the fetch adapter) per request, and leave your global axios defaults alone.
+
+- **Node:** a `3xx` answer to a write throws `TransactionOutcomeUnknownError`,
+  never a rejection or an acceptance. No second request goes out. A read
+  answered `3xx` is an error.
+- **Browser:** `XMLHttpRequest` follows every redirect, and the SDK cannot stop
+  it. For a `301`, `302` or `303`, the browser sends a `GET` to the new URL
+  without the signed body. For a `307` or `308`, it sends the same signed body
+  to the new URL, and a resend of the same signed transaction executes at most
+  once. The SDK notices the followed redirect from the final URL
+  (`responseURL`). A write then throws `TransactionOutcomeUnknownError`,
+  whatever the redirected answer says, and a read fails with a `ParsedError`
+  that has `redirected: true`. A browser without `responseURL` gives no such
+  signal.
+
 #### Problem details
 
 A node with the API error contract sends an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)

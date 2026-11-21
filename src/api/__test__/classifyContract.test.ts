@@ -449,6 +449,34 @@ describe('submit classification (the Rust SDK contract)', function () {
     expect(classifyAnswer(TRANSPORT).kind).to.equal('unknown');
   });
 
+  it('a 3xx is unknown, even with the node action: the node never redirects a submit', function () {
+    for (const status of [301, 302, 303, 307, 308]) {
+      for (const action of ['fix_request', 'in_progress']) {
+        expect(
+          kind(status, { type: NEWER_NODE_TYPE, action }),
+          `${status} ${action}`
+        ).to.equal('unknown');
+      }
+    }
+  });
+
+  it('an answer after a followed redirect is unknown, whatever it says', function () {
+    for (const [status, data] of [
+      [200, { hash: LOCAL }],
+      [422, { type: NEWER_NODE_TYPE, action: 'fix_request' }],
+      [422, { type: IN_FLIGHT_TYPE, action: 'in_progress' }]
+    ] as const) {
+      const answer = {
+        ...(http(422, JSON.stringify(data)) as object),
+        status,
+        redirected: true
+      };
+      expect(classifyAnswer(answer).kind, String(status)).to.equal(
+        'unknown'
+      );
+    }
+  });
+
   it('a 2xx hash without 0x is the server hash as sent', function () {
     const outcome = classifyAnswer(
       http(200, JSON.stringify({ hash: LOCAL.slice(2) }))
@@ -517,6 +545,7 @@ const ANY_TX_HASH = fc.option(
     fc.constantFrom(
       LOCAL,
       `0x${LOCAL.slice(2).toUpperCase()}`,
+      `0X${LOCAL.slice(2)}`,
       LOCAL.slice(2),
       OTHER,
       null
@@ -610,10 +639,10 @@ function render(body: Body): string {
   return JSON.stringify(body);
 }
 
+// A lowercase "0x" prefix or none, hex digits in any case.
 function namesLocalHash(txHash: string): boolean {
-  const local = LOCAL.toLowerCase();
-  const lower = txHash.toLowerCase();
-  return lower === local || lower === local.slice(2);
+  const digits = txHash.startsWith('0x') ? txHash.slice(2) : txHash;
+  return digits.toLowerCase() === LOCAL.slice(2).toLowerCase();
 }
 
 // The safety property, stated as conditions, not as ordered
@@ -634,6 +663,9 @@ function expectedKind(status: number, body: Body): string {
       (typeof body.tx_hash === 'string' &&
         namesLocalHash(body.tx_hash)));
   if (is2xx && typeof body.hash === 'string') return 'accepted';
+  // One intended difference from the Rust SDK: the node never
+  // redirects a submit, so any 3xx is unknown, even with an action.
+  if (status >= 300 && status <= 399) return 'unknown';
   if (action !== undefined && NO_EFFECT.includes(action)) {
     return 'rejected';
   }
