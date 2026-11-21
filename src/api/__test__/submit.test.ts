@@ -109,7 +109,7 @@ describe('submitAuthorized', function () {
   });
 
   it('resolves when the hashes match, ignoring case', async function () {
-    respondWith(LOCAL_HASH.toUpperCase());
+    respondWith(`0x${LOCAL_HASH.slice(2).toUpperCase()}`);
     const response = await submitAuthorized(
       AUTHORIZED,
       'payment'

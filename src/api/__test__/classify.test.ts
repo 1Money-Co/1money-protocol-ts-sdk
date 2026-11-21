@@ -178,7 +178,7 @@ describe('classifySubmitResponse', function () {
     it('matches the hash ignoring case', function () {
       const body = {
         ...IN_FLIGHT,
-        tx_hash: LOCAL.toUpperCase()
+        tx_hash: `0x${LOCAL.slice(2).toUpperCase()}`
       };
       expect(
         classifySubmitResponse(
@@ -772,7 +772,7 @@ describe('classifySubmitResponse', function () {
         ),
         tx_hash: fc.oneof(
           fc.constant(LOCAL),
-          fc.constant(LOCAL.toUpperCase()),
+          fc.constant(`0x${LOCAL.slice(2).toUpperCase()}`),
           fc.constant(OTHER),
           fc.integer(),
           fc.constant(null)

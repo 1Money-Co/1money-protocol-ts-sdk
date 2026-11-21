@@ -101,7 +101,7 @@ describe('v2 errors', function () {
     expect(() =>
       assertTransactionHash(
         LOCAL,
-        LOCAL.toUpperCase()
+        `0x${LOCAL.slice(2).toUpperCase()}`
       )
     ).to.not.throw();
   });
