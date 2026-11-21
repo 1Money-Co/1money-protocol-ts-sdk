@@ -2140,6 +2140,42 @@ describe('runSettle hash matching', function () {
     expect(settled.transactionHash).to.equal(HASH);
   });
 
+  it('settles a submit and a receipt that both answer the hash without 0x, in mixed case', async function () {
+    const mixed = `${HASH.slice(2, 34).toUpperCase()}${HASH.slice(34)}`;
+    const f = fakeDeps({
+      send: () => ({
+        kind: 'accepted',
+        serverHash: mixed,
+        response: { hash: mixed }
+      }),
+      receipt: () => ({ ...RECEIPT, transaction_hash: mixed })
+    });
+    const settled = await runSettle(
+      AUTHORIZED,
+      'clean',
+      {},
+      f.deps
+    );
+    expect(settled.receipt.transaction_hash).to.equal(mixed);
+    expect(f.sends).to.deep.equal([0]);
+  });
+
+  it('still fails at once on a different server hash', async function () {
+    const f = fakeDeps({
+      send: () => ({
+        kind: 'accepted',
+        serverHash: OTHER.slice(2),
+        response: { hash: OTHER.slice(2) }
+      })
+    });
+    const error = await caught(
+      runSettle(AUTHORIZED, 'clean', {}, f.deps)
+    );
+    expect(error).to.be.instanceOf(TransactionHashMismatchError);
+    expect(f.sends).to.deep.equal([0]);
+    expect(f.receipts).to.deep.equal([]);
+  });
+
   it('finds a transaction whose lookup hash has no 0x', async function () {
     const f = fakeDeps({
       send: () => ACCEPTED,
