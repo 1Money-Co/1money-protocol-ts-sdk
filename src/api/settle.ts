@@ -6,11 +6,11 @@ import {
 } from './classify';
 import {
   assertTransactionHash,
-  sameHash,
   TransactionLockedError,
   TransactionOutcomeUnknownError,
   TransactionSubmissionError
 } from './errors';
+import { sameHash } from './hash';
 import {
   bodyMessage,
   ownMember,
