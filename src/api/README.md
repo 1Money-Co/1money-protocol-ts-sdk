@@ -72,11 +72,12 @@ Never sign a new transaction for the same intent, at any nonce, after a locked o
 unknown outcome: the payment can execute twice. `transactions.settle(authorized)`
 resends the same signed bytes until the receipt appears, and
 `transactions.submitAndSettle(authorized)` sends and settles in one call (see
-`transactions/README.md`). The SDK decides by the `action`
-member of the node's error body; on a node without it, a `422`
-`business_transaction_failed` and a `408` are unknown, except a few fixed texts
-of a released node: "already inflight" means locked, and a refusal of the
-signed bytes (for example a bad signature or a wrong chain id) means rejected. See
+`transactions/README.md`). The SDK decides only by the
+node's `action`: the `action` member of a body whose `type` is the node's
+(`https://developer.1moneynetwork.com/problem/...`) or `about:blank`. Every
+answer without one is unknown, whatever its status or message: a firewall
+`403` or `429`, a `408`, or a node without problem details. These rules match
+the Rust SDK (`onemoney-protocol`). See
 `skills/1money-protocol-sdk/references/client-and-errors.md` for the full rules.
 
 ## Available Endpoints

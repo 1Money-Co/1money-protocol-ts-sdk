@@ -3,11 +3,16 @@ import { ownMember } from '../problem';
 
 // `get` resolves instead of rejecting when a global onError is
 // configured, so a value and a read error both arrive here as the
-// answer.
-export async function readAnswer(url: string): Promise<unknown> {
+// answer. A rejection with one of `quietStatuses` is an expected
+// answer: the client logs no error for it.
+export async function readAnswer(
+  url: string,
+  quietStatuses?: readonly number[]
+): Promise<unknown> {
   try {
     return await get<'custom', unknown>(url, {
-      withCredentials: false
+      withCredentials: false,
+      quietStatuses
     });
   } catch (caught) {
     return caught;

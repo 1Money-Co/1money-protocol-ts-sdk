@@ -89,17 +89,21 @@ Outcomes:
 
 - Resolves when the receipt for the hash exists.
 - **First send of `submitAndSettle`:** classified like a single send
-  (`payment()` and the other submit methods). A rejected answer (`fix_request`,
-  `retry_later`, `use_other_node`, or a `4xx` such as a firewall `429`) throws
-  `TransactionSubmissionError` at once, with the node's message. Every other
-  answer, `nonce_too_low` and `check_status` included, goes on to settle from
-  that answer, with no resend at once. The helper uses no history from before
-  the call.
-- **Nodes without problem details** (released nodes): their state refusals
-  (`422` `business_transaction_failed`, for example too little balance) read as
-  unknown, so the helper settles and ends after about 10 s with
-  `TransactionOutcomeUnknownError`. Use the helpers with nodes that send
-  problem details.
+  (`payment()` and the other submit methods). A rejection (the node's
+  `fix_request`, `retry_later` or `use_other_node`) throws
+  `TransactionSubmissionError` at once, with the node's message, except with
+  HTTP status `429`: then the first send goes out again when the hold ends, and
+  nothing is read before a send reaches a node. If the deadline passes or the
+  signal aborts first, the bytes reached no node, and the helper throws
+  `TransactionSubmissionError` with the last `429`. Every other answer,
+  `nonce_too_low` and `check_status` included, goes on to settle from that
+  answer, with no resend at once. The helper uses no history from before the
+  call.
+- **Answers without the node's action** (a firewall `403` or `429`, a `408`, or
+  a node without problem details, for example a `422`
+  `business_transaction_failed` state refusal) read as unknown, so the helper
+  settles and ends after about 10 s with `TransactionOutcomeUnknownError`. Use
+  the helpers with nodes that send problem details.
 - **A refusal of the signed bytes** (bad signature, wrong chain id, bad memo,
   and other checks of the bytes alone) throws `TransactionSubmissionError` on
   any send of either helper, while no node is known to have admitted the
@@ -115,8 +119,7 @@ Outcomes:
   about 10 s after the first send. A failed or rate-limited read never counts.
   Right after a `404` the next poll comes after `pollIntervalMs`, unless a read
   was rate-limited earlier in the run.
-- **`nonce_too_low`** (the problem type, or the fixed text of a released node)
-  means the nonce is used. No send can help, so the helper stops sending and
+- **`nonce_too_low`** (the problem type) means the nonce is used. No send can help, so the helper stops sending and
   reads only the receipt: three receipt `404`s in a row end the run with
   `endReason: 'nonce_used'` and `nonceUsed: true` (about 3 s); `nonceUsedGraceMs` is the limit when
   the reads keep failing. It never reports "rejected" here, and it ends with
@@ -127,11 +130,13 @@ Outcomes:
   See the [error contracts](../../../skills/1money-protocol-sdk/references/client-and-errors.md).
 - **Resends** go out every `resendIntervalMs` in every state, from the last
   delivered resend or from the moment the transaction became locked.
-- **Throttled sends:** a later send answered `429` (with or without a body)
-  or `retry_later` delivered nothing. It does not count as a probe or a resend,
-  and no send goes out for the node's `retry_after_secs`, or
-  `throttleBackoffMs` without it; the receipt polls go on. So a run whose sends keep being
-  throttled ends at the deadline, not after the probes.
+- **Throttled sends:** after a send answered HTTP `429` or the node's
+  `retry_later`, no send goes out for the node's `retry_after_secs`, or
+  `throttleBackoffMs` without it; the receipt polls go on. Only a rejection
+  (the node's `retry_later`) proves that the send delivered nothing: it does
+  not count as a probe or a resend, so a run whose sends keep being rejected
+  this way ends at the deadline. A `429` without the node's action may have
+  reached a node, so it counts.
 - If the signal is already aborted, `submitAndSettle` throws a plain `Error`
   and sends nothing.
 - **Other ends:** `TransactionLockedError` (a node holds the transaction;

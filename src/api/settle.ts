@@ -1,8 +1,12 @@
 import { API_VERSION } from '@/api/constants';
 import { get } from '@/client';
-import { isNonceUsed } from './classify';
+import {
+  isNonceUsed,
+  isParsedErrorShape
+} from './classify';
 import {
   assertTransactionHash,
+  sameHash,
   TransactionLockedError,
   TransactionOutcomeUnknownError,
   TransactionSubmissionError
@@ -10,6 +14,7 @@ import {
 import {
   bodyMessage,
   ownMember,
+  parseProblem,
   readProblem
 } from './problem';
 import {
@@ -126,13 +131,6 @@ export interface SettleDeps {
   sleep(ms: number, signal?: AbortSignal): Promise<void>;
 }
 
-function sameHash(value: unknown, hash: string) {
-  return (
-    typeof value === 'string' &&
-    value.toLowerCase() === hash.toLowerCase()
-  );
-}
-
 // Found only when the returned hash is this transaction's
 // hash: a resolved error value, or a proxy page with a 200
 // status, must never read as found.
@@ -162,12 +160,20 @@ function bodyOf(value: unknown): unknown {
     : value;
 }
 
+const TOO_MANY_REQUESTS = 429;
+
+// The HTTP status of a read error. A value that is not a
+// ParsedError came with a 2xx: its `status` member is data.
+function httpStatusOf(value: unknown): number | undefined {
+  return isParsedErrorShape(value) ? value.status : undefined;
+}
+
 // A rate-limit answer proves nothing about the
 // transaction: the firewall's 429, or the node's own
 // `retry_later`.
 function isThrottled(value: unknown): boolean {
   return (
-    ownMember(value, 'status') === 429 ||
+    httpStatusOf(value) === TOO_MANY_REQUESTS ||
     readProblem(bodyOf(value)).action === 'retry_later'
   );
 }
@@ -178,10 +184,8 @@ function throttleWaitMs(
   value: unknown,
   fallbackMs: number
 ): number {
-  const seconds = ownMember(bodyOf(value), 'retry_after_secs');
-  return typeof seconds === 'number' &&
-    Number.isFinite(seconds) &&
-    seconds > 0
+  const seconds = parseProblem(bodyOf(value))?.retryAfterSecs;
+  return seconds !== undefined && seconds > 0
     ? Math.min(seconds * 1_000, MAX_TIMER_MS)
     : fallbackMs;
 }
@@ -264,13 +268,9 @@ class ObservationLog {
         this.add('send', 'accepted');
         return;
       case 'locked':
-        // A released node's text proves locked without
-        // an `action` member: log none.
         this.add('send', 'locked', {
           status: outcome.status,
-          action: outcome.legacyText
-            ? undefined
-            : 'in_progress',
+          action: 'in_progress',
           problemType: outcome.problemType,
           message: bodyMessage(outcome.data)
         });
@@ -319,11 +319,11 @@ const NOT_FOUND = 404;
 // that answered does not have it), or failed (anything
 // else, such as a 5xx or a network error). Only a 404
 // counts toward an early end.
-function readResult(
+export function readResult(
   value: unknown
 ): 'not_found' | 'throttled' | 'failed' {
   if (isThrottled(value)) return 'throttled';
-  return ownMember(value, 'status') === NOT_FOUND
+  return httpStatusOf(value) === NOT_FOUND
     ? 'not_found'
     : 'failed';
 }
@@ -360,11 +360,12 @@ function stateError(
 }
 
 // A send that the node or the firewall turned away for
-// now: it delivered nothing. Any 429 counts, with or
-// without a body: counting a throttled send as delivered
-// could end a run early on false evidence, while the
-// reverse only delays a resend. A locked answer proves
-// that a node holds H, so it always counts.
+// now: no send goes out until the hold ends. Only a
+// rejection (the node's no-effect action) proves that it
+// delivered nothing; a 429 without one may have reached a
+// node. A locked answer proves that a node holds H, so it
+// is never throttled. The node sends retry_later only with
+// a rejection.
 function isThrottledSend(
   outcome: SubmitOutcome
 ): outcome is Extract<
@@ -372,17 +373,34 @@ function isThrottledSend(
   { kind: 'rejected' | 'unknown' }
 > {
   return (
-    (outcome.kind === 'rejected' ||
-      outcome.kind === 'unknown') &&
-    (outcome.status === 429 ||
-      outcome.action === 'retry_later')
+    (outcome.kind === 'rejected' &&
+      (outcome.status === TOO_MANY_REQUESTS ||
+        outcome.action === 'retry_later')) ||
+    (outcome.kind === 'unknown' &&
+      outcome.status === TOO_MANY_REQUESTS)
+  );
+}
+
+function submissionError(
+  outcome: Extract<SubmitOutcome, { kind: 'rejected' }>
+): TransactionSubmissionError {
+  return new TransactionSubmissionError(
+    outcome.status,
+    outcome.data,
+    outcome.nodeMessage,
+    {
+      action: outcome.action,
+      problemType: outcome.problemType,
+      nonceUsed: isNonceUsed(outcome)
+    }
   );
 }
 
 // A send answer that ends the run as rejected.
-// - The first send: any rejection, as for a single send
-//   (src/api/submit.ts). It proves that this request had
-//   no effect, whatever came before.
+// - The first send, except a 429: any rejection, as for a
+//   single send (src/api/submit.ts). It proves that this
+//   request had no effect, whatever came before. A 429
+//   holds the first send, which goes out again after it.
 // - Any send while no node is known to have admitted H: a
 //   refusal of the signed bytes, which fail on every node.
 //   After a 2xx or a lookup that found H, such a refusal
@@ -395,20 +413,9 @@ function refusalError(
 ): TransactionSubmissionError | undefined {
   if (outcome.kind !== 'rejected') return undefined;
   const ends =
-    first ||
+    (first && outcome.status !== TOO_MANY_REQUESTS) ||
     (outcome.refusal === 'bytes' && state === 'unknown');
-  return ends
-    ? new TransactionSubmissionError(
-        outcome.status,
-        outcome.data,
-        outcome.nodeMessage,
-        {
-          action: outcome.action,
-          problemType: outcome.problemType,
-          nonceUsed: isNonceUsed(outcome)
-        }
-      )
-    : undefined;
+  return ends ? submissionError(outcome) : undefined;
 }
 
 // After nonce_too_low this engine reads only receipts, so it would
@@ -447,8 +454,8 @@ export async function runSettle(
   const log = new ObservationLog(t0, deps.now);
   // Changed by the closures below, so not narrowed here.
   let state = 'unknown' as SettleState;
-  // The last delivered send: a send that was throttled
-  // delivered nothing and does not count.
+  // The last send that may have been delivered: a
+  // rejected send delivered nothing and does not count.
   let lastSend = t0;
   let poll = options.pollIntervalMs;
   let endAt = t0 + options.deadlineMs;
@@ -460,6 +467,11 @@ export async function runSettle(
   let lastGateSend = t0;
   // No send before this time: a send was throttled.
   let sendHoldUntil = t0;
+  // The last throttled rejection: it ends a clean run in
+  // which no send reached a node.
+  let lastRefusal:
+    | Extract<SubmitOutcome, { kind: 'rejected' }>
+    | undefined;
   let probes = 0;
   // 404 reads in a row since the last send, for an early
   // end: lookups after the probes, receipts after a nonce
@@ -517,7 +529,10 @@ export async function runSettle(
           outcome.data,
           options.throttleBackoffMs
         );
-      return false;
+      if (outcome.kind === 'rejected') {
+        lastRefusal = outcome;
+        return false;
+      }
     }
     lastSend = sentAt;
     misses = 0;
@@ -548,7 +563,31 @@ export async function runSettle(
         '[1Money SDK]: submitAndSettle was aborted before its first send; the transaction was not sent.'
       );
     }
-    await send('first');
+    // A 429 rejection holds the first send: it goes out
+    // again when the hold ends, and nothing is read before
+    // a send reaches a node. If the run ends first, the
+    // bytes reached no node.
+    while (!(await send('first'))) {
+      const nothingDelivered = (reason: SettleEndReason) =>
+        lastRefusal !== undefined
+          ? submissionError(lastRefusal)
+          : end(reason);
+      try {
+        await deps.sleep(
+          Math.max(
+            0,
+            Math.min(sendHoldUntil, endAt) - deps.now()
+          ),
+          options.signal
+        );
+      } catch {
+        throw nothingDelivered('aborted');
+      }
+      if (aborted()) throw nothingDelivered('aborted');
+      if (deps.now() >= endAt) {
+        throw nothingDelivered('deadline');
+      }
+    }
   }
 
   for (;;) {

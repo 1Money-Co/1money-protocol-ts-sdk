@@ -1,4 +1,5 @@
 import { API_VERSION } from '@/api/constants';
+import { sameHash } from '../errors';
 import { ownMember } from '../problem';
 import {
   answeredStatus,
@@ -59,21 +60,17 @@ function isNotFound(answer: unknown): boolean {
   );
 }
 
-function sameHash(value: unknown, hash: string): boolean {
-  return (
-    typeof value === 'string' &&
-    value.toLowerCase() === hash.toLowerCase()
-  );
-}
-
 // A value only when it names what was asked: a resolved error or a
-// proxy page with a 200 status must never read as found.
+// proxy page with a 200 status must never read as found. A 404 is
+// the expected answer of a poll until the receipt or the status
+// exists, so it is not logged; a 404 of another read is an error
+// and still logs.
 async function readFound<T>(
   what: string,
   url: string,
   isFor: (answer: unknown) => boolean
 ): Promise<T | undefined> {
-  const answer = await readAnswer(url);
+  const answer = await readAnswer(url, [NOT_FOUND]);
   if (isFor(answer)) return answer as T;
   if (isNotFound(answer)) return undefined;
   throw new AuthorityReadError(what, answer);

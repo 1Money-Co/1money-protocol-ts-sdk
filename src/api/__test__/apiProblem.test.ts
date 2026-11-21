@@ -100,6 +100,19 @@ describe('parseProblem', function () {
     }
   });
 
+  it('leaves out the action of a type the node did not write', function () {
+    for (const type of [
+      'urn:future',
+      'about:blank#x',
+      'https://httpproblems.com/http-status/429',
+      'https://developer.1moneynetwork.com/problems/nonce_too_low'
+    ]) {
+      const problem = parseProblem({ type, action: 'retry_later' });
+      expect(problem?.type).to.equal(type);
+      expect(problem, type).to.not.have.property('action');
+    }
+  });
+
   it('leaves out a member of the wrong type and keeps the rest', function () {
     const problem = parseProblem({
       type: `${TYPE_PREFIX}rate_limited`,

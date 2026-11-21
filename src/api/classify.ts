@@ -1,5 +1,4 @@
-import { errorCodeOf } from './errors';
-import { matchLegacyReason } from './legacyText';
+import { sameHash } from './errors';
 import {
   bodyMessage,
   BYTES_REFUSAL_TYPES,
@@ -45,8 +44,6 @@ export type SubmitOutcome =
       status?: number;
       data: unknown;
       problemType?: string;
-      // Proven by a released node's text, not by `action`.
-      legacyText?: true;
     }
   | {
       kind: 'unknown';
@@ -55,37 +52,21 @@ export type SubmitOutcome =
       cause?: unknown;
       action?: unknown;
       problemType?: string;
-      // A released node's text says the nonce is used.
-      nonceUsed?: true;
     };
 
 const NONCE_USED_TYPE =
   'https://developer.1moneynetwork.com/problem/nonce_too_low';
 
+// The node sends nonce_too_low with check_status, so only
+// an unknown outcome can carry it.
 export function isNonceUsed(
   outcome: SubmitOutcome
 ): boolean {
   return (
-    outcome.kind !== 'accepted' &&
-    (outcome.problemType === NONCE_USED_TYPE ||
-      (outcome.kind === 'unknown' &&
-        outcome.nonceUsed === true))
+    outcome.kind === 'unknown' &&
+    outcome.problemType === NONCE_USED_TYPE
   );
 }
-
-// A REST-layer 408 can follow a successful admission:
-// the node's request timeout races the whole handler,
-// pool admission included, and answers 408 even when
-// admission won by a hair.
-const AMBIGUOUS_CLIENT_ERROR_STATUS = 408;
-
-// On a node without the `action` member, this one code
-// covers the in-flight and nonce-lock answers, which can
-// follow admission. Every problem type with action
-// in_progress or check_status that a submit can return
-// maps to it there.
-const LEGACY_AMBIGUOUS_ERROR_CODE =
-  'business_transaction_failed';
 
 function extractHash(
   value: unknown
@@ -108,7 +89,7 @@ type ParsedErrorShape = {
 // for example on a timeout). A bare problem body has a
 // numeric `status` too, but no `name`, so its own
 // `action` is never skipped.
-function isParsedErrorShape(
+export function isParsedErrorShape(
   value: unknown
 ): value is ParsedErrorShape {
   // A string own `name` already proves an object.
@@ -119,22 +100,11 @@ function isParsedErrorShape(
   );
 }
 
-// core.ts's login rule resolves a 401 with the bare body
-// and drops the status. The body shape is the only
-// signal left; loose equality mirrors isLogin's
-// `res.code == 401` (src/client/index.ts).
-function isLoginRefusalBody(
-  value: unknown
-): value is { data?: unknown; msg?: unknown } {
-  return ownMember(value, 'code') == 401;
-}
-
 function messageOf(
   value: unknown,
-  key: 'message' | 'msg',
   fallback: string
 ): string {
-  const text = ownMember(value, key);
+  const text = ownMember(value, 'message');
   return typeof text === 'string' ? text : fallback;
 }
 
@@ -146,19 +116,8 @@ function nodeMessageOf(
 ): string {
   return (
     bodyMessage(body) ??
-    messageOf(
-      response,
-      'message',
-      'the node rejected the request'
-    )
+    messageOf(response, 'the node rejected the request')
   );
-}
-
-function statusOf(value: unknown): number | undefined {
-  const status = ownMember(value, 'status');
-  return typeof status === 'number'
-    ? status
-    : undefined;
 }
 
 function problemTypeOf(p: ProblemFields): {
@@ -176,7 +135,6 @@ function unknownOutcome(
   extra: {
     action?: unknown;
     problemType?: string;
-    nonceUsed?: true;
   }
 ): SubmitOutcome {
   const outcome: SubmitOutcome = { kind: 'unknown' };
@@ -193,54 +151,17 @@ function isLockedForThisTransaction(
   if (p.action !== 'in_progress') return false;
   if (!p.hasTxHash) return true;
   return (
-    p.txHash !== undefined &&
-    p.txHash.toLowerCase() === localHash.toLowerCase()
+    p.txHash !== undefined && sameHash(p.txHash, localHash)
   );
-}
-
-// Rules 5a to 5c: a released node's 422
-// business_transaction_failed whose reason is pinned.
-function legacyOutcome(
-  response: ParsedErrorShape
-): SubmitOutcome | undefined {
-  const message = ownMember(response.data, 'message');
-  if (typeof message !== 'string') return undefined;
-  const cls = matchLegacyReason(message);
-  if (cls === 'in_flight') {
-    return {
-      kind: 'locked',
-      status: response.status,
-      data: response.data,
-      legacyText: true
-    };
-  }
-  if (cls === 'bytes') {
-    return {
-      kind: 'rejected',
-      status: response.status,
-      data: response.data,
-      nodeMessage: message,
-      refusal: 'bytes'
-    };
-  }
-  if (cls === 'nonce_used') {
-    return unknownOutcome(
-      response,
-      response.status,
-      response.data,
-      { nonceUsed: true }
-    );
-  }
-  return undefined;
 }
 
 // Classifies the value `post()` gave (resolved or
 // rejected). Rules apply in order; the first match wins.
-// The node's `action` decides when the body has one;
-// the status rules apply only to a body without it. Only
-// rules 5a to 5c read message text: the fixed reasons of a
-// released node, which sends no action
-// (src/api/legacyText.ts). Never throws.
+// Only the node's `action` can reject or lock; every answer
+// without one is unknown, whatever its status, code or
+// message (the Rust SDK `onemoney-protocol` has the same
+// rules). The status is the HTTP status of a ParsedError: a
+// bare value's `status` member is data. Never throws.
 export function classifySubmitResponse(
   response: unknown,
   localHash: string
@@ -256,9 +177,7 @@ export function classifySubmitResponse(
 
   const parsed = isParsedErrorShape(response);
   const body = parsed ? response.data : response;
-  const status = parsed
-    ? response.status
-    : statusOf(body);
+  const status = parsed ? response.status : undefined;
   const p = readProblem(body);
 
   if (
@@ -294,60 +213,12 @@ export function classifySubmitResponse(
     });
   }
 
-  if (parsed) {
-    const legacyAmbiguous =
-      response.status === 422 &&
-      errorCodeOf(response) ===
-        LEGACY_AMBIGUOUS_ERROR_CODE;
-    if (legacyAmbiguous) {
-      const legacy = legacyOutcome(response);
-      if (legacy !== undefined) return legacy;
-    }
-    if (
-      !legacyAmbiguous &&
-      response.status !==
-        AMBIGUOUS_CLIENT_ERROR_STATUS &&
-      response.status >= 400 &&
-      response.status < 500 &&
-      response.data !== undefined
-    ) {
-      return {
-        kind: 'rejected',
-        status: response.status,
-        data: response.data,
-        nodeMessage: nodeMessageOf(
-          response,
-          response.data
-        ),
-        refusal: 'request'
-      };
-    }
-    return unknownOutcome(
-      response,
-      response.status,
-      response.data,
-      {}
-    );
-  }
-
-  if (isLoginRefusalBody(response)) {
-    return {
-      kind: 'rejected',
-      status: 401,
-      data: response.data,
-      nodeMessage: messageOf(
-        response,
-        'msg',
-        'the node returned a 401 (unauthorized) response'
-      ),
-      refusal: 'request'
-    };
-  }
-
+  // A node type without an action still names the problem:
+  // nonce_too_low then still marks the nonce used.
   return unknownOutcome(
     response,
-    statusOf(response),
-    ownMember(response, 'data'),
-    {}
+    status,
+    parsed ? body : ownMember(response, 'data'),
+    problemTypeOf(p)
   );
 }

@@ -3,7 +3,6 @@ import fc from 'fast-check';
 import 'mocha';
 
 import { classifySubmitResponse } from '../classify';
-import { matchLegacyReason } from '../legacyText';
 import {
   BYTES_REFUSAL_TYPES,
   CLIENT_ACTIONS,
@@ -135,7 +134,7 @@ describe('classifySubmitResponse', function () {
       }
     });
 
-    it('takes the status from a resolved bare body', function () {
+    it('takes no status from a resolved bare body: its status member is data', function () {
       const body = problem(
         'rate_limited',
         'retry_later',
@@ -146,12 +145,15 @@ describe('classifySubmitResponse', function () {
         classifySubmitResponse(body, LOCAL)
       ).to.include({
         kind: 'rejected',
-        status: 429,
+        status: 0,
         data: body,
         nodeMessage: 'rate_limited message'
       });
 
-      const noStatus = { action: 'fix_request' };
+      const noStatus = {
+        type: 'about:blank',
+        action: 'fix_request'
+      };
       expect(
         classifySubmitResponse(noStatus, LOCAL)
       ).to.include({ kind: 'rejected', status: 0 });
@@ -318,6 +320,7 @@ describe('classifySubmitResponse', function () {
       expect(
         classifySubmitResponse(
           {
+            type: 'about:blank',
             status: 422,
             action: 'in_progress',
             tx_hash: LOCAL,
@@ -353,7 +356,10 @@ describe('classifySubmitResponse', function () {
 
   describe('exact outcome shapes', function () {
     it('leaves out the members it did not find', function () {
-      const body = { action: 'fix_request' };
+      const body = {
+        type: 'about:blank',
+        action: 'fix_request'
+      };
       expect(
         classifySubmitResponse(body, LOCAL)
       ).to.deep.equal({
@@ -362,15 +368,20 @@ describe('classifySubmitResponse', function () {
         data: body,
         nodeMessage: 'the node rejected the request',
         refusal: 'request',
-        action: 'fix_request'
+        action: 'fix_request',
+        problemType: 'about:blank'
       });
 
-      const lockedBody = { action: 'in_progress' };
+      const lockedBody = {
+        type: 'about:blank',
+        action: 'in_progress'
+      };
       expect(
         classifySubmitResponse(lockedBody, LOCAL)
       ).to.deep.equal({
         kind: 'locked',
-        data: lockedBody
+        data: lockedBody,
+        problemType: 'about:blank'
       });
 
       expect(
@@ -400,7 +411,11 @@ describe('classifySubmitResponse', function () {
     it('uses a text fallback when the message is absent or not a string', function () {
       expect(
         classifySubmitResponse(
-          { action: 'retry_later', message: 42 },
+          {
+            type: 'about:blank',
+            action: 'retry_later',
+            message: 42
+          },
           LOCAL
         )
       ).to.include({
@@ -408,29 +423,27 @@ describe('classifySubmitResponse', function () {
       });
       expect(
         classifySubmitResponse(
-          { name: 'AxiosError', status: 400, data: {} },
+          {
+            name: 'AxiosError',
+            status: 400,
+            data: { type: 'about:blank', action: 'fix_request' }
+          },
           LOCAL
         )
       ).to.include({
         kind: 'rejected',
         nodeMessage: 'the node rejected the request'
-      });
-      expect(
-        classifySubmitResponse(
-          { code: 401, data: null },
-          LOCAL
-        )
-      ).to.include({
-        kind: 'rejected',
-        nodeMessage:
-          'the node returned a 401 (unauthorized) response'
       });
     });
 
     it('takes no status that is not a number', function () {
       expect(
         classifySubmitResponse(
-          { action: 'fix_request', status: '429' },
+          {
+            type: 'about:blank',
+            action: 'fix_request',
+            status: '429'
+          },
           LOCAL
         )
       ).to.include({ kind: 'rejected', status: 0 });
@@ -479,7 +492,7 @@ describe('classifySubmitResponse', function () {
       ).to.equal('unknown');
     });
 
-    it('is rejected for any other 4xx with a body (rule 7, UC8)', function () {
+    it('is unknown for any other 4xx without an action: only the node action rejects (rule 7, UC8)', function () {
       for (const [status, errorCode] of [
         [400, 'validation_invalid_signature'],
         [403, 'DOMAIN_SEPARATED_SIGNATURE_NOT_ACTIVE'],
@@ -498,41 +511,36 @@ describe('classifySubmitResponse', function () {
             LOCAL
           )
         ).to.deep.equal({
-          kind: 'rejected',
+          kind: 'unknown',
           status,
           data: body,
-          nodeMessage: 'refused',
-          refusal: 'request'
+          cause: parsedError(status, body)
         });
       }
     });
 
-    it('is rejected for a gateway 4xx with a text body (rule 7)', function () {
+    it('is unknown for a gateway 4xx with a text body (rule 7)', function () {
       expect(
         classifySubmitResponse(
           parsedError(403, '<html>Forbidden</html>'),
           LOCAL
         ).kind
-      ).to.equal('rejected');
+      ).to.equal('unknown');
     });
 
-    it('is rejected for the 401 login body that has no status (rule 7)', function () {
+    it('is unknown for the 401 login body that has no status (rule 7)', function () {
       for (const code of [401, '401']) {
-        expect(
-          classifySubmitResponse(
-            {
-              code,
-              data: null,
-              msg: 'authentication required'
-            },
-            LOCAL
-          )
-        ).to.deep.equal({
-          kind: 'rejected',
-          status: 401,
+        const body = {
+          code,
           data: null,
-          nodeMessage: 'authentication required',
-          refusal: 'request'
+          msg: 'authentication required'
+        };
+        expect(
+          classifySubmitResponse(body, LOCAL)
+        ).to.deep.equal({
+          kind: 'unknown',
+          data: null,
+          cause: body
         });
       }
     });
@@ -583,130 +591,16 @@ describe('classifySubmitResponse', function () {
       expect(
         classifySubmitResponse(
           parsedError(
-            400,
-            { message: 'already inflight' },
+            422,
+            {
+              error_code: 'business_transaction_failed',
+              message:
+                'Transaction processing failed: already inflight; please retry later'
+            },
             'already inflight'
           ),
           LOCAL
         ).kind
-      ).to.equal('rejected');
-    });
-  });
-
-  describe('rules 5a to 5c: pinned legacy texts (no action)', function () {
-    function legacy(reason: string) {
-      return {
-        error_code: 'business_transaction_failed',
-        message: `Transaction processing failed: ${reason}`
-      };
-    }
-
-    it('is locked for the in-flight text (5a, UC19)', function () {
-      const body = legacy(
-        'already inflight; please retry later'
-      );
-      expect(
-        classifySubmitResponse(parsedError(422, body), LOCAL)
-      ).to.deep.equal({
-        kind: 'locked',
-        status: 422,
-        data: body,
-        legacyText: true
-      });
-    });
-
-    it('is rejected as a refusal of the bytes for a validity text (5b, UC18)', function () {
-      const body = legacy(
-        'Failed to recover REST envelope: invalid signature bytes'
-      );
-      expect(
-        classifySubmitResponse(parsedError(422, body), LOCAL)
-      ).to.deep.equal({
-        kind: 'rejected',
-        status: 422,
-        data: body,
-        nodeMessage: body.message,
-        refusal: 'bytes'
-      });
-    });
-
-    it('is unknown with nonceUsed for a nonce text (5c)', function () {
-      for (const reason of [
-        'nonce already used; state advanced',
-        `Execution admission denied: nonce too low to execute: expected 6, got 5 of tx ${LOCAL}`
-      ]) {
-        const body = legacy(reason);
-        expect(
-          classifySubmitResponse(
-            parsedError(422, body),
-            LOCAL
-          )
-        ).to.deep.include({
-          kind: 'unknown',
-          status: 422,
-          nonceUsed: true
-        });
-      }
-    });
-
-    it('stays unknown for a message that is not a string', function () {
-      for (const message of [42, null, { text: 'x' }]) {
-        expect(
-          classifySubmitResponse(
-            parsedError(422, {
-              error_code: 'business_transaction_failed',
-              message
-            }),
-            LOCAL
-          ).kind
-        ).to.equal('unknown');
-      }
-    });
-
-    it('stays unknown for a state text (rule 5)', function () {
-      const body = legacy(
-        'Execution admission denied: token process error: TokenProcessError: mint_address: 0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed, error: Transfer failed: insufficient balance in source account'
-      );
-      const outcome = classifySubmitResponse(
-        parsedError(422, body),
-        LOCAL
-      );
-      expect(outcome.kind).to.equal('unknown');
-      expect(outcome).to.not.have.property('nonceUsed');
-    });
-
-    it('reads the texts only for a 422 business_transaction_failed without action', function () {
-      const reason =
-        'Failed to recover REST envelope: invalid signature bytes';
-      // A body with an action decides by the action.
-      expect(
-        classifySubmitResponse(
-          parsedError(422, {
-            ...legacy(reason),
-            action: 'check_status'
-          }),
-          LOCAL
-        ).kind
-      ).to.equal('unknown');
-      // Another status or code keeps its 3.1.0 rule.
-      expect(
-        classifySubmitResponse(
-          parsedError(500, legacy(reason)),
-          LOCAL
-        ).kind
-      ).to.equal('unknown');
-      expect(
-        classifySubmitResponse(
-          parsedError(422, {
-            error_code: 'business_token_operation_failed',
-            message: legacy(reason).message
-          }),
-          LOCAL
-        )
-      ).to.include({ kind: 'rejected', refusal: 'request' });
-      // A bare body is not a ParsedError.
-      expect(
-        classifySubmitResponse(legacy(reason), LOCAL).kind
       ).to.equal('unknown');
     });
   });
@@ -770,6 +664,8 @@ describe('classifySubmitResponse', function () {
       expect(
         classifySubmitResponse(
           parsedError(400, {
+            type: 'about:blank',
+            action: 'fix_request',
             error_code: 'validation_invalid_signature',
             message: 'refused'
           }),
@@ -784,6 +680,8 @@ describe('classifySubmitResponse', function () {
       expect(
         classifySubmitResponse(
           parsedError(400, {
+            type: 'about:blank',
+            action: 'fix_request',
             error_code: 'x',
             message: 'bad address'
           }),
@@ -803,6 +701,8 @@ describe('classifySubmitResponse', function () {
       expect(
         classifySubmitResponse(
           parsedError(400, {
+            type: 'about:blank',
+            action: 'fix_request',
             error_code: 'x',
             message: '',
             title: 'Bad request'
@@ -812,7 +712,12 @@ describe('classifySubmitResponse', function () {
       ).to.include({ nodeMessage: 'Bad request' });
       expect(
         classifySubmitResponse(
-          parsedError(400, { error_code: 'x', message: '' }),
+          parsedError(400, {
+            type: 'about:blank',
+            action: 'fix_request',
+            error_code: 'x',
+            message: ''
+          }),
           LOCAL
         )
       ).to.include({
@@ -820,7 +725,10 @@ describe('classifySubmitResponse', function () {
       });
       expect(
         classifySubmitResponse(
-          parsedError(403, '<html>Forbidden</html>'),
+          parsedError(403, {
+            type: 'about:blank',
+            action: 'fix_request'
+          }),
           LOCAL
         )
       ).to.include({
@@ -924,92 +832,6 @@ describe('classifySubmitResponse', function () {
             txHash.toLowerCase() === LOCAL))
       );
     }
-
-    it('rejects a ParsedError only on a no-effect action, or with no action on a safe 4xx', function () {
-      fc.assert(
-        fc.property(parsed, p => {
-          const response = parsedError(
-            p.status,
-            p.data,
-            p.message
-          );
-          const outcome = classifySubmitResponse(
-            response,
-            LOCAL
-          );
-          const hasAction = own(p.data, 'action');
-          const legacy =
-            !hasAction &&
-            p.status === 422 &&
-            member(p.data, 'error_code') ===
-              'business_transaction_failed';
-          const text = member(p.data, 'message');
-          const legacyClass =
-            legacy && typeof text === 'string'
-              ? matchLegacyReason(text)
-              : undefined;
-          const expectRejected = hasAction
-            ? isNoEffect(member(p.data, 'action'))
-            : legacy
-            ? legacyClass === 'bytes'
-            : p.status >= 400 &&
-              p.status < 500 &&
-              p.status !== 408 &&
-              p.data !== undefined;
-          expect(outcome.kind === 'rejected').to.equal(
-            expectRejected
-          );
-          expect(outcome.kind === 'locked').to.equal(
-            lockedAllowed(p.data) ||
-              legacyClass === 'in_flight'
-          );
-          if (outcome.kind === 'rejected') {
-            expect(outcome.refusal === 'bytes').to.equal(
-              legacyClass === 'bytes' ||
-                (hasAction &&
-                  BYTES_REFUSAL_TYPES.has(
-                    member(p.data, 'type') as string
-                  ))
-            );
-          }
-          if (!hasAction) {
-            if (
-              p.status === 408 ||
-              (legacy && legacyClass === undefined) ||
-              legacyClass === 'nonce_used'
-            ) {
-              expect(outcome.kind).to.equal('unknown');
-            }
-          }
-        }),
-        { numRuns: 2000 }
-      );
-    });
-
-    it('rejects a bare body only on a no-effect action or the 401 body shape', function () {
-      fc.assert(
-        fc.property(body, b => {
-          const outcome = classifySubmitResponse(
-            b,
-            LOCAL
-          );
-          if (typeof b.hash === 'string') {
-            expect(outcome.kind).to.equal('accepted');
-            return;
-          }
-          const expectRejected = own(b, 'action')
-            ? isNoEffect(b.action)
-            : own(b, 'code') && b.code == 401;
-          expect(outcome.kind === 'rejected').to.equal(
-            expectRejected
-          );
-          expect(outcome.kind === 'locked').to.equal(
-            lockedAllowed(b)
-          );
-        }),
-        { numRuns: 2000 }
-      );
-    });
 
     it('never throws, and gives the same outcome for the same input', function () {
       fc.assert(
