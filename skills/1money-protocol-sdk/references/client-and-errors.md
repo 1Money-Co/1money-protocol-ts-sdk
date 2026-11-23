@@ -203,9 +203,19 @@ in front of the node can send such a body. The first matching rule wins:
 | --- | --- | --- |
 | 1 | A `2xx` with a string `hash` | resolves (hash checked) |
 | 2 | The node's `action` is `fix_request`, `retry_later`, or `use_other_node` (any status, also a 5xx such as `node_syncing`) | `TransactionSubmissionError` |
-| 3 | The node's `action` is `in_progress`, and `tx_hash` is absent or names the local hash (any case, `0x` optional) | `TransactionLockedError` |
+| 3 | The node's `action` is `in_progress`, and `tx_hash` is absent or names the local hash (hex digits in any case; a lowercase `0x` prefix or none, never `0X`) | `TransactionLockedError` |
 | 4 | Any other node `action` (`check_status`, an unknown value, `in_progress` with another hash or a `tx_hash` that is not a string) | `TransactionOutcomeUnknownError` |
+| 0 | A `3xx`, or an answer that came after a redirect the browser followed (`redirected: true`) | `TransactionOutcomeUnknownError` |
 | 5 to 8 | No node `action`, whatever the status, `error_code` or message: a `422` `business_transaction_failed`, a `408`, any other `4xx` (a firewall `403` or `429`, the body-only `401` shape), a `5xx`, a timeout, a network error, no body, a `2xx` without `hash` | `TransactionOutcomeUnknownError` |
+
+Rule 0 comes first: the node never redirects a submit, so a `3xx` or a
+redirected answer is someone else's answer. This is stricter than the Rust SDK,
+which classifies a `3xx` like any other status. The SDK's own requests follow
+no redirect (`maxRedirects: 0` in Node, `redirect: 'manual'` for fetch). A
+browser's `XMLHttpRequest` follows anyway; the SDK then marks the
+`ParsedError` with `redirected: true`, and a read with that mark fails. A
+redirected answer or a `3xx` never goes to the login handler, even with HTTP
+`401` or `code: 401`, so the mark survives a global `onError`.
 
 Only an action proves that a request had no effect: a status cannot. A `422`
 `business_transaction_failed` covers answers that can follow admission, a

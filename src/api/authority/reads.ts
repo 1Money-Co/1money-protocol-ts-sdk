@@ -1,5 +1,5 @@
 import { API_VERSION } from '@/api/constants';
-import { sameHash } from '../errors';
+import { sameHash } from '../hash';
 import { ownMember } from '../problem';
 import {
   answeredStatus,
@@ -53,10 +53,12 @@ export class AuthorityReadError extends Error {
   }
 }
 
+// A 404 after a redirect is not the node's answer: it is an error.
 function isNotFound(answer: unknown): boolean {
   return (
     ownMember(answer, 'status') === NOT_FOUND &&
-    typeof ownMember(answer, 'name') === 'string'
+    typeof ownMember(answer, 'name') === 'string' &&
+    ownMember(answer, 'redirected') !== true
   );
 }
 

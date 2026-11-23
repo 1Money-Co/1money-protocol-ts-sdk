@@ -1,4 +1,4 @@
-import { sameHash } from './errors';
+import { sameHash } from './hash';
 import {
   bodyMessage,
   BYTES_REFUSAL_TYPES,
@@ -89,6 +89,16 @@ type ParsedErrorShape = {
 // for example on a timeout). A bare problem body has a
 // numeric `status` too, but no `name`, so its own
 // `action` is never skipped.
+// An answer that a browser got after it followed a redirect
+// (src/client/core.ts marks it).
+export function isRedirected(value: unknown): boolean {
+  return ownMember(value, 'redirected') === true;
+}
+
+function isRedirectStatus(status: number): boolean {
+  return status >= 300 && status <= 399;
+}
+
 export function isParsedErrorShape(
   value: unknown
 ): value is ParsedErrorShape {
@@ -179,6 +189,15 @@ export function classifySubmitResponse(
   const body = parsed ? response.data : response;
   const status = parsed ? response.status : undefined;
   const p = readProblem(body);
+
+  // The node never redirects a submit. A 3xx, or an answer from the
+  // URL a browser was redirected to, is someone else's answer.
+  if (
+    parsed &&
+    (isRedirected(response) || isRedirectStatus(response.status))
+  ) {
+    return unknownOutcome(response, status, body, problemTypeOf(p));
+  }
 
   if (
     p.action !== undefined &&

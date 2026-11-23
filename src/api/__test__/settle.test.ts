@@ -331,7 +331,7 @@ describe('runSettle', function () {
     it('becomes locked when the lookup finds the transaction', async function () {
       const f = fakeDeps({
         send: () => SERVER_ERROR,
-        lookup: () => ({ hash: HASH.toUpperCase() })
+        lookup: () => ({ hash: `0x${HASH.slice(2).toUpperCase()}` })
       });
       const error = await caught(
         runSettle(AUTHORIZED, 'sent', {}, f.deps)
